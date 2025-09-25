@@ -52,15 +52,16 @@ interface AppConfig {
 }
 
 function getStripeConfig(): StripeConfig {
+  // Default to test mode, especially useful when testing credentials are provided
   const mode = (process.env.STRIPE_MODE || 'test') as PaymentMode;
   
   const publicKey = mode === 'live' 
     ? process.env.VITE_STRIPE_PUBLIC_KEY_LIVE || process.env.VITE_STRIPE_PUBLIC_KEY
-    : process.env.VITE_STRIPE_PUBLIC_KEY_TEST || process.env.VITE_STRIPE_PUBLIC_KEY;
+    : process.env.VITE_STRIPE_PUBLIC_KEY_TEST || process.env.TESTING_VITE_STRIPE_PUBLIC_KEY || process.env.VITE_STRIPE_PUBLIC_KEY;
     
   const secretKey = mode === 'live'
     ? process.env.STRIPE_SECRET_KEY_LIVE || process.env.STRIPE_SECRET_KEY
-    : process.env.STRIPE_SECRET_KEY_TEST || process.env.STRIPE_SECRET_KEY;
+    : process.env.STRIPE_SECRET_KEY_TEST || process.env.TESTING_STRIPE_SECRET_KEY || process.env.STRIPE_SECRET_KEY;
 
   const webhookSecret = mode === 'live'
     ? process.env.STRIPE_WEBHOOK_SECRET_LIVE

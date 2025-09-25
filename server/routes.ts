@@ -135,11 +135,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
         });
       }
 
-      // Price IDs for plans (these would be real Stripe price IDs)
+      // Price IDs for plans - use environment variables or return mock data in test mode
       const priceIds = {
-        starter: process.env.STRIPE_STARTER_PRICE_ID || "price_starter_mock",
-        growth: process.env.STRIPE_GROWTH_PRICE_ID || "price_growth_mock",
+        starter: process.env.STRIPE_STARTER_PRICE_ID,
+        growth: process.env.STRIPE_GROWTH_PRICE_ID,
       };
+
+      // If no price IDs configured, return mock response instead of trying to create subscription
+      if (!priceIds[plan as keyof typeof priceIds]) {
+        return res.json({
+          subscriptionId: "sub_mock_development",
+          clientSecret: "pi_mock_development_secret",
+          mock: true,
+          message: `Missing Stripe price ID for ${plan} plan. Configure STRIPE_${plan.toUpperCase()}_PRICE_ID environment variable.`
+        });
+      }
 
       const subscription = await stripe.subscriptions.create({
         customer: customer.id,

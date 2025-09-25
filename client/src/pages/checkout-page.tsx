@@ -77,7 +77,13 @@ export default function CheckoutPage() {
   useEffect(() => {
     // Create subscription as soon as the page loads
     apiRequest("POST", "/api/create-subscription", { plan: selectedPlan })
-      .then((res) => res.json())
+      .then(async (res) => {
+        const data = await res.json();
+        if (!res.ok) {
+          throw new Error(data.error?.message || `HTTP ${res.status}: ${res.statusText}`);
+        }
+        return data;
+      })
       .then((data) => {
         if (data.mock) {
           setIsDevelopmentMode(true);
@@ -92,6 +98,12 @@ export default function CheckoutPage() {
       })
       .catch((error) => {
         console.error("Error creating subscription:", error);
+        setIsDevelopmentMode(true);
+        toast({
+          title: "Configuration Error",
+          description: error.message || "Failed to initialize payment. Please check your configuration.",
+          variant: "destructive",
+        });
       });
   }, [selectedPlan]);
 
