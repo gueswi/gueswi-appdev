@@ -1,0 +1,642 @@
+---
+
+```markdown
+🎯 Gueswi Design System - Exportación Completa
+
+📋 Índice
+Overview del Sistema
+Fundamentos Visuales
+Sistema de Colores  
+Componentes
+Patrones y Layouts
+Guidelines de Implementación
+Assets y Recursos
+Handoff para Desarrollo
+
+---
+
+🎨 Overview del Sistema
+
+Gueswi Design System es un sistema de diseño completo para aplicaciones SaaS de centralita virtual con IA, optimizado para PBX multi-tenant, gestión de llamadas, IVR inteligente y analítica avanzada.
+
+Características Principales
+✅ Sistema de colores índigo profesional inspirado en quo.com
+✅ Tipografía Onest con jerarquía optimizada
+✅ Componentes Shadcn/UI completamente customizados
+✅ Paleta temática para diferentes contextos (Landing, Dashboard, etc.)
+✅ Tokens CSS/Tailwind exportables
+✅ Guidelines de implementación para IA
+
+---
+
+🎨 Fundamentos Visuales
+
+Tipografía
+```css
+/* Import obligatorio */
+@import url('https://fonts.googleapis.com/css2?family=Onest:wght@100..900&display=swap');
+
+/* Configuración base */
+--font-size: 14px;
+font-family: 'Onest', system-ui, -apple-system, sans-serif;
+```
+
+Jerarquía Tipográfica (NO usar clases Tailwind de texto)
+```css
+h1: font-size: 1.5rem; font-weight: 500; line-height: 1.5;
+h2: font-size: 1.25rem; font-weight: 500; line-height: 1.5;
+h3: font-size: 1.125rem; font-weight: 500; line-height: 1.5;
+h4: font-size: 1rem; font-weight: 500; line-height: 1.5;
+p: font-size: 1rem; font-weight: 400; line-height: 1.5;
+button: font-size: 1rem; font-weight: 500; line-height: 1.5;
+label: font-size: 1rem; font-weight: 500; line-height: 1.5;
+input: font-size: 1rem; font-weight: 400; line-height: 1.5;
+```
+
+Espaciado y Layout
+```css
+--radius: 0.75rem;
+--radius-sm: calc(var(--radius) - 4px);
+--radius-md: calc(var(--radius) - 2px);
+--radius-lg: var(--radius);
+--radius-xl: calc(var(--radius) + 4px);
+```
+
+---
+
+🎨 Sistema de Colores
+
+Colores Principales
+```css
+/* Modo Claro */
+--primary: #6366f1;                    /* Índigo principal */
+--primary-foreground: #ffffff;
+--secondary: #f8fafc;                  /* Gris azulado claro */
+--secondary-foreground: #475569;
+--background: #ffffff;
+--foreground: #1a1a1a;
+--muted: #f1f5f9;                      /* Elementos deshabilitados */
+--muted-foreground: #64748b;           /* Texto secundario */
+--accent: #f0f9ff;                     /* Énfasis sutil */
+--accent-foreground: #0369a1;
+--border: rgba(99, 102, 241, 0.08);    /* Bordes con tinte índigo */
+--input-background: #f8fafc;
+--switch-background: #e2e8f0;
+```
+
+Colores de Estado
+```css
+--destructive: #ef4444;                /* Errores/acciones destructivas */
+--destructive-foreground: #ffffff;
+--chart-1: #6366f1;                    /* Charts - Índigo */
+--chart-2: #8b5cf6;                    /* Charts - Violeta */
+--chart-3: #06b6d4;                    /* Charts - Cyan */
+--chart-4: #10b981;                    /* Charts - Esmeralda */
+--chart-5: #f59e0b;                    /* Charts - Ámbar */
+```
+
+Colores de Sidebar
+```css
+--sidebar: #fafafa;
+--sidebar-foreground: #1a1a1a;
+--sidebar-primary: #6366f1;
+--sidebar-primary-foreground: #ffffff;
+--sidebar-accent: #f8fafc;
+--sidebar-accent-foreground: #475569;
+--sidebar-border: #e2e8f0;
+--sidebar-ring: #6366f1;
+```
+
+Paletas Contextúales
+
+🌐 Landing/Website
+```css
+/* Gradiente principal */
+background: bg-gradient-to-br from-violet-50 via-white to-blue-50;
+
+/* Colores de énfasis */
+Primary: #6366f1;
+Secondary: #f0f9ff;
+Accent: #ddd6fe;
+```
+
+📊 Dashboard
+```css
+/* Gradiente principal */
+background: bg-gradient-to-br from-slate-50 to-blue-50;
+
+/* Colores de énfasis */
+Primary: #4f46e5;
+Secondary: #f1f5f9;
+Accent: #e0f2fe;
+```
+
+📞 Telefonía/Centralita
+```css
+/* Gradiente principal */
+background: bg-gradient-to-br from-indigo-50 via-white to-slate-50;
+
+/* Estados de llamada */
+Active: #10b981;      /* Verde - Activo */
+Ringing: #f59e0b;     /* Ámbar - Sonando */
+Hold: #6366f1;        /* Índigo - En espera */
+Ended: #64748b;       /* Gris - Finalizada */
+```
+
+---
+
+🧩 Componentes
+
+Buttons
+```jsx
+import { Button } from './components/ui/button';
+
+// Variantes disponibles
+<Button variant="default">Acción Principal</Button>
+<Button variant="outline">Acción Secundaria</Button>
+<Button variant="ghost">Acción Sutil</Button>
+<Button variant="destructive">Eliminar</Button>
+
+// Tamaños
+<Button size="sm">Pequeño</Button>
+<Button size="default">Normal</Button>
+<Button size="lg">Grande</Button>
+
+// Con iconos (usar lucide-react)
+<Button>
+  <Phone className="w-4 h-4 mr-2" />
+  Iniciar Llamada
+</Button>
+```
+
+Cards
+```jsx
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './components/ui/card';
+
+<Card>
+  <CardHeader>
+    <CardTitle className="flex items-center gap-2">
+      <Phone className="w-5 h-5" />
+      Título de Card
+    </CardTitle>
+    <CardDescription>
+      Descripción opcional del contenido
+    </CardDescription>
+  </CardHeader>
+  <CardContent>
+    {/* Contenido principal */}
+  </CardContent>
+</Card>
+```
+
+Badges
+```jsx
+import { Badge } from './components/ui/badge';
+
+// Estados del sistema
+<Badge variant="default">Activo</Badge>        /* Verde/Primary */
+<Badge variant="secondary">Inactivo</Badge>    /* Gris */
+<Badge variant="outline">Pendiente</Badge>     /* Borde */
+<Badge variant="destructive">Error</Badge>     /* Rojo */
+
+// Estados de llamada específicos
+<Badge className="bg-emerald-100 text-emerald-700">En Línea</Badge>
+<Badge className="bg-amber-100 text-amber-700">Ocupado</Badge>
+<Badge className="bg-slate-100 text-slate-700">Desconectado</Badge>
+```
+
+Formularios
+```jsx
+import { Input } from './components/ui/input';
+import { Label } from './components/ui/label';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './components/ui/select';
+
+// Input estándar
+<div className="space-y-2">
+  <Label htmlFor="extension">Extensión SIP</Label>
+  <Input 
+    id="extension" 
+    placeholder="Ej: 1001" 
+    className="bg-input-background"
+  />
+</div>
+
+// Select
+<Select>
+  <SelectTrigger>
+    <SelectValue placeholder="Seleccionar carrier..." />
+  </SelectTrigger>
+  <SelectContent>
+    <SelectItem value="carrier1">Carrier Principal</SelectItem>
+    <SelectItem value="carrier2">Carrier Backup</SelectItem>
+  </SelectContent>
+</Select>
+```
+
+Tablas
+```jsx
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from './components/ui/table';
+
+<Table>
+  <TableHeader>
+    <TableRow>
+      <TableHead>Extensión</TableHead>
+      <TableHead>Usuario</TableHead>
+      <TableHead>Estado</TableHead>
+      <TableHead>Última Actividad</TableHead>
+    </TableRow>
+  </TableHeader>
+  <TableBody>
+    <TableRow>
+      <TableCell className="font-mono">1001</TableCell>
+      <TableCell>Juan Pérez</TableCell>
+      <TableCell>
+        <Badge variant="default">En Línea</Badge>
+      </TableCell>
+      <TableCell className="text-muted-foreground">
+        Hace 2 min
+      </TableCell>
+    </TableRow>
+  </TableBody>
+</Table>
+```
+
+---
+
+🏗️ Patrones y Layouts
+
+Header de Aplicación
+```jsx
+<div className="bg-white/80 backdrop-blur-sm border-b sticky top-0 z-50">
+  <div className="max-w-7xl mx-auto px-6 py-4">
+    <div className="flex items-center gap-3">
+      <div className="w-10 h-10 bg-primary rounded-lg flex items-center justify-center">
+        <Phone className="w-6 h-6 text-white" />
+      </div>
+      <div>
+        <h1 className="text-2xl font-bold">Gueswi</h1>
+        <p className="text-sm text-muted-foreground">Centralita Virtual con IA</p>
+      </div>
+    </div>
+  </div>
+</div>
+```
+
+Dashboard Stats Cards
+```jsx
+<div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+  <Card>
+    <CardContent className="p-6">
+      <div className="flex items-center justify-between">
+        <div>
+          <p className="text-sm text-muted-foreground">Llamadas Activas</p>
+          <p className="text-2xl font-bold">24</p>
+          <p className="text-xs text-muted-foreground">+12% vs ayer</p>
+        </div>
+        <Phone className="w-8 h-8 text-primary" />
+      </div>
+    </CardContent>
+  </Card>
+  {/* Repetir para otras métricas */}
+</div>
+```
+
+Navegación con Tabs
+```jsx
+import { Tabs, TabsContent, TabsList, TabsTrigger } from './components/ui/tabs';
+
+<Tabs value={activeTab} onValueChange={setActiveTab}>
+  <TabsList className="grid w-full grid-cols-4">
+    <TabsTrigger value="dashboard">Dashboard</TabsTrigger>
+    <TabsTrigger value="telephony">Telefonía</TabsTrigger>
+    <TabsTrigger value="ai">IA</TabsTrigger>
+    <TabsTrigger value="billing">Facturación</TabsTrigger>
+  </TabsList>
+  
+  <TabsContent value="dashboard" className="space-y-6">
+    {/* Contenido dashboard */}
+  </TabsContent>
+</Tabs>
+```
+
+Sidebar Layout
+```jsx
+import { Sidebar, SidebarContent, SidebarGroup, SidebarMenu, SidebarMenuItem } from './components/ui/sidebar';
+
+<div className="flex h-screen">
+  <Sidebar className="w-64">
+    <SidebarContent>
+      <SidebarGroup>
+        <SidebarMenu>
+          <SidebarMenuItem>
+            <Phone className="w-4 h-4" />
+            Centralita
+          </SidebarMenuItem>
+          <SidebarMenuItem>
+            <Bot className="w-4 h-4" />
+            IA Virtual
+          </SidebarMenuItem>
+        </SidebarMenu>
+      </SidebarGroup>
+    </SidebarContent>
+  </Sidebar>
+  
+  <main className="flex-1 overflow-auto">
+    {/* Contenido principal */}
+  </main>
+</div>
+```
+
+---
+
+⚙️ Guidelines de Implementación
+
+✅ Reglas OBLIGATORIAS
+
+Tipografía - NO usar clases Tailwind
+   ```jsx
+   ❌ <h1 className="text-2xl font-bold">Título</h1>
+   ✅ <h1>Título</h1>  /* Usa estilos CSS globales */
+   ```
+
+Colores - Usar variables CSS
+   ```jsx
+   ❌ <div className="bg-blue-500">
+   ✅ <div className="bg-primary">
+   ```
+
+Componentes - Solo usar Shadcn/UI existentes
+   ```jsx
+   ❌ <button className="custom-btn">
+   ✅ <Button variant="default">
+   ```
+
+Iconos - Solo lucide-react
+   ```jsx
+   ✅ import { Phone, Bot, Settings } from 'lucide-react';
+   ```
+
+🎨 Paleta de Gradientes por Contexto
+
+```css
+/* Landing/Marketing */
+bg-gradient-to-br from-violet-50 via-white to-blue-50
+
+/* Dashboard Principal */
+bg-gradient-to-br from-slate-50 to-blue-50
+
+/* Área de Telefonía */
+bg-gradient-to-br from-indigo-50 via-white to-slate-50
+
+/* Configuraciones/Admin */
+bg-gradient-to-br from-gray-50 to-slate-50
+```
+
+📱 Responsividad
+
+```jsx
+/* Containers principales */
+<div className="max-w-7xl mx-auto px-6 py-8">
+
+/* Grids responsivos */
+<div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+
+/* Navegación responsiva */
+<TabsList className="grid w-full grid-cols-3 lg:grid-cols-6">
+```
+
+---
+
+📦 Assets y Recursos
+
+Iconografía Especializada (lucide-react)
+
+Telefonía
+`Phone` - Teléfono general
+`PhoneCall` - Llamada activa
+`PhoneIncoming` - Llamada entrante
+`PhoneOutgoing` - Llamada saliente
+`PhoneMissed` - Llamada perdida
+`Headphones` - Audífonos/soporte
+`Mic` - Micrófono
+`MicOff` - Micrófono silenciado
+`Volume2` - Audio activo
+`VolumeX` - Audio silenciado
+
+IA y Automatización
+`Bot` - IA/Chatbot
+`Brain` - Inteligencia artificial
+`Zap` - Automatización
+`Cpu` - Procesamiento
+`Activity` - Actividad/métricas
+
+Dashboard y Gestión
+`BarChart3` - Gráficos
+`TrendingUp` - Tendencias
+`Clock` - Tiempo/horarios
+`Calendar` - Calendario
+`Settings` - Configuración
+`Users` - Usuarios/clientes
+`Building` - Empresa/organización
+
+Paleta de Colores Hexadecimales
+
+```json
+{
+  "primary": {
+    "50": "#eef2ff",
+    "100": "#e0e7ff", 
+    "500": "#6366f1",
+    "600": "#4f46e5",
+    "700": "#4338ca",
+    "900": "#312e81"
+  },
+  "success": {
+    "100": "#dcfce7",
+    "500": "#10b981",
+    "700": "#047857"
+  },
+  "warning": {
+    "100": "#fef3c7",
+    "500": "#f59e0b",
+    "700": "#d97706"
+  },
+  "error": {
+    "100": "#fee2e2",
+    "500": "#ef4444",
+    "700": "#dc2626"
+  }
+}
+```
+
+---
+
+🚀 Handoff para Desarrollo
+
+CSS Variables Completas (Copiar a globals.css)
+
+```css
+@import url('https://fonts.googleapis.com/css2?family=Onest:wght@100..900&display=swap');
+
+:root {
+  --font-size: 14px;
+  --background: #ffffff;
+  --foreground: #1a1a1a;
+  --card: #ffffff;
+  --card-foreground: #1a1a1a;
+  --popover: #ffffff;
+  --popover-foreground: #1a1a1a;
+  --primary: #6366f1;
+  --primary-foreground: #ffffff;
+  --secondary: #f8fafc;
+  --secondary-foreground: #475569;
+  --muted: #f1f5f9;
+  --muted-foreground: #64748b;
+  --accent: #f0f9ff;
+  --accent-foreground: #0369a1;
+  --destructive: #ef4444;
+  --destructive-foreground: #ffffff;
+  --border: rgba(99, 102, 241, 0.08);
+  --input: transparent;
+  --input-background: #f8fafc;
+  --switch-background: #e2e8f0;
+  --font-weight-medium: 500;
+  --font-weight-normal: 400;
+  --ring: #6366f1;
+  --chart-1: #6366f1;
+  --chart-2: #8b5cf6;
+  --chart-3: #06b6d4;
+  --chart-4: #10b981;
+  --chart-5: #f59e0b;
+  --radius: 0.75rem;
+  --sidebar: #fafafa;
+  --sidebar-foreground: #1a1a1a;
+  --sidebar-primary: #6366f1;
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: #f8fafc;
+  --sidebar-accent-foreground: #475569;
+  --sidebar-border: #e2e8f0;
+  --sidebar-ring: #6366f1;
+}
+
+@layer base {
+{
+    @apply border-border outline-ring/50;
+  }
+
+  body {
+    @apply bg-background text-foreground;
+    font-family: 'Onest', system-ui, -apple-system, sans-serif;
+  }
+
+  h1 { font-size: 1.5rem; font-weight: 500; line-height: 1.5; }
+  h2 { font-size: 1.25rem; font-weight: 500; line-height: 1.5; }
+  h3 { font-size: 1.125rem; font-weight: 500; line-height: 1.5; }
+  h4 { font-size: 1rem; font-weight: 500; line-height: 1.5; }
+  p { font-size: 1rem; font-weight: 400; line-height: 1.5; }
+  label { font-size: 1rem; font-weight: 500; line-height: 1.5; }
+  button { font-size: 1rem; font-weight: 500; line-height: 1.5; }
+  input { font-size: 1rem; font-weight: 400; line-height: 1.5; }
+}
+
+html {
+  font-size: var(--font-size);
+}
+```
+
+Dependencias NPM Requeridas
+
+```json
+{
+  "dependencies": {
+    "react": "^18.0.0",
+    "tailwindcss": "^4.0.0",
+    "lucide-react": "latest",
+    "@radix-ui/react-tabs": "latest",
+    "@radix-ui/react-select": "latest",
+    "@radix-ui/react-dialog": "latest"
+  }
+}
+```
+
+Imports Estándar para Cada Componente
+
+```jsx
+// Imports básicos para cualquier componente Gueswi
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './components/ui/card';
+import { Button } from './components/ui/button';
+import { Badge } from './components/ui/badge';
+import { Phone, Bot, Settings, BarChart3, Users } from 'lucide-react';
+```
+
+---
+
+🎯 Template Base para Nueva Aplicación
+
+```jsx
+import { useState } from 'react';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './components/ui/card';
+import { Button } from './components/ui/button';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from './components/ui/tabs';
+import { Phone, Bot, BarChart3, Settings } from 'lucide-react';
+
+export default function GueswiApp() {
+  const [activeTab, setActiveTab] = useState('dashboard');
+
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-violet-50 via-white to-blue-50">
+      {/* Header */}
+      <div className="bg-white/80 backdrop-blur-sm border-b sticky top-0 z-50">
+        <div className="max-w-7xl mx-auto px-6 py-4">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 bg-primary rounded-lg flex items-center justify-center">
+              <Phone className="w-6 h-6 text-white" />
+            </div>
+            <div>
+              <h1>Gueswi</h1>
+              <p className="text-muted-foreground">Centralita Virtual con IA</p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div className="max-w-7xl mx-auto px-6 py-8">
+        {/* Contenido principal aquí */}
+        <Card>
+          <CardHeader>
+            <CardTitle>Bienvenido a Gueswi</CardTitle>
+            <CardDescription>
+              Tu centralita virtual con IA para LatAm
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            {/* Tu contenido aquí */}
+          </CardContent>
+        </Card>
+      </div>
+    </div>
+  );
+}
+```
+
+---
+
+✅ Checklist de Handoff
+
+[ ] CSS Variables copiadas a `globals.css`
+[ ] Tipografía Onest importada
+[ ] Componentes Shadcn/UI configurados
+[ ] Iconos lucide-react instalados
+[ ] Guidelines de colores implementadas
+[ ] Patrones de layout aplicados
+[ ] Responsividad verificada
+[ ] Estados de componentes definidos
+[ ] Gradientes contextuales configurados
+[ ] Documentación revisada
+
+---
+
+Versión: Gueswi Design System v1.0  
+Última actualización: Enero 2025  
+Contexto: SaaS Centralita Virtual con IA para LatAm
+```

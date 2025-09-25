@@ -1,0 +1,143 @@
+Rol: Eres mi Lead Engineer + Design System Engineer + Integrator. Construye un SaaS llamado Gueswi (centralita virtual con IA) siguiendo al pie de la letra el design system adjunto (Guidelines.md). Si falta algo, usa placeholders y continúa.
+
+Entradas:
+
+Documento GUESWI_DESIGN_SYSTEM.md (pegaré su contenido al final de este prompt).
+
+Logo Gueswi.png (lo subiré después).
+
+Paleta de marca: #0652CC (primary), #132661 (navy). Tipografía Onest.
+
+Objetivo general (Sprint 7 días, entregable hoy: MVP demo)
+
+Crear un monorepo con:
+
+apps/web → Next.js 15 + TypeScript + Tailwind + shadcn/ui, i18n ES/EN, usando tokens del design system.
+
+apps/api → NestJS (o Next API Routes si lo prefieres) con Prisma (DB Postgres, usar SQLite en dev si conviene).
+
+apps/ia-agent → microservicio (Node o Python) con HTTP/WS stubs para el agente de voz descompuesto (STT/LLM/TTS) y métricas (simuladas).
+
+packages/ui → Design System Gueswi (tokens, componentes base shadcn/ui, Storybook, docs).
+
+Entrega demo navegable: landing, onboarding básico, auth, pagos sandbox, dashboard con datos mock, y flujo de Transferencia VE funcional (manual).
+
+Reglas del Design System (obligatorias)
+
+Headings: estilos globales (NO usar clases Tailwind de texto en h1..h4).
+
+Colores: SIEMPRE mediante CSS variables del DS (nada de bg-blue-500).
+
+Componentes: basados en shadcn/ui + lucide-react.
+
+Accesibilidad AA, focus visible (outline), targets ≥44px.
+
+Onest como fuente; títulos en navy #132661.
+
+Bordes sutiles #E6ECF2, sombras muy suaves.
+
+Usa los snippets de variables CSS y tailwind extend del documento. Si detectas errores de sintaxis (p. ej. braces sobrantes), corrige y documenta.
+
+Alcance funcional del MVP demo
+
+Design System en código
+
+Copia tokens (CSS variables) y tailwind.extend del documento en packages/ui y apps/web.
+
+Crea componentes base: Button (pill), Card, Badge/Chip, Input/Select/Textarea, Tabs (pill), Table minimal, Alert/Toast, EmptyState, Navbar, Footer, Breadcrumb, MetricCard.
+
+Storybook con página Guidelines (renderiza secciones del MD) y stories de cada componente.
+
+Frontend (apps/web)
+
+Rutas:
+
+/ Landing mínima (hero + 3 features, usando gradiente suave de la guía).
+
+/auth/signin y /auth/signup (Auth.js email/password).
+
+/onboarding (wizard 3 pasos: Cuenta → Empresa → Pago).
+
+/dashboard (header + 4 KPI cards + tabs pill: Telefonía, IA, Consumo, Facturación).
+
+/dashboard/telefonia (FilterBar + grid de tarjetas mock “Extensiones/IVR/Colas/Grabaciones”).
+
+/dashboard/ia (toggles: activar, barge-in; select idioma ES/EN; slider velocidad voz; métricas mock de segundos hablados/coste estimado).
+
+/dashboard/consumo (gráficas con Recharts: minutos voz/IA por rango).
+
+/dashboard/facturacion (plan actual, método de pago, listado de facturas mock, compra de packs mock).
+
+Pagos
+
+Stripe (suscripción Starter $15 / Growth $25) + webhook que activa/pausa el tenant (simulado).
+
+PayPal (Orders sandbox) + webhook equivalente.
+
+Transferencia VE (manual):
+
+Cliente: formulario /pagos/transferencia (banco, ref, fecha/hora, monto, adjunto).
+
+Admin: bandeja /admin/transferencias (tarjetas con datos, Aprobar/Rechazar).
+
+Acción: si apruebo → activar plan o acreditar saldo en la DB.
+
+Backend (apps/api)
+
+Auth multi-tenant (roles: owner/admin/user).
+
+Endpoints stubs de provisión PBX (no PBX real aún):
+
+POST /provision/tenant, POST /provision/extension, POST /provision/ivr → simulan creación y guardan en DB.
+
+Consumo: endpoints que devuelven datos mock para voz/IA (para las gráficas).
+
+Pagos: webhooks Stripe/PayPal (en sandbox), endpoints Transferencia VE (cliente y admin).
+
+Métricas IA: GET /ia/metrics?tenant=...&from=...&to=... devolviendo datos simulados.
+
+IA (apps/ia-agent)
+
+Servicio HTTP/WS con rutas mock: /stt, /llm, /tts, y /session/ws (eco de audio simulado o texto→audio simulado).
+
+Guardar métricas simuladas (segundos entrantes/salientes por tenant).
+
+DevX
+
+Scripts: dev, build, start, lint, storybook.
+
+README con: cómo correr todo, variables .env, cómo cambiar paleta desde un solo sitio, y “cómo conectar PBX real en Contabo” (lista de pasos).
+
+.env.example con placeholders:
+
+NEXTAUTH_SECRET=
+DATABASE_URL=
+STRIPE_SECRET=
+STRIPE_WEBHOOK_SECRET=
+PAYPAL_CLIENT_ID=
+PAYPAL_SECRET=
+PAYPAL_WEBHOOK_ID=
+EMAIL_PROVIDER_KEY=
+
+
+CI básico (GitHub Actions) para build y lint.
+
+Estilo/Accesibilidad
+
+Usa Onest globalmente; h1..h4 en navy #132661.
+
+Bordes #E6ECF2, sombras mínimas, focus visible (rgba(6,82,204,.25)).
+
+Mobile-first; tabs y grids responsivos.
+
+Entregables
+
+Monorepo compilando, / y /dashboard visibles.
+
+Storybook de packages/ui funcionando.
+
+Webhooks Stripe/PayPal en modo sandbox listos.
+
+Flujo Transferencia VE funcional (UI + DB + inbox admin).
+
+Stubs de provisión PBX e IA documentados para swap con FusionPBX + microservicio real.
