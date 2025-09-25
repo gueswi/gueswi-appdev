@@ -70,14 +70,25 @@ export default function CheckoutPage() {
   const [clientSecret, setClientSecret] = useState("");
   const [selectedPlan, setSelectedPlan] = useState<"starter" | "growth">("growth");
   const [paymentMethod, setPaymentMethod] = useState<"stripe" | "paypal">("stripe");
+  const [isDevelopmentMode, setIsDevelopmentMode] = useState(false);
   const [, setLocation] = useLocation();
+  const { toast } = useToast();
 
   useEffect(() => {
     // Create subscription as soon as the page loads
     apiRequest("POST", "/api/create-subscription", { plan: selectedPlan })
       .then((res) => res.json())
       .then((data) => {
-        setClientSecret(data.clientSecret);
+        if (data.mock) {
+          setIsDevelopmentMode(true);
+          toast({
+            title: "Development Mode",
+            description: "Payment processing is disabled. Configure Stripe API keys to test payments.",
+            variant: "default",
+          });
+        } else {
+          setClientSecret(data.clientSecret);
+        }
       })
       .catch((error) => {
         console.error("Error creating subscription:", error);
@@ -107,7 +118,7 @@ export default function CheckoutPage() {
     }
   };
 
-  if (!clientSecret && paymentMethod === "stripe") {
+  if (!clientSecret && paymentMethod === "stripe" && !isDevelopmentMode) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 flex items-center justify-center">
         <div className="animate-spin w-8 h-8 border-4 border-primary border-t-transparent rounded-full" />
@@ -225,7 +236,20 @@ export default function CheckoutPage() {
               <CardContent className="p-6">
                 <h3 className="mb-4">Datos de pago</h3>
                 
-                {paymentMethod === "stripe" && clientSecret ? (
+                {paymentMethod === "stripe" && isDevelopmentMode ? (
+                  <div className="p-6 bg-amber-50 border border-amber-200 rounded-lg" data-testid="development-mode-notice">
+                    <div className="flex items-center gap-2 mb-2">
+                      <div className="w-2 h-2 bg-amber-400 rounded-full"></div>
+                      <h4 className="font-medium text-amber-800">Development Mode</h4>
+                    </div>
+                    <p className="text-sm text-amber-700 mb-3">
+                      Payment processing is currently disabled because Stripe API keys are not configured.
+                    </p>
+                    <p className="text-xs text-amber-600">
+                      To test payments, configure STRIPE_SECRET_KEY and VITE_STRIPE_PUBLIC_KEY environment variables.
+                    </p>
+                  </div>
+                ) : paymentMethod === "stripe" && clientSecret ? (
                   <Elements stripe={stripePromise} options={{ clientSecret }}>
                     <CheckoutForm planType={selectedPlan} />
                   </Elements>

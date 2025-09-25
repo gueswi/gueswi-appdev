@@ -29,32 +29,42 @@ if (!PAYPAL_CLIENT_SECRET && process.env.NODE_ENV === "production") {
 // Use development defaults if not provided
 const clientId = PAYPAL_CLIENT_ID || "development_client_id";
 const clientSecret = PAYPAL_CLIENT_SECRET || "development_client_secret";
-const client = new Client({
-  clientCredentialsAuthCredentials: {
-    oAuthClientId: clientId,
-    oAuthClientSecret: clientSecret,
-  },
-  timeout: 0,
-  environment:
-                process.env.NODE_ENV === "production"
-                  ? Environment.Production
-                  : Environment.Sandbox,
-  logging: {
-    logLevel: LogLevel.Info,
-    logRequest: {
-      logBody: true,
+const hasValidPayPalKeys = !!(PAYPAL_CLIENT_ID && PAYPAL_CLIENT_SECRET);
+
+let client: Client | null = null;
+if (hasValidPayPalKeys) {
+  client = new Client({
+    clientCredentialsAuthCredentials: {
+      oAuthClientId: clientId,
+      oAuthClientSecret: clientSecret,
     },
-    logResponse: {
-      logHeaders: true,
+    timeout: 0,
+    environment:
+                  process.env.NODE_ENV === "production"
+                    ? Environment.Production
+                    : Environment.Sandbox,
+    logging: {
+      logLevel: LogLevel.Info,
+      logRequest: {
+        logBody: true,
+      },
+      logResponse: {
+        logHeaders: true,
+      },
     },
-  },
-});
-const ordersController = new OrdersController(client);
-const oAuthAuthorizationController = new OAuthAuthorizationController(client);
+  });
+}
+
+const ordersController = client ? new OrdersController(client) : null;
+const oAuthAuthorizationController = client ? new OAuthAuthorizationController(client) : null;
 
 /* Token generation helpers */
 
 export async function getClientToken() {
+  if (!oAuthAuthorizationController) {
+    return "mock_development_token";
+  }
+
   const auth = Buffer.from(
     `${clientId}:${clientSecret}`,
   ).toString("base64");
@@ -73,6 +83,15 @@ export async function getClientToken() {
 
 export async function createPaypalOrder(req: Request, res: Response) {
   try {
+    if (!ordersController) {
+      return res.json({
+        id: "mock_order_development",
+        status: "CREATED",
+        mock: true,
+        message: "Running in development mode - PayPal not configured"
+      });
+    }
+
     const { amount, currency, intent } = req.body;
 
     if (!amount || isNaN(parseFloat(amount)) || parseFloat(amount) <= 0) {
@@ -125,6 +144,15 @@ export async function createPaypalOrder(req: Request, res: Response) {
 
 export async function capturePaypalOrder(req: Request, res: Response) {
   try {
+    if (!ordersController) {
+      return res.json({
+        id: req.params.orderID,
+        status: "COMPLETED",
+        mock: true,
+        message: "Running in development mode - PayPal not configured"
+      });
+    }
+
     const { orderID } = req.params;
     const collect = {
       id: orderID,

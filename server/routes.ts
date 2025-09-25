@@ -9,12 +9,17 @@ import multer from "multer";
 import path from "path";
 
 // Stripe setup
-if (!process.env.STRIPE_SECRET_KEY && process.env.NODE_ENV === "production") {
+const hasValidStripeKey = !!process.env.STRIPE_SECRET_KEY;
+if (!hasValidStripeKey && process.env.NODE_ENV === "production") {
   throw new Error('Missing required Stripe secret: STRIPE_SECRET_KEY');
 }
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || "sk_test_development_key", {
-  apiVersion: "2025-08-27.basil",
-});
+
+let stripe: Stripe | null = null;
+if (hasValidStripeKey) {
+  stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
+    apiVersion: "2025-08-27.basil",
+  });
+}
 
 // Multer setup for file uploads
 const upload = multer({
@@ -54,6 +59,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.sendStatus(401);
       }
 
+      if (!stripe) {
+        return res.json({ 
+          clientSecret: "pi_mock_development_secret",
+          mock: true,
+          message: "Running in development mode - Stripe not configured"
+        });
+      }
+
       const { amount } = req.body;
       const paymentIntent = await stripe.paymentIntents.create({
         amount: Math.round(amount * 100), // Convert to cents
@@ -81,6 +94,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
     const { plan } = req.body; // starter or growth
 
     if (user.stripeSubscriptionId) {
+      if (!stripe) {
+        return res.json({
+          subscriptionId: "sub_mock_development",
+          clientSecret: "pi_mock_development_secret",
+          mock: true,
+          message: "Running in development mode - Stripe not configured"
+        });
+      }
+
       const subscription = await stripe.subscriptions.retrieve(user.stripeSubscriptionId);
 
       res.send({
@@ -92,6 +114,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
 
     try {
+      if (!stripe) {
+        return res.json({
+          subscriptionId: "sub_mock_development",
+          clientSecret: "pi_mock_development_secret",
+          mock: true,
+          message: "Running in development mode - Stripe not configured"
+        });
+      }
+
       let customer;
       if (user.stripeCustomerId) {
         customer = await stripe.customers.retrieve(user.stripeCustomerId);
