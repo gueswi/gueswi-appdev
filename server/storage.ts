@@ -5,6 +5,9 @@ import {
   bankTransfers, 
   callRecords, 
   aiMetrics,
+  ivrMenus,
+  queues,
+  recordings,
   type User, 
   type InsertUser, 
   type Tenant, 
@@ -14,10 +17,16 @@ import {
   type Extension,
   type InsertExtension,
   type CallRecord,
-  type AiMetric
+  type AiMetric,
+  type IvrMenu,
+  type InsertIvrMenu,
+  type Queue,
+  type InsertQueue,
+  type Recording,
+  type InsertRecording
 } from "@shared/schema";
 import { db } from "./db";
-import { eq, and, desc, gte, lte, count, sum } from "drizzle-orm";
+import { eq, and, desc, gte, lte, count, sum, sql } from "drizzle-orm";
 import session from "express-session";
 import createMemoryStore from "memorystore";
 
@@ -58,6 +67,31 @@ export interface IStorage {
   getConsumptionData(tenantId: string, from: Date, to: Date): Promise<{
     voiceMinutes: CallRecord[];
     aiMinutes: AiMetric[];
+  }>;
+
+  // Telephony methods
+  getExtensions(tenantId: string, status?: string, q?: string, page?: number, pageSize?: number): Promise<{
+    data: Extension[];
+    total: number;
+    page: number;
+    pageSize: number;
+  }>;
+  updateExtension(id: string, data: Partial<InsertExtension>): Promise<Extension>;
+  deleteExtension(id: string): Promise<void>;
+  resetExtensionPin(id: string): Promise<Extension>;
+  
+  getIvrs(tenantId: string): Promise<IvrMenu[]>;
+  createIvr(ivr: InsertIvrMenu & { tenantId: string }): Promise<IvrMenu>;
+  updateIvr(id: string, data: Partial<InsertIvrMenu>): Promise<IvrMenu>;
+  
+  getQueues(tenantId: string): Promise<Queue[]>;
+  updateQueue(id: string, data: Partial<InsertQueue>): Promise<Queue>;
+  
+  getRecordings(tenantId: string, from?: Date, to?: Date, page?: number, pageSize?: number): Promise<{
+    data: Recording[];
+    total: number;
+    page: number;
+    pageSize: number;
   }>;
 }
 
@@ -127,10 +161,15 @@ export class DatabaseStorage implements IStorage {
     return await db.select().from(extensions).where(eq(extensions.tenantId, tenantId));
   }
 
-  async createExtension(extension: InsertExtension & { tenantId: string }): Promise<Extension> {
+  async createExtension(extension: InsertExtension & { tenantId: string; sipPassword?: string }): Promise<Extension> {
+    // Ensure sipPassword is provided or generate one
+    const extensionData = {
+      ...extension,
+      sipPassword: extension.sipPassword || Math.random().toString(36).substr(2, 12),
+    };
     const [newExtension] = await db
       .insert(extensions)
-      .values(extension)
+      .values(extensionData)
       .returning();
     return newExtension;
   }
@@ -188,7 +227,7 @@ export class DatabaseStorage implements IStorage {
     const [extensionCount] = await db
       .select({ count: count() })
       .from(extensions)
-      .where(and(eq(extensions.tenantId, tenantId), eq(extensions.status, "active")));
+      .where(and(eq(extensions.tenantId, tenantId), eq(extensions.status, "ACTIVE")));
 
     // Get today's AI metrics
     const today = new Date();
@@ -244,6 +283,152 @@ export class DatabaseStorage implements IStorage {
       .orderBy(aiMetrics.date);
 
     return { voiceMinutes, aiMinutes };
+  }
+
+  // Telephony methods implementation
+  async getExtensions(tenantId: string, status?: string, q?: string, page: number = 1, pageSize: number = 10): Promise<{
+    data: Extension[];
+    total: number;
+    page: number;
+    pageSize: number;
+  }> {
+    let query = db.select().from(extensions).where(eq(extensions.tenantId, tenantId));
+    
+    const conditions = [eq(extensions.tenantId, tenantId)];
+    
+    if (status) {
+      conditions.push(eq(extensions.status, status as "ACTIVE" | "INACTIVE"));
+    }
+    
+    if (q) {
+      // Search in number or userName
+      conditions.push(
+        sql`(${extensions.number} ILIKE ${`%${q}%`} OR ${extensions.userName} ILIKE ${`%${q}%`})`
+      );
+    }
+    
+    const whereCondition = conditions.length > 1 ? and(...conditions) : conditions[0];
+    
+    const [totalCount] = await db
+      .select({ count: count() })
+      .from(extensions)
+      .where(whereCondition);
+    
+    const data = await db
+      .select()
+      .from(extensions)
+      .where(whereCondition)
+      .limit(pageSize)
+      .offset((page - 1) * pageSize)
+      .orderBy(extensions.createdAt);
+    
+    return {
+      data,
+      total: totalCount.count,
+      page,
+      pageSize,
+    };
+  }
+
+  async updateExtension(id: string, data: Partial<InsertExtension>): Promise<Extension> {
+    const [updated] = await db
+      .update(extensions)
+      .set({ ...data, updatedAt: new Date() })
+      .where(eq(extensions.id, id))
+      .returning();
+    return updated;
+  }
+
+  async deleteExtension(id: string): Promise<void> {
+    await db.delete(extensions).where(eq(extensions.id, id));
+  }
+
+  async resetExtensionPin(id: string): Promise<Extension> {
+    const newPassword = Math.random().toString(36).substr(2, 12);
+    const [updated] = await db
+      .update(extensions)
+      .set({ sipPassword: newPassword, updatedAt: new Date() })
+      .where(eq(extensions.id, id))
+      .returning();
+    return updated;
+  }
+
+  async getIvrs(tenantId: string): Promise<IvrMenu[]> {
+    return await db
+      .select()
+      .from(ivrMenus)
+      .where(eq(ivrMenus.tenantId, tenantId))
+      .orderBy(ivrMenus.createdAt);
+  }
+
+  async createIvr(ivr: InsertIvrMenu & { tenantId: string }): Promise<IvrMenu> {
+    const [created] = await db.insert(ivrMenus).values(ivr).returning();
+    return created;
+  }
+
+  async updateIvr(id: string, data: Partial<InsertIvrMenu>): Promise<IvrMenu> {
+    const [updated] = await db
+      .update(ivrMenus)
+      .set({ ...data, updatedAt: new Date() })
+      .where(eq(ivrMenus.id, id))
+      .returning();
+    return updated;
+  }
+
+  async getQueues(tenantId: string): Promise<Queue[]> {
+    return await db
+      .select()
+      .from(queues)
+      .where(eq(queues.tenantId, tenantId))
+      .orderBy(queues.createdAt);
+  }
+
+  async updateQueue(id: string, data: Partial<InsertQueue>): Promise<Queue> {
+    const [updated] = await db
+      .update(queues)
+      .set({ ...data, updatedAt: new Date() })
+      .where(eq(queues.id, id))
+      .returning();
+    return updated;
+  }
+
+  async getRecordings(tenantId: string, from?: Date, to?: Date, page: number = 1, pageSize: number = 10): Promise<{
+    data: Recording[];
+    total: number;
+    page: number;
+    pageSize: number;
+  }> {
+    const conditions = [eq(recordings.tenantId, tenantId)];
+    
+    if (from) {
+      conditions.push(gte(recordings.startedAt, from));
+    }
+    
+    if (to) {
+      conditions.push(lte(recordings.startedAt, to));
+    }
+    
+    const whereCondition = conditions.length > 1 ? and(...conditions) : conditions[0];
+    
+    const [totalCount] = await db
+      .select({ count: count() })
+      .from(recordings)
+      .where(whereCondition);
+    
+    const data = await db
+      .select()
+      .from(recordings)
+      .where(whereCondition)
+      .limit(pageSize)
+      .offset((page - 1) * pageSize)
+      .orderBy(desc(recordings.startedAt));
+    
+    return {
+      data,
+      total: totalCount.count,
+      page,
+      pageSize,
+    };
   }
 }
 

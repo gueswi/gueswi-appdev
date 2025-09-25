@@ -4,7 +4,14 @@ import Stripe from "stripe";
 import { storage } from "./storage";
 import { setupAuth } from "./auth";
 import { createPaypalOrder, capturePaypalOrder, loadPaypalDefault } from "./paypal";
-import { insertTenantSchema, insertBankTransferSchema, insertExtensionSchema } from "@shared/schema";
+import { 
+  insertTenantSchema, 
+  insertBankTransferSchema, 
+  insertExtensionSchema,
+  insertIvrMenuSchema,
+  insertQueueSchema,
+  insertRecordingSchema
+} from "@shared/schema";
 import multer from "multer";
 import path from "path";
 
@@ -204,16 +211,24 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.sendStatus(401);
       }
 
-      const transferData = {
-        ...req.body,
+      const validatedTransfer = insertBankTransferSchema.parse({
+        referenceNumber: req.body.referenceNumber,
+        bank: req.body.bank,
+        amount: req.body.amount,
+        transferDate: new Date(req.body.transferDate + 'T' + req.body.transferTime),
+        transferTime: req.body.transferTime,
+        purpose: req.body.purpose,
+        comments: req.body.comments,
+        receiptUrl: (req as any).file?.path,
+      });
+      
+      const transferWithIds = {
+        ...validatedTransfer,
         userId: req.user.id,
         tenantId: req.user.tenantId || "",
-        receiptUrl: (req as any).file?.path,
-        transferDate: new Date(req.body.transferDate + 'T' + req.body.transferTime),
       };
-
-      const validatedTransfer = insertBankTransferSchema.parse(transferData);
-      const transfer = await storage.createBankTransfer(validatedTransfer);
+      
+      const transfer = await storage.createBankTransfer(transferWithIds);
       
       res.json(transfer);
     } catch (error: any) {
@@ -336,13 +351,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.sendStatus(401);
       }
 
-      const extensionData = {
-        ...req.body,
+      const validatedExtension = insertExtensionSchema.parse({
+        number: req.body.number,
+        userName: req.body.userName,
+        userId: req.body.userId,
+        status: req.body.status,
+      });
+      
+      const extensionWithTenant = {
+        ...validatedExtension,
         tenantId: req.user.tenantId || "",
+        sipPassword: Math.random().toString(36).substr(2, 12),
       };
-
-      const validatedExtension = insertExtensionSchema.parse(extensionData);
-      const extension = await storage.createExtension(validatedExtension);
+      
+      const extension = await storage.createExtension(extensionWithTenant);
 
       // Mock SIP account creation
       const sipConfig = {
@@ -400,6 +422,190 @@ export async function registerRoutes(app: Express): Promise<Server> {
       };
 
       res.json(metrics);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // Telephony API endpoints (tenant-scoped)
+  
+  // Extensions endpoints
+  app.get("/api/extensions", async (req, res) => {
+    try {
+      if (!req.isAuthenticated() || !req.user.tenantId) {
+        return res.sendStatus(401);
+      }
+
+      const { status, q, page = 1, pageSize = 10 } = req.query;
+      const result = await storage.getExtensions(
+        req.user.tenantId,
+        status as string,
+        q as string,
+        parseInt(page as string),
+        parseInt(pageSize as string)
+      );
+
+      res.json(result);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.post("/api/extensions", async (req, res) => {
+    try {
+      if (!req.isAuthenticated() || !req.user.tenantId) {
+        return res.sendStatus(401);
+      }
+
+      const validatedExtension = insertExtensionSchema.parse(req.body);
+      const extensionWithTenant = {
+        ...validatedExtension,
+        tenantId: req.user.tenantId,
+        sipPassword: Math.random().toString(36).substr(2, 12),
+      };
+      
+      const extension = await storage.createExtension(extensionWithTenant);
+      res.json(extension);
+    } catch (error: any) {
+      res.status(400).json({ message: error.message });
+    }
+  });
+
+  app.patch("/api/extensions/:id", async (req, res) => {
+    try {
+      if (!req.isAuthenticated() || !req.user.tenantId) {
+        return res.sendStatus(401);
+      }
+
+      const extensionData = insertExtensionSchema.partial().parse(req.body);
+      const extension = await storage.updateExtension(req.params.id, extensionData);
+      res.json(extension);
+    } catch (error: any) {
+      res.status(400).json({ message: error.message });
+    }
+  });
+
+  app.delete("/api/extensions/:id", async (req, res) => {
+    try {
+      if (!req.isAuthenticated() || !req.user.tenantId) {
+        return res.sendStatus(401);
+      }
+
+      await storage.deleteExtension(req.params.id);
+      res.json({ success: true });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.post("/api/extensions/:id/reset-pin", async (req, res) => {
+    try {
+      if (!req.isAuthenticated() || !req.user.tenantId) {
+        return res.sendStatus(401);
+      }
+
+      const extension = await storage.resetExtensionPin(req.params.id);
+      res.json({ extension, newPin: extension.sipPassword });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // IVR endpoints
+  app.get("/api/ivrs", async (req, res) => {
+    try {
+      if (!req.isAuthenticated() || !req.user.tenantId) {
+        return res.sendStatus(401);
+      }
+
+      const ivrs = await storage.getIvrs(req.user.tenantId);
+      res.json(ivrs);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.post("/api/ivrs", async (req, res) => {
+    try {
+      if (!req.isAuthenticated() || !req.user.tenantId) {
+        return res.sendStatus(401);
+      }
+
+      const validatedIvr = insertIvrMenuSchema.parse(req.body);
+      const ivrWithTenant = {
+        ...validatedIvr,
+        tenantId: req.user.tenantId,
+      };
+      
+      const ivr = await storage.createIvr(ivrWithTenant);
+      res.json(ivr);
+    } catch (error: any) {
+      res.status(400).json({ message: error.message });
+    }
+  });
+
+  app.patch("/api/ivrs/:id", async (req, res) => {
+    try {
+      if (!req.isAuthenticated() || !req.user.tenantId) {
+        return res.sendStatus(401);
+      }
+
+      const ivrData = insertIvrMenuSchema.partial().parse(req.body);
+      const ivr = await storage.updateIvr(req.params.id, ivrData);
+      res.json(ivr);
+    } catch (error: any) {
+      res.status(400).json({ message: error.message });
+    }
+  });
+
+  // Queue endpoints
+  app.get("/api/queues", async (req, res) => {
+    try {
+      if (!req.isAuthenticated() || !req.user.tenantId) {
+        return res.sendStatus(401);
+      }
+
+      const queues = await storage.getQueues(req.user.tenantId);
+      res.json(queues);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.patch("/api/queues/:id", async (req, res) => {
+    try {
+      if (!req.isAuthenticated() || !req.user.tenantId) {
+        return res.sendStatus(401);
+      }
+
+      const queueData = insertQueueSchema.partial().parse(req.body);
+      const queue = await storage.updateQueue(req.params.id, queueData);
+      res.json(queue);
+    } catch (error: any) {
+      res.status(400).json({ message: error.message });
+    }
+  });
+
+  // Recordings endpoints
+  app.get("/api/recordings", async (req, res) => {
+    try {
+      if (!req.isAuthenticated() || !req.user.tenantId) {
+        return res.sendStatus(401);
+      }
+
+      const { from, to, page = 1, pageSize = 10 } = req.query;
+      const fromDate = from ? new Date(from as string) : undefined;
+      const toDate = to ? new Date(to as string) : undefined;
+      
+      const result = await storage.getRecordings(
+        req.user.tenantId,
+        fromDate,
+        toDate,
+        parseInt(page as string),
+        parseInt(pageSize as string)
+      );
+
+      res.json(result);
     } catch (error: any) {
       res.status(500).json({ message: error.message });
     }

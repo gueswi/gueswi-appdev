@@ -249,7 +249,8 @@ export const insertExtensionSchema = createInsertSchema(extensions).pick({
   userName: true,
   userId: true,
   status: true,
-});
+  sipPassword: true,
+}).partial({ sipPassword: true });
 
 export const insertIvrMenuSchema = createInsertSchema(ivrMenus).pick({
   name: true,
