@@ -34,14 +34,18 @@ export const tenants = pgTable("tenants", {
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
 
-// Extensions table
+// Extensions table (enhanced for telephony)
 export const extensions = pgTable("extensions", {
   id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
   number: text("number").notNull(),
+  userName: text("user_name").notNull(),
   userId: uuid("user_id").references(() => users.id),
   tenantId: uuid("tenant_id").references(() => tenants.id).notNull(),
-  status: text("status", { enum: ["active", "inactive"] }).default("active").notNull(),
+  status: text("status", { enum: ["ACTIVE", "INACTIVE"] }).default("ACTIVE").notNull(),
+  lastSeenAt: timestamp("last_seen_at"),
+  sipPassword: text("sip_password").notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
 
 // Bank transfers table (VE)
@@ -89,6 +93,40 @@ export const aiMetrics = pgTable("ai_metrics", {
   success_rate: decimal("success_rate", { precision: 5, scale: 2 }).default("0"),
 });
 
+// IVR Menu table
+export const ivrMenus = pgTable("ivr_menus", {
+  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+  tenantId: uuid("tenant_id").references(() => tenants.id).notNull(),
+  name: text("name").notNull(),
+  greetingUrl: text("greeting_url"),
+  options: jsonb("options").notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+// Queue table
+export const queues = pgTable("queues", {
+  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+  tenantId: uuid("tenant_id").references(() => tenants.id).notNull(),
+  name: text("name").notNull(),
+  waiting: integer("waiting").default(0).notNull(),
+  avgWaitSec: integer("avg_wait_sec").default(0).notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+// Recording table
+export const recordings = pgTable("recordings", {
+  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+  tenantId: uuid("tenant_id").references(() => tenants.id).notNull(),
+  callId: text("call_id").notNull(),
+  startedAt: timestamp("started_at").notNull(),
+  durationSec: integer("duration_sec").notNull(),
+  sizeBytes: integer("size_bytes").notNull(),
+  url: text("url").notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
 // Relations
 export const usersRelations = relations(users, ({ one, many }) => ({
   tenant: one(tenants, {
@@ -105,6 +143,9 @@ export const tenantsRelations = relations(tenants, ({ many }) => ({
   bankTransfers: many(bankTransfers),
   callRecords: many(callRecords),
   aiMetrics: many(aiMetrics),
+  ivrMenus: many(ivrMenus),
+  queues: many(queues),
+  recordings: many(recordings),
 }));
 
 export const extensionsRelations = relations(extensions, ({ one, many }) => ({
@@ -152,6 +193,27 @@ export const aiMetricsRelations = relations(aiMetrics, ({ one }) => ({
   }),
 }));
 
+export const ivrMenusRelations = relations(ivrMenus, ({ one }) => ({
+  tenant: one(tenants, {
+    fields: [ivrMenus.tenantId],
+    references: [tenants.id],
+  }),
+}));
+
+export const queuesRelations = relations(queues, ({ one }) => ({
+  tenant: one(tenants, {
+    fields: [queues.tenantId],
+    references: [tenants.id],
+  }),
+}));
+
+export const recordingsRelations = relations(recordings, ({ one }) => ({
+  tenant: one(tenants, {
+    fields: [recordings.tenantId],
+    references: [tenants.id],
+  }),
+}));
+
 // Insert schemas
 export const insertUserSchema = createInsertSchema(users).pick({
   username: true,
@@ -184,7 +246,29 @@ export const insertBankTransferSchema = createInsertSchema(bankTransfers).pick({
 
 export const insertExtensionSchema = createInsertSchema(extensions).pick({
   number: true,
+  userName: true,
   userId: true,
+  status: true,
+});
+
+export const insertIvrMenuSchema = createInsertSchema(ivrMenus).pick({
+  name: true,
+  greetingUrl: true,
+  options: true,
+});
+
+export const insertQueueSchema = createInsertSchema(queues).pick({
+  name: true,
+  waiting: true,
+  avgWaitSec: true,
+});
+
+export const insertRecordingSchema = createInsertSchema(recordings).pick({
+  callId: true,
+  startedAt: true,
+  durationSec: true,
+  sizeBytes: true,
+  url: true,
 });
 
 // Types
@@ -198,3 +282,9 @@ export type Extension = typeof extensions.$inferSelect;
 export type InsertExtension = z.infer<typeof insertExtensionSchema>;
 export type CallRecord = typeof callRecords.$inferSelect;
 export type AiMetric = typeof aiMetrics.$inferSelect;
+export type IvrMenu = typeof ivrMenus.$inferSelect;
+export type InsertIvrMenu = z.infer<typeof insertIvrMenuSchema>;
+export type Queue = typeof queues.$inferSelect;
+export type InsertQueue = z.infer<typeof insertQueueSchema>;
+export type Recording = typeof recordings.$inferSelect;
+export type InsertRecording = z.infer<typeof insertRecordingSchema>;
