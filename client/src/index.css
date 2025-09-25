@@ -1,0 +1,137 @@
+@import url('https://fonts.googleapis.com/css2?family=Onest:wght@100..900&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --font-size: 14px;
+  --background: hsl(0 0% 100%);
+  --foreground: hsl(0 0% 10%);
+  --card: hsl(0 0% 100%);
+  --card-foreground: hsl(0 0% 10%);
+  --popover: hsl(0 0% 100%);
+  --popover-foreground: hsl(0 0% 10%);
+  --primary: hsl(231 65% 61%);
+  --primary-foreground: hsl(0 0% 100%);
+  --secondary: hsl(210 40% 96%);
+  --secondary-foreground: hsl(215 25% 27%);
+  --muted: hsl(210 40% 94%);
+  --muted-foreground: hsl(215 16% 47%);
+  --accent: hsl(198 100% 97%);
+  --accent-foreground: hsl(199 89% 48%);
+  --destructive: hsl(0 84% 60%);
+  --destructive-foreground: hsl(0 0% 100%);
+  --border: hsla(231 65% 61% / 0.08);
+  --input: hsl(210 40% 96%);
+  --ring: hsl(231 65% 61%);
+  --radius: 0.75rem;
+  
+  /* Sidebar colors */
+  --sidebar: hsl(0 0% 98%);
+  --sidebar-foreground: hsl(0 0% 10%);
+  --sidebar-primary: hsl(231 65% 61%);
+  --sidebar-primary-foreground: hsl(0 0% 100%);
+  --sidebar-accent: hsl(210 40% 96%);
+  --sidebar-accent-foreground: hsl(215 25% 27%);
+  --sidebar-border: hsl(220 13% 91%);
+  --sidebar-ring: hsl(231 65% 61%);
+
+  /* Charts */
+  --chart-1: hsl(231 65% 61%);
+  --chart-2: hsl(262 83% 70%);
+  --chart-3: hsl(186 100% 42%);
+  --chart-4: hsl(142 76% 36%);
+  --chart-5: hsl(32 95% 44%);
+}
+
+.dark {
+  --background: hsl(0 0% 0%);
+  --foreground: hsl(0 0% 95%);
+  --card: hsl(228 9.8% 10%);
+  --card-foreground: hsl(0 0% 85%);
+  --popover: hsl(0 0% 0%);
+  --popover-foreground: hsl(0 0% 95%);
+  --primary: hsl(231 65% 61%);
+  --primary-foreground: hsl(0 0% 100%);
+  --secondary: hsl(215 16% 16%);
+  --secondary-foreground: hsl(0 0% 95%);
+  --muted: hsl(215 16% 16%);
+  --muted-foreground: hsl(215 16% 65%);
+  --accent: hsl(215 16% 16%);
+  --accent-foreground: hsl(231 65% 61%);
+  --destructive: hsl(0 84% 60%);
+  --destructive-foreground: hsl(0 0% 100%);
+  --border: hsl(215 16% 16%);
+  --input: hsl(215 16% 16%);
+  --ring: hsl(231 65% 61%);
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply font-sans antialiased bg-background text-foreground;
+    font-family: 'Onest', system-ui, -apple-system, sans-serif;
+    font-size: var(--font-size);
+  }
+
+  /* Global typography - NO Tailwind text classes */
+  h1 {
+    font-size: 1.5rem;
+    font-weight: 500;
+    line-height: 1.5;
+    color: #132661;
+  }
+  
+  h2 {
+    font-size: 1.25rem;
+    font-weight: 500;
+    line-height: 1.5;
+    color: #132661;
+  }
+  
+  h3 {
+    font-size: 1.125rem;
+    font-weight: 500;
+    line-height: 1.5;
+    color: #132661;
+  }
+  
+  h4 {
+    font-size: 1rem;
+    font-weight: 500;
+    line-height: 1.5;
+    color: #132661;
+  }
+  
+  p {
+    font-size: 1rem;
+    font-weight: 400;
+    line-height: 1.5;
+  }
+  
+  button {
+    font-size: 1rem;
+    font-weight: 500;
+    line-height: 1.5;
+  }
+  
+  label {
+    font-size: 1rem;
+    font-weight: 500;
+    line-height: 1.5;
+  }
+  
+  input, textarea, select {
+    font-size: 1rem;
+    font-weight: 400;
+    line-height: 1.5;
+  }
+}
+
+html {
+  font-size: var(--font-size);
+}
