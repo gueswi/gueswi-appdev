@@ -8,15 +8,13 @@ import { insertTenantSchema, insertBankTransferSchema, insertExtensionSchema } f
 import multer from "multer";
 import path from "path";
 
-// Stripe setup
-const hasValidStripeKey = !!process.env.STRIPE_SECRET_KEY;
-if (!hasValidStripeKey && process.env.NODE_ENV === "production") {
-  throw new Error('Missing required Stripe secret: STRIPE_SECRET_KEY');
-}
+// Stripe setup with config loader
+import config from './config';
 
+const hasValidStripeKey = config.stripe.secretKey !== 'sk_test_development_key';
 let stripe: Stripe | null = null;
 if (hasValidStripeKey) {
-  stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
+  stripe = new Stripe(config.stripe.secretKey, {
     apiVersion: "2025-08-27.basil",
   });
 }
@@ -252,6 +250,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error: any) {
       res.status(500).json({ message: error.message });
     }
+  });
+
+  // System mode information endpoint (no auth required for banner display)
+  app.get("/api/system/mode", (req, res) => {
+    res.json({
+      stripeMode: config.stripe.mode,
+      paypalMode: config.paypal.mode,
+      isTestMode: config.isTestMode,
+      environment: config.isDevelopment ? 'development' : 'production',
+      webhooks: {
+        stripe: config.webhooks.stripeEndpoint,
+        paypal: config.webhooks.paypalEndpoint,
+      }
+    });
   });
 
   // Dashboard stats

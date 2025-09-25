@@ -2,6 +2,7 @@ import { Button } from "@/components/ui/button";
 import { Phone } from "lucide-react";
 import { useLocation } from "wouter";
 import { useAuth } from "@/hooks/use-auth";
+import { ModeBanner } from "@/components/mode-banner";
 
 interface NavbarProps {
   onNavigate?: (path: string) => void;
@@ -38,6 +39,7 @@ export function Navbar({ onNavigate }: NavbarProps) {
           </div>
           
           <div className="flex items-center gap-4" data-testid="navbar-actions">
+            <ModeBanner />
             {!user ? (
               <>
                 <Button 
