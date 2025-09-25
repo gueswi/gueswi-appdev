@@ -9,6 +9,7 @@ import HomePage from "@/pages/home-page";
 import AuthPage from "@/pages/auth-page";
 import OnboardingPage from "@/pages/onboarding-page";
 import DashboardPage from "@/pages/dashboard-page";
+import TelephonyPage from "@/pages/telephony-page";
 import TransferFormPage from "@/pages/transfer-form-page";
 import AdminTransfersPage from "@/pages/admin-transfers-page";
 import CheckoutPage from "@/pages/checkout-page";
@@ -21,6 +22,7 @@ function Router() {
       <Route path="/auth" component={AuthPage} />
       <ProtectedRoute path="/onboarding" component={OnboardingPage} />
       <ProtectedRoute path="/dashboard" component={DashboardPage} />
+      <ProtectedRoute path="/telephony" component={TelephonyPage} />
       <ProtectedRoute path="/transfer-form" component={TransferFormPage} />
       <ProtectedRoute path="/admin/transfers" component={AdminTransfersPage} />
       <ProtectedRoute path="/checkout" component={CheckoutPage} />
