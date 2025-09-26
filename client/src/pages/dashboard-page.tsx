@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -21,7 +21,8 @@ import {
   Zap,
   Download,
   CreditCard,
-  Settings
+  Settings,
+  MessageSquare
 } from "lucide-react";
 import { useLocation } from "wouter";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
@@ -88,6 +89,24 @@ export default function DashboardPage() {
   const [activeTab, setActiveTab] = useState("telefonia");
   const { toast } = useToast();
   const queryClient = useQueryClient();
+
+  // Handle URL query parameters for tab switching
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const tab = params.get('tab');
+    if (tab && ['telefonia', 'conversaciones', 'ia', 'consumo', 'facturacion'].includes(tab)) {
+      setActiveTab(tab);
+    }
+  }, []);
+
+  // Handle tab change and update URL
+  const handleTabChange = (tab: string) => {
+    setActiveTab(tab);
+    const params = new URLSearchParams(window.location.search);
+    params.set('tab', tab);
+    const newUrl = `${window.location.pathname}?${params.toString()}`;
+    window.history.pushState(null, '', newUrl);
+  };
 
   // Fetch dashboard stats
   const { data: stats, isLoading: statsLoading } = useQuery<DashboardStats>({
@@ -177,8 +196,8 @@ export default function DashboardPage() {
 
       {/* Tabs Navigation */}
       <Card className="p-2 mb-8" data-testid="dashboard-tabs">
-        <Tabs value={activeTab} onValueChange={setActiveTab}>
-          <TabsList className="grid w-full grid-cols-4 bg-transparent gap-2">
+        <Tabs value={activeTab} onValueChange={handleTabChange}>
+          <TabsList className="grid w-full grid-cols-5 bg-transparent gap-2">
             <TabsTrigger 
               value="telefonia" 
               className="rounded-full data-[state=active]:bg-primary data-[state=active]:text-primary-foreground"
@@ -186,6 +205,14 @@ export default function DashboardPage() {
             >
               <Phone className="w-4 h-4 mr-2" />
               Telefonía
+            </TabsTrigger>
+            <TabsTrigger 
+              value="conversaciones" 
+              className="rounded-full data-[state=active]:bg-primary data-[state=active]:text-primary-foreground"
+              data-testid="tab-conversaciones"
+            >
+              <MessageSquare className="w-4 h-4 mr-2" />
+              Conversaciones
             </TabsTrigger>
             <TabsTrigger 
               value="ia" 
@@ -391,6 +418,55 @@ export default function DashboardPage() {
                   </div>
                 </CardContent>
               </Card>
+            </div>
+          </TabsContent>
+
+          {/* Tab Content: Conversaciones */}
+          <TabsContent value="conversaciones" className="mt-6" data-testid="conversaciones-content">
+            <div className="text-center py-12">
+              <MessageSquare className="h-16 w-16 mx-auto mb-4 text-primary opacity-50" />
+              <h2 className="text-2xl font-bold mb-4">Centro de Conversaciones Omnicanal</h2>
+              <p className="text-muted-foreground mb-8">
+                Gestiona todas tus conversaciones desde un solo lugar: llamadas, WhatsApp, Instagram, Facebook, email y chat web.
+              </p>
+              <div className="max-w-2xl mx-auto">
+                <Card>
+                  <CardContent className="p-6">
+                    <div className="grid grid-cols-2 md:grid-cols-3 gap-4 text-center">
+                      <div>
+                        <Phone className="h-8 w-8 mx-auto mb-2 text-primary" />
+                        <p className="text-sm font-medium">Llamadas</p>
+                        <p className="text-xs text-muted-foreground">En vivo</p>
+                      </div>
+                      <div className="opacity-50">
+                        <MessageSquare className="h-8 w-8 mx-auto mb-2" />
+                        <p className="text-sm font-medium">WhatsApp</p>
+                        <p className="text-xs text-muted-foreground">Próximamente</p>
+                      </div>
+                      <div className="opacity-50">
+                        <MessageSquare className="h-8 w-8 mx-auto mb-2" />
+                        <p className="text-sm font-medium">Instagram</p>
+                        <p className="text-xs text-muted-foreground">Próximamente</p>
+                      </div>
+                      <div className="opacity-50">
+                        <MessageSquare className="h-8 w-8 mx-auto mb-2" />
+                        <p className="text-sm font-medium">Facebook</p>
+                        <p className="text-xs text-muted-foreground">Próximamente</p>
+                      </div>
+                      <div className="opacity-50">
+                        <MessageSquare className="h-8 w-8 mx-auto mb-2" />
+                        <p className="text-sm font-medium">Email</p>
+                        <p className="text-xs text-muted-foreground">Próximamente</p>
+                      </div>
+                      <div className="opacity-50">
+                        <MessageSquare className="h-8 w-8 mx-auto mb-2" />
+                        <p className="text-sm font-medium">Chat Web</p>
+                        <p className="text-xs text-muted-foreground">Próximamente</p>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              </div>
             </div>
           </TabsContent>
 
