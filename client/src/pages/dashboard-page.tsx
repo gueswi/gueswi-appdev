@@ -6,6 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { DashboardLayout } from "@/components/layouts/dashboard-layout";
 import { MetricCard } from "@/components/ui/metric-card";
 import { EmptyState } from "@/components/ui/empty-state";
+import { OmnichannelInbox } from "@/components/conversations/omnichannel-inbox";
 import { 
   Phone, 
   PhoneCall, 
@@ -31,6 +32,8 @@ import { useToast } from "@/hooks/use-toast";
 import { Slider } from "@/components/ui/slider";
 import { Switch } from "@/components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 
 interface DashboardStats {
@@ -423,51 +426,7 @@ export default function DashboardPage() {
 
           {/* Tab Content: Conversaciones */}
           <TabsContent value="conversaciones" className="mt-6" data-testid="conversaciones-content">
-            <div className="text-center py-12">
-              <MessageSquare className="h-16 w-16 mx-auto mb-4 text-primary opacity-50" />
-              <h2 className="text-2xl font-bold mb-4">Centro de Conversaciones Omnicanal</h2>
-              <p className="text-muted-foreground mb-8">
-                Gestiona todas tus conversaciones desde un solo lugar: llamadas, WhatsApp, Instagram, Facebook, email y chat web.
-              </p>
-              <div className="max-w-2xl mx-auto">
-                <Card>
-                  <CardContent className="p-6">
-                    <div className="grid grid-cols-2 md:grid-cols-3 gap-4 text-center">
-                      <div>
-                        <Phone className="h-8 w-8 mx-auto mb-2 text-primary" />
-                        <p className="text-sm font-medium">Llamadas</p>
-                        <p className="text-xs text-muted-foreground">En vivo</p>
-                      </div>
-                      <div className="opacity-50">
-                        <MessageSquare className="h-8 w-8 mx-auto mb-2" />
-                        <p className="text-sm font-medium">WhatsApp</p>
-                        <p className="text-xs text-muted-foreground">Próximamente</p>
-                      </div>
-                      <div className="opacity-50">
-                        <MessageSquare className="h-8 w-8 mx-auto mb-2" />
-                        <p className="text-sm font-medium">Instagram</p>
-                        <p className="text-xs text-muted-foreground">Próximamente</p>
-                      </div>
-                      <div className="opacity-50">
-                        <MessageSquare className="h-8 w-8 mx-auto mb-2" />
-                        <p className="text-sm font-medium">Facebook</p>
-                        <p className="text-xs text-muted-foreground">Próximamente</p>
-                      </div>
-                      <div className="opacity-50">
-                        <MessageSquare className="h-8 w-8 mx-auto mb-2" />
-                        <p className="text-sm font-medium">Email</p>
-                        <p className="text-xs text-muted-foreground">Próximamente</p>
-                      </div>
-                      <div className="opacity-50">
-                        <MessageSquare className="h-8 w-8 mx-auto mb-2" />
-                        <p className="text-sm font-medium">Chat Web</p>
-                        <p className="text-xs text-muted-foreground">Próximamente</p>
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
-              </div>
-            </div>
+            <OmnichannelInbox />
           </TabsContent>
 
           {/* Tab Content: IA */}
