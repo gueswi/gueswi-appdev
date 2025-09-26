@@ -6,7 +6,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { AuthProvider } from "@/hooks/use-auth";
 import { SoftphoneProvider } from "@/components/softphone/softphone-provider";
 import { ProtectedRoute } from "./lib/protected-route";
-import { AppShell } from "@/layouts/AppShell";
+import { AppShell } from "@/layouts/app-shell";
 import { featureFlags } from "@/lib/feature-flags";
 import { Redirect } from "@/components/Redirect";
 import HomePage from "@/pages/home-page";
@@ -33,8 +33,15 @@ function Router() {
       <ProtectedRoute path="/onboarding" component={OnboardingPage} />
       <ProtectedRoute path="/dashboard" component={DashboardPage} />
       
-      {/* New UI Routes */}
+      {/* New UI Routes - Chatwoot Layout */}
       <ProtectedRoute path="/inbox" component={InboxPage} />
+      <ProtectedRoute path="/search" component={() => <div className="p-6"><h1 className="text-2xl font-bold">Search</h1><p>Search functionality coming soon</p></div>} />
+      <ProtectedRoute path="/activity" component={() => <div className="p-6"><h1 className="text-2xl font-bold">Activity</h1><p>Activity feed coming soon</p></div>} />
+      <ProtectedRoute path="/contacts" component={() => <div className="p-6"><h1 className="text-2xl font-bold">Contacts</h1><p>Contact management coming soon</p></div>} />
+      <ProtectedRoute path="/conversations" component={() => <div className="p-6"><h1 className="text-2xl font-bold">Conversations</h1><p>Conversation history coming soon</p></div>} />
+      <ProtectedRoute path="/calls" component={() => <div className="p-6"><h1 className="text-2xl font-bold">Calls</h1><p>Call history and management coming soon</p></div>} />
+      <ProtectedRoute path="/analytics" component={() => <div className="p-6"><h1 className="text-2xl font-bold">Analytics</h1><p>Analytics dashboard coming soon</p></div>} />
+      <ProtectedRoute path="/ai" component={() => <div className="p-6"><h1 className="text-2xl font-bold">Sona AI</h1><p>AI assistant functionality coming soon</p></div>} />
       <ProtectedRoute path="/settings" component={SettingsPage} />
       <ProtectedRoute path="/settings/telephony" component={TelephonySettingsPage} />
       <ProtectedRoute path="/settings/ai" component={AISettingsPage} />
@@ -42,7 +49,7 @@ function Router() {
       <ProtectedRoute path="/settings/billing" component={BillingSettingsPage} />
       
       {/* Legacy routes for backward compatibility */}
-      <ProtectedRoute path="/telephony" component={featureFlags.enableNewUI ? 
+      <ProtectedRoute path="/telephony" component={featureFlags.chatwootLayout ? 
         (() => <Redirect to="/settings/telephony" />) : TelephonyPage} />
       <ProtectedRoute path="/transfer-form" component={TransferFormPage} />
       <ProtectedRoute path="/admin/transfers" component={AdminTransfersPage} />
@@ -53,7 +60,7 @@ function Router() {
   );
 
   // Conditionally wrap with AppShell based on feature flag
-  if (featureFlags.enableNewUI) {
+  if (featureFlags.chatwootLayout) {
     return <AppShell>{routes}</AppShell>;
   }
 
