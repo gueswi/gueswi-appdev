@@ -39,6 +39,7 @@ export interface IStorage {
   getUser(id: string): Promise<User | undefined>;
   getUserByEmail(email: string): Promise<User | undefined>;
   createUser(user: InsertUser): Promise<User>;
+  updateUser(id: string, data: Partial<InsertUser>): Promise<User>;
   updateUserStripeInfo(id: string, customerId: string, subscriptionId: string): Promise<User>;
   
   // Tenant methods
@@ -94,6 +95,11 @@ export interface IStorage {
     page: number;
     pageSize: number;
   }>;
+
+  // Bootstrap methods
+  bootstrapUserTenant(userId: string, userEmail: string): Promise<{ user: User; tenant: Tenant }>;
+  seedDemoData(tenantId: string): Promise<void>;
+  resetTenantData(tenantId: string): Promise<void>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -119,6 +125,15 @@ export class DatabaseStorage implements IStorage {
     const [user] = await db
       .insert(users)
       .values(insertUser)
+      .returning();
+    return user;
+  }
+
+  async updateUser(id: string, data: Partial<InsertUser>): Promise<User> {
+    const [user] = await db
+      .update(users)
+      .set({ ...data, updatedAt: new Date() })
+      .where(eq(users.id, id))
       .returning();
     return user;
   }
@@ -435,6 +450,145 @@ export class DatabaseStorage implements IStorage {
       page,
       pageSize,
     };
+  }
+
+  // Bootstrap & Seed Methods
+  async bootstrapUserTenant(userId: string, userEmail: string): Promise<{ user: User; tenant: Tenant }> {
+    // Check if user already has a tenant
+    const currentUser = await this.getUser(userId);
+    if (currentUser?.tenantId) {
+      const tenant = await this.getTenant(currentUser.tenantId);
+      if (tenant) {
+        return { user: currentUser, tenant };
+      }
+    }
+
+    // Create tenant with user-based naming
+    const userName = userEmail.split('@')[0];
+    const tenantData = {
+      name: `${userName}-tenant`,
+      industry: "Virtual PBX Demo",
+      employeeCount: "10",
+      estimatedExtensions: 8,
+      plan: "starter" as const,
+      status: "active" as const
+    };
+
+    const tenant = await this.createTenant(tenantData);
+    
+    // Update user with tenant and owner role
+    const user = await db
+      .update(users)
+      .set({ 
+        tenantId: tenant.id,
+        role: "owner",
+        updatedAt: new Date()
+      })
+      .where(eq(users.id, userId))
+      .returning();
+    const updatedUser = user[0];
+
+    console.log(`✅ Bootstrap completed for user: ${updatedUser.id}/${updatedUser.email}/${updatedUser.role}/${updatedUser.tenantId}`);
+    
+    // Seed demo data for the new tenant
+    await this.seedDemoData(tenant.id);
+    
+    return { user: updatedUser, tenant };
+  }
+
+  async seedDemoData(tenantId: string): Promise<void> {
+    console.log(`🌱 Seeding demo data for tenant: ${tenantId}`);
+
+    // 1. Create 8 Extensions (4 active, 4 inactive)
+    const extensionsData = [
+      { number: "1001", userName: "Recepción", status: "ACTIVE" as const },
+      { number: "1002", userName: "Ventas - Juan", status: "ACTIVE" as const },
+      { number: "1003", userName: "Soporte - María", status: "ACTIVE" as const },
+      { number: "1004", userName: "Gerencia", status: "ACTIVE" as const },
+      { number: "1005", userName: "Ext. Libre 1", status: "INACTIVE" as const },
+      { number: "1006", userName: "Ext. Libre 2", status: "INACTIVE" as const },
+      { number: "1007", userName: "Ext. Libre 3", status: "INACTIVE" as const },
+      { number: "1008", userName: "Ext. Libre 4", status: "INACTIVE" as const }
+    ];
+
+    for (const extData of extensionsData) {
+      await this.createExtension({
+        ...extData,
+        tenantId,
+        sipPassword: Math.random().toString(36).substr(2, 12)
+      });
+    }
+
+    // 2. Create 1 IVR Menu
+    await this.createIvr({
+      name: "Principal",
+      options: [
+        { key: "1", action: "queue", target: "ventas", description: "Queue Ventas" },
+        { key: "2", action: "queue", target: "soporte", description: "Queue Soporte" },
+        { key: "default", action: "ai_agent", target: "demo", description: "Agente IA demo" }
+      ],
+      tenantId
+    });
+
+    // 3. Create 2 Queues  
+    await this.createQueue({
+      name: "Ventas",
+      tenantId
+    });
+
+    await this.createQueue({
+      name: "Soporte", 
+      tenantId
+    });
+
+    // 4. Create 3 Demo Recordings
+    const recordingsData = [
+      {
+        callId: "demo-call-001",
+        startedAt: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000), // 2 days ago
+        durationSec: 145,
+        sizeBytes: 2345678,
+        url: "/public/samples/demo-call.mp3"
+      },
+      {
+        callId: "demo-call-002", 
+        startedAt: new Date(Date.now() - 1 * 24 * 60 * 60 * 1000), // 1 day ago
+        durationSec: 230,
+        sizeBytes: 3456789,
+        url: "/public/samples/demo-call.mp3"
+      },
+      {
+        callId: "demo-call-003",
+        startedAt: new Date(Date.now() - 3 * 60 * 60 * 1000), // 3 hours ago
+        durationSec: 89,
+        sizeBytes: 1234567,
+        url: "/public/samples/demo-call.mp3"
+      }
+    ];
+
+    for (const recData of recordingsData) {
+      await db.insert(recordings).values({
+        ...recData,
+        tenantId
+      });
+    }
+
+    console.log(`✅ Demo data seeded successfully for tenant: ${tenantId}`);
+  }
+
+  async resetTenantData(tenantId: string): Promise<void> {
+    console.log(`🗑️  Resetting data for tenant: ${tenantId}`);
+    
+    // Delete existing data
+    await db.delete(recordings).where(eq(recordings.tenantId, tenantId));
+    await db.delete(queues).where(eq(queues.tenantId, tenantId));
+    await db.delete(ivrMenus).where(eq(ivrMenus.tenantId, tenantId));
+    await db.delete(extensions).where(eq(extensions.tenantId, tenantId));
+    
+    // Reseed demo data
+    await this.seedDemoData(tenantId);
+    
+    console.log(`✅ Tenant data reset and reseeded: ${tenantId}`);
   }
 }
 

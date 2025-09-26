@@ -44,6 +44,64 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Setup authentication
   setupAuth(app);
 
+  // Bootstrap middleware - automatically create tenant for users without one
+  app.use("/api", async (req, res, next) => {
+    // Skip bootstrap for public routes
+    const publicRoutes = ["/api/login", "/api/register", "/api/system/mode", "/api/logout"];
+    if (publicRoutes.includes(req.path)) {
+      return next();
+    }
+
+    // Skip if not authenticated
+    if (!req.isAuthenticated() || !req.user) {
+      return next();
+    }
+
+    // Check if user needs tenant bootstrap
+    if (!req.user.tenantId) {
+      try {
+        console.log(`🚀 Bootstrapping tenant for user: ${req.user.email}`);
+        const { user, tenant } = await storage.bootstrapUserTenant(req.user.id, req.user.email);
+        
+        // Update req.user with new tenant info
+        req.user = user;
+        
+        console.log(`✅ Tenant bootstrap completed: ${tenant.id} for ${user.email}`);
+      } catch (error) {
+        console.error("❌ Bootstrap failed:", error);
+        return res.status(500).json({ 
+          code: "BOOTSTRAP_FAILED", 
+          message: "Failed to create tenant workspace" 
+        });
+      }
+    }
+
+    next();
+  });
+
+  // Dev seed reset endpoint (owner only)
+  app.post("/api/dev/seed/reset", async (req, res) => {
+    try {
+      if (!req.isAuthenticated() || !req.user.tenantId) {
+        return res.status(401).json({ code: "UNAUTHORIZED", message: "Authentication required" });
+      }
+
+      if (req.user.role !== "owner") {
+        return res.status(403).json({ code: "FORBIDDEN", message: "Owner role required" });
+      }
+
+      await storage.resetTenantData(req.user.tenantId);
+      
+      res.json({ 
+        success: true, 
+        message: `Tenant data reset and reseeded for: ${req.user.tenantId}` 
+      });
+    } catch (error: any) {
+      console.error("❌ Seed reset failed:", error);
+      res.status(500).json({ message: error.message });
+    }
+  });
+
   // PayPal routes
   app.get("/api/paypal/setup", async (req, res) => {
     await loadPaypalDefault(req, res);
