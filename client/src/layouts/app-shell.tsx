@@ -22,7 +22,7 @@ export function AppShell({ children }: AppShellProps) {
   const { isPanelOpen, openPanel, closePanel } = useSoftphone();
 
   // Don't show AppShell on auth pages or when feature flag is disabled
-  if (!user || location === '/' || location === '/auth' || !featureFlags.chatwootLayout) {
+  if (!user || location === '/auth' || !featureFlags.chatwootLayout) {
     return <>{children}</>;
   }
 

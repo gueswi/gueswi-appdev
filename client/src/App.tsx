@@ -10,6 +10,7 @@ import { AppShell } from "@/layouts/app-shell";
 import { featureFlags } from "@/lib/feature-flags";
 import { Redirect } from "@/components/Redirect";
 import HomePage from "@/pages/home-page";
+import MetricsHomePage from "@/pages/metrics-home-page";
 import AuthPage from "@/pages/auth-page";
 import OnboardingPage from "@/pages/onboarding-page";
 import DashboardPage from "@/pages/dashboard-page";
@@ -28,7 +29,11 @@ import NotFound from "@/pages/not-found";
 function Router() {
   const routes = (
     <Switch>
-      <Route path="/" component={HomePage} />
+      {featureFlags.chatwootLayout ? (
+        <ProtectedRoute path="/" component={MetricsHomePage} />
+      ) : (
+        <Route path="/" component={HomePage} />
+      )}
       <Route path="/auth" component={AuthPage} />
       <ProtectedRoute path="/onboarding" component={OnboardingPage} />
       <ProtectedRoute path="/dashboard" component={DashboardPage} />
