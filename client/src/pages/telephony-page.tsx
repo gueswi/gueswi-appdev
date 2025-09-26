@@ -46,6 +46,8 @@ import {
 } from "@/hooks/use-telephony";
 import { ExtensionModal } from "@/components/telephony/extension-modal";
 import { IvrModal } from "@/components/telephony/ivr-modal";
+import { AudioPlayer } from "@/components/telephony/audio-player";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import type { Extension, IvrMenu } from "@shared/schema";
 
 function ExtensionsTab() {
@@ -391,12 +393,44 @@ function QueuesTab() {
 
 function RecordingsTab() {
   const [page, setPage] = useState(1);
+  const [audioPlayer, setAudioPlayer] = useState<{
+    isOpen: boolean;
+    recording: any | null;
+  }>({
+    isOpen: false,
+    recording: null,
+  });
   const pageSize = 10;
 
   const { data: recordingsData, isLoading } = useRecordings({
     page,
     pageSize,
   });
+
+  const openAudioPlayer = (recording: any) => {
+    setAudioPlayer({
+      isOpen: true,
+      recording,
+    });
+  };
+
+  const closeAudioPlayer = () => {
+    setAudioPlayer({
+      isOpen: false,
+      recording: null,
+    });
+  };
+
+  const getRecordingUrl = (recording: any) => {
+    // In a real implementation, this would be the actual audio file URL
+    // For demo purposes, we'll use a placeholder or local audio file
+    return recording.fileUrl || `/api/recordings/${recording.id}/audio`;
+  };
+
+  const getRecordingFileName = (recording: any) => {
+    const date = new Date(recording.startedAt).toISOString().split('T')[0];
+    return `recording-${recording.callId}-${date}.wav`;
+  };
 
   return (
     <div className="space-y-6">
@@ -463,6 +497,7 @@ function RecordingsTab() {
                         <Button 
                           variant="ghost" 
                           size="sm"
+                          onClick={() => openAudioPlayer(recording)}
                           data-testid={`button-play-${recording.id}`}
                         >
                           <Play className="h-4 w-4" />
@@ -510,6 +545,22 @@ function RecordingsTab() {
           </Button>
         </div>
       )}
+
+      {/* Audio Player Dialog */}
+      <Dialog open={audioPlayer.isOpen} onOpenChange={closeAudioPlayer}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Reproducir Grabación</DialogTitle>
+          </DialogHeader>
+          {audioPlayer.recording && (
+            <AudioPlayer
+              audioUrl={getRecordingUrl(audioPlayer.recording)}
+              fileName={getRecordingFileName(audioPlayer.recording)}
+              onClose={closeAudioPlayer}
+            />
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
