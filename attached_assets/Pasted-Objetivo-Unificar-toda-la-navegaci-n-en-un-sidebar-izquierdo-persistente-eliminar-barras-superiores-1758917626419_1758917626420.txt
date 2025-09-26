@@ -1,0 +1,186 @@
+Objetivo
+Unificar toda la navegación en un sidebar izquierdo persistente, eliminar barras superiores redundantes, mover “Telefonía / IA / Consumo / Facturación” a Settings, y dejar la Home solo como tablero de métricas (por ahora con lo que ya tenemos). Mantener el softphone y todo lo que ya funcionaba.
+
+0) Seguridad/branching
+
+Crea un checkpoint/commit: “ui/reshape-start”.
+
+Trabaja con flag de feature: UI_CHATWOOT_LAYOUT=true (por defecto on en dev).
+
+1) Nuevo layout base
+
+Crear client/src/layouts/app-shell.tsx que contenga:
+
+Sidebar izquierdo fijo (ancho ~260px) con secciones (usa Divider):
+
+Workspace (logo + nombre)
+
+Primary: Inbox, Search, Activity, Contacts, Conversations (si no existe como entrada), Calls (opcional si lo tenías), Analytics (placeholder)
+
+Tools: Sona AI (si aplica)
+
+Settings: única entrada para toda la configuración (dentro viven Telephony/IA/Consumo/Facturación)
+
+Topbar eliminada. No debe quedar ninguna barra superior global.
+
+Main content a la derecha, con padding consistente.
+
+Mueve el CallBar (softphone) a AppShell para que quede siempre visible abajo, como antes.
+
+Criterios de aceptación
+
+No existe ninguna barra superior global.
+
+Solo hay un sidebar izquierdo visible en todas las pantallas autenticadas.
+
+CallBar sigue visible y funcional.
+
+2) Routing unificado
+
+Actualiza client/src/App.tsx (o router equivalente):
+
+Rutas dentro de AppShell:
+
+/ → DashboardHome (solo métricas)
+
+/inbox → Conversations (tres paneles: folders/filters, lista, thread)
+
+/search, /activity, /contacts
+
+/settings → página índice con subsecciones:
+
+/settings/telephony (Extensions, IVR, Queues, Recordings)
+
+/settings/ai
+
+/settings/billing (Facturación)
+
+/settings/consumption
+
+Elimina/redirige rutas viejas como /dashboard, /telephony, etc. a sus equivalentes:
+
+/dashboard → /
+
+/telephony → /settings/telephony
+
+Poner redirects 301 en router.
+
+Criterios de aceptación
+
+Navegación lateral abre todas las vistas correctas.
+
+Rutas antiguas redirigen sin 404.
+
+3) Sidebar (detalle)
+
+Componente SidebarNav.tsx:
+
+Usa íconos (lucide) claros (inbox, search, activity, users, bot, settings).
+
+Secciones con títulos: Your workspace, Inboxes, Tools, Settings.
+
+Estado activo por ruta (usa useLocation()).
+
+Soporta colapso (opcional, con width 72px) y tooltips.
+
+4) Home: sólo métricas
+
+DashboardHome.tsx muestra solo tarjetas KPI (las que ya tenemos) y los 4 módulos de telefonía como tarjetas de acceso (no tabs).
+
+Eliminar tabs “Telefonía / IA / Consumo / Facturación” de la Home.
+
+Nada de métricas fuera de Home.
+
+5) Conversations como destino principal
+
+Mueve el módulo Conversaciones a /inbox (dentro del AppShell).
+
+Asegura layout de 3 paneles:
+
+Izquierda: vistas (All/Mine/Unassigned…), saved views, contadores.
+
+Centro: lista de conversaciones con filtros.
+
+Derecha: thread + composer + panel de contacto.
+
+Mantén lo que ya implementaste (menciones, archivos, tags, assignee) y no rompas websockets.
+
+6) Settings unificado
+
+Crear SettingsIndex.tsx con tarjetas que enlazan a:
+
+Telephony (/settings/telephony): extensiones, IVR, colas, grabaciones (lo existente).
+
+AI (/settings/ai): placeholder si aún no hay UI.
+
+Billing (/settings/billing): lo que ya tengamos.
+
+Consumption (/settings/consumption): consumo real.
+
+Quita entradas de nivel superior para Telephony/IA/Consumo/Facturación del nav principal.
+
+7) Quitar headers redundantes
+
+Eliminar “Home / Conectado / owner” y cualquier welcome bar o dev badges de la parte superior.
+
+Si hay banners de sandbox/dev, muéstralos como pill pequeña dentro del sidebar abajo (opcional).
+
+8) Accesibilidad/Responsive
+
+Sidebar sticky, scroll independiente del main.
+
+Breakpoints:
+
+≥1024px: sidebar fijo.
+
+<1024px: sidebar colapsable (hamburger en la esquina del main, NO topbar global).
+
+9) Limpieza y deudas
+
+Remover tabs, breadcrumbs o “back buttons” duplicados; donde aplique, añade un Breadcrumbs dentro del main (no topbar global).
+
+Quitar estilos muertos y componentes de barras superiores antiguas.
+
+10) QA de humo (obligatorio)
+
+Login → Home (/): se ven solo KPIs y tarjetas de acceso; sin tabs.
+
+Click Inbox: aparece layout 3 paneles, lista y thread cargan; enviar mensaje funciona.
+
+Sidebar: todas las entradas navegan; estado activo correcto.
+
+Settings → Telephony: CRUD de extensiones/IVR/colas/recordings sigue funcionando.
+
+Softphone: dial → ringing → answered → hangup → UI limpia (mock flow OK).
+
+Rutas viejas redirigen a las nuevas sin errores.
+
+No hay barras superiores en ninguna vista.
+
+Notas técnicas
+
+Mantén React Query keys y endpoints actuales; solo cambia import de layout/containers.
+
+No toques auth ni session.
+
+Mantén el CallBar polling con el intervalo vigente.
+
+Usa Tailwind + shadcn/ui existentes.
+
+Entrega
+
+Deja checkpoint: “ui/reshape-complete”.
+
+Resumen de archivos tocados y nuevas rutas.
+
+GIF corto de navegación: Home → Inbox → Settings → Telephony → volver a Home.
+
+Cómo lo ejecutas y verificas tú
+
+Nada especial: abre Preview y navega con tu usuario.
+
+Debes ver solo el sidebar a la izquierda y cero barras superiores.
+
+Home con métricas; Inbox con 3 paneles; configuración dentro de Settings.
+
+Si algo se rompe, pide rollback al checkpoint “ui/reshape-start”.

@@ -3,7 +3,10 @@
  */
 
 export const featureFlags = {
-  // New Inbox-first UI (Chatwoot/Quo style)
+  // New Chatwoot-style sidebar layout (default ON in development)
+  chatwootLayout: import.meta.env.UI_CHATWOOT_LAYOUT !== 'false', // Default true, set to 'false' to disable
+  
+  // Legacy inbox-first UI (deprecated in favor of chatwootLayout)
   enableNewUI: import.meta.env.VITE_ENABLE_NEW_UI === 'true',
   
   // Performance optimizations
