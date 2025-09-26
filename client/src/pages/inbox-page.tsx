@@ -49,7 +49,7 @@ export default function InboxPage() {
   const [searchQuery, setSearchQuery] = useState('');
 
   return (
-    <div className="h-full flex bg-gray-50 dark:bg-gray-900" data-testid="inbox-page">
+    <div className="h-full flex bg-gray-50 dark:bg-gray-900 -m-6" data-testid="inbox-page">
       {/* Left Panel - Views and Filters */}
       <div className="w-80 bg-white dark:bg-gray-800 border-r border-gray-200 dark:border-gray-700 flex flex-col">
         {/* Search */}
