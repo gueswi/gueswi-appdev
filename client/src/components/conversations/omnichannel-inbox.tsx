@@ -4,6 +4,7 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest, getQueryFn } from "@/lib/queryClient";
@@ -27,7 +28,11 @@ import {
   FileText,
   Image,
   X,
-  AtSign
+  AtSign,
+  RotateCcw,
+  ArrowRight,
+  Flag,
+  Tag
 } from "lucide-react";
 
 interface Conversation {
@@ -215,6 +220,92 @@ export function OmnichannelInbox() {
         variant: "destructive",
       });
     },
+  });
+
+  // Update conversation mutation
+  const updateConversationMutation = useMutation({
+    mutationFn: async ({ id, ...updates }: { id: string; status?: string; assigneeId?: string; priority?: string; notes?: string }) => {
+      const res = await apiRequest("PATCH", `/api/conversations/${id}`, updates);
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: [`/api/conversations/${selectedConversationId}`] });
+      queryClient.invalidateQueries({ queryKey: ["/api/conversations"] });
+      toast({ title: "Conversación actualizada", description: "Los cambios han sido guardados." });
+    },
+    onError: (error: any) => {
+      toast({ title: "Error", description: error.message || "No se pudo actualizar la conversación.", variant: "destructive" });
+    },
+  });
+
+  // Close conversation mutation  
+  const closeConversationMutation = useMutation({
+    mutationFn: async (conversationId: string) => {
+      const res = await apiRequest("POST", `/api/conversations/${conversationId}/close`);
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: [`/api/conversations/${selectedConversationId}`] });
+      queryClient.invalidateQueries({ queryKey: ["/api/conversations"] });
+      toast({ title: "Conversación cerrada", description: "La conversación ha sido cerrada exitosamente." });
+    },
+    onError: (error: any) => {
+      toast({ title: "Error", description: error.message || "No se pudo cerrar la conversación.", variant: "destructive" });
+    },
+  });
+
+  // Reopen conversation mutation  
+  const reopenConversationMutation = useMutation({
+    mutationFn: async (conversationId: string) => {
+      const res = await apiRequest("POST", `/api/conversations/${conversationId}/reopen`);
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: [`/api/conversations/${selectedConversationId}`] });
+      queryClient.invalidateQueries({ queryKey: ["/api/conversations"] });
+      toast({ title: "Conversación reabierta", description: "La conversación ha sido reabierta exitosamente." });
+    },
+    onError: (error: any) => {
+      toast({ title: "Error", description: error.message || "No se pudo reabrir la conversación.", variant: "destructive" });
+    },
+  });
+
+  // Add tags mutation
+  const addTagsMutation = useMutation({
+    mutationFn: async ({ conversationId, tags }: { conversationId: string; tags: string[] }) => {
+      const res = await apiRequest("POST", `/api/conversations/${conversationId}/tags`, { tags });
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: [`/api/conversations/${selectedConversationId}`] });
+      queryClient.invalidateQueries({ queryKey: ["/api/conversations"] });
+      toast({ title: "Etiquetas agregadas", description: "Las etiquetas han sido añadidas." });
+    },
+    onError: (error: any) => {
+      toast({ title: "Error", description: error.message || "No se pudieron agregar las etiquetas.", variant: "destructive" });
+    },
+  });
+
+  // Remove tag mutation
+  const removeTagMutation = useMutation({
+    mutationFn: async ({ conversationId, tag }: { conversationId: string; tag: string }) => {
+      const res = await apiRequest("DELETE", `/api/conversations/${conversationId}/tags/${encodeURIComponent(tag)}`);
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: [`/api/conversations/${selectedConversationId}`] });
+      queryClient.invalidateQueries({ queryKey: ["/api/conversations"] });
+      toast({ title: "Etiqueta eliminada", description: "La etiqueta ha sido eliminada." });
+    },
+    onError: (error: any) => {
+      toast({ title: "Error", description: error.message || "No se pudo eliminar la etiqueta.", variant: "destructive" });
+    },
+  });
+
+  // Fetch team members for assignee selector
+  const { data: realTeamMembers } = useQuery<any[]>({
+    queryKey: ["/api/team-members"],
+    queryFn: getQueryFn({ on401: "throw" }),
   });
 
   const handleSendMessage = () => {

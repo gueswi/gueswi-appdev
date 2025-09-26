@@ -408,6 +408,147 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Update conversation status, assignee, or other properties
+  app.patch("/api/conversations/:id", async (req, res) => {
+    try {
+      if (!req.isAuthenticated() || !req.user.tenantId) {
+        return res.status(401).json({ message: "Authentication required" });
+      }
+
+      const { id } = req.params;
+      const { status, assigneeId, priority, notes } = req.body;
+
+      // Basic validation
+      if (status && !["open", "pending", "closed", "active", "ended", "ringing", "answered"].includes(status)) {
+        return res.status(400).json({ message: "Invalid status value" });
+      }
+
+      const updateData: any = {};
+      if (status !== undefined) updateData.status = status;
+      if (assigneeId !== undefined) updateData.assigneeId = assigneeId;
+      if (priority !== undefined) updateData.priority = priority;
+      if (notes !== undefined) updateData.notes = notes;
+
+      const updatedConversation = await storage.updateConversation(id, updateData);
+      res.json(updatedConversation);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // Close conversation
+  app.post("/api/conversations/:id/close", async (req, res) => {
+    try {
+      if (!req.isAuthenticated() || !req.user.tenantId) {
+        return res.status(401).json({ message: "Authentication required" });
+      }
+
+      const { id } = req.params;
+      
+      // Verify conversation belongs to user's tenant
+      const existingConversation = await storage.getConversationWithMessages(id, req.user.tenantId);
+      if (!existingConversation) {
+        return res.status(404).json({ message: "Conversation not found or access denied" });
+      }
+
+      const updatedConversation = await storage.closeConversation(id);
+      res.json(updatedConversation);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // Reopen conversation
+  app.post("/api/conversations/:id/reopen", async (req, res) => {
+    try {
+      if (!req.isAuthenticated() || !req.user.tenantId) {
+        return res.status(401).json({ message: "Authentication required" });
+      }
+
+      const { id } = req.params;
+      
+      // Verify conversation belongs to user's tenant
+      const existingConversation = await storage.getConversationWithMessages(id, req.user.tenantId);
+      if (!existingConversation) {
+        return res.status(404).json({ message: "Conversation not found or access denied" });
+      }
+
+      const updatedConversation = await storage.reopenConversation(id);
+      res.json(updatedConversation);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // Add tags to conversation
+  app.post("/api/conversations/:id/tags", async (req, res) => {
+    try {
+      if (!req.isAuthenticated() || !req.user.tenantId) {
+        return res.status(401).json({ message: "Authentication required" });
+      }
+
+      const { id } = req.params;
+      const { tags } = req.body;
+
+      // Verify conversation belongs to user's tenant
+      const existingConversation = await storage.getConversationWithMessages(id, req.user.tenantId);
+      if (!existingConversation) {
+        return res.status(404).json({ message: "Conversation not found or access denied" });
+      }
+
+      if (!Array.isArray(tags)) {
+        return res.status(400).json({ message: "Tags must be an array" });
+      }
+
+      const updatedConversation = await storage.addConversationTags(id, tags);
+      res.json(updatedConversation);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // Remove tag from conversation
+  app.delete("/api/conversations/:id/tags/:tag", async (req, res) => {
+    try {
+      if (!req.isAuthenticated() || !req.user.tenantId) {
+        return res.status(401).json({ message: "Authentication required" });
+      }
+
+      const { id, tag } = req.params;
+      
+      // Verify conversation belongs to user's tenant
+      const existingConversation = await storage.getConversationWithMessages(id, req.user.tenantId);
+      if (!existingConversation) {
+        return res.status(404).json({ message: "Conversation not found or access denied" });
+      }
+
+      const updatedConversation = await storage.removeConversationTag(id, tag);
+      res.json(updatedConversation);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // Get tenant team members for assignee dropdown
+  app.get("/api/team-members", async (req, res) => {
+    try {
+      if (!req.isAuthenticated() || !req.user.tenantId) {
+        return res.status(401).json({ message: "Authentication required" });
+      }
+
+      // Get all users in the same tenant
+      const teamMembers = await storage.getTenantUsers(req.user.tenantId);
+      res.json(teamMembers.map(user => ({
+        id: user.id,
+        name: `${user.firstName || ''} ${user.lastName || ''}`.trim() || user.username,
+        email: user.email,
+        role: user.role
+      })));
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
   // PayPal routes
   app.get("/api/paypal/setup", async (req, res) => {
     await loadPaypalDefault(req, res);
