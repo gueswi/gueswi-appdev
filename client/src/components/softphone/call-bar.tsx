@@ -36,10 +36,11 @@ export function CallBar({ onTogglePanel, isPanelOpen }: CallBarProps) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
-  // Get active call status
+  // Get active call status - OPTIMIZED POLLING
   const { data: activeCall, isLoading } = useQuery<ActiveCall>({
     queryKey: ['/api/softphone/status'],
-    refetchInterval: 1000, // Poll every second for real-time updates
+    refetchInterval: 2000, // Reduced from 1s to 2s to save resources
+    // TODO: Disable polling completely when WebSocket is connected
   });
 
   const hangupMutation = useMutation({
@@ -50,11 +51,14 @@ export function CallBar({ onTogglePanel, isPanelOpen }: CallBarProps) {
       return apiRequest('POST', `/api/softphone/calls/${activeCall.conversationId}/hangup`);
     },
     onSuccess: () => {
+      // CLEAR LOCAL STATE AND CACHE IMMEDIATELY
+      queryClient.setQueryData(['/api/softphone/status'], null);
+      queryClient.invalidateQueries({ queryKey: ['/api/softphone/status'] });
+      
       toast({
         title: "Llamada finalizada",
         description: "La llamada se ha terminado correctamente",
       });
-      queryClient.invalidateQueries({ queryKey: ['/api/softphone/status'] });
     }
   });
 
@@ -85,13 +89,14 @@ export function CallBar({ onTogglePanel, isPanelOpen }: CallBarProps) {
     );
   }
 
+  // ALWAYS SHOW "SIN LLAMADAS" WHEN NO ACTIVE CALL
   if (!activeCall) {
     return (
       <div className="fixed bottom-0 left-0 right-0 bg-background border-t border-border shadow-lg z-50" data-testid="call-bar">
         <div className="flex items-center justify-between px-4 py-3">
           <div className="flex items-center gap-3">
             <Phone className="w-5 h-5 text-muted-foreground" />
-            <span className="text-sm text-muted-foreground">Sin llamadas activas</span>
+            <span className="text-sm text-muted-foreground" data-testid="text-no-calls">Sin llamadas activas</span>
           </div>
           <Button 
             variant="outline" 

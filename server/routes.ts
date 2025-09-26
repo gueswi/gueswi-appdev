@@ -1,5 +1,12 @@
 import type { Express } from "express";
 import { createServer, type Server } from "http";
+
+// Extend Server type to include wsHandler
+interface ServerWithWebSocket extends Server {
+  wsHandler?: {
+    broadcast: (channel: string, data: any) => void;
+  };
+}
 import Stripe from "stripe";
 import { storage } from "./storage";
 import { setupAuth } from "./auth";
@@ -42,7 +49,7 @@ const upload = multer({
 
 export async function registerRoutes(app: Express): Promise<Server> {
   // Create HTTP server and setup WebSocket support
-  const server = createServer(app);
+  const server = createServer(app) as ServerWithWebSocket;
   
   // Mock WebSocket handler for softphone (dev implementation)
   const wsHandler = {
@@ -53,7 +60,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   };
   
   // Attach WebSocket handler to server
-  (server as any).wsHandler = wsHandler;
+  server.wsHandler = wsHandler;
 
   // Setup authentication
   setupAuth(app);
@@ -203,7 +210,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       console.log(`🔍 Status: Active conversation check:`, activeConversation ? `${activeConversation.id} (${activeConversation.status})` : 'none');
       
       if (!activeConversation) {
-        return res.json(null); // No active call
+        return res.json(null); // No active call - clean state
       }
 
       // Return call status data
@@ -276,7 +283,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       console.log(`🔧 Hangup: Ending conversation ${conversationId}`);
       
-      // Update conversation status
+      // Update conversation status (idempotent - safe to call multiple times)
       await storage.endConversationById(conversationId);
       
       console.log(`✅ Hangup: Conversation ${conversationId} ended`);
@@ -284,13 +291,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Emit WebSocket event
       if (server.wsHandler) {
         server.wsHandler.broadcast(`tenant:${req.user.tenantId}`, {
-          type: 'call_status',
-          conversationId,
-          status: 'ended'
+          type: 'ended',
+          conversationId
         });
       }
 
-      res.json({ success: true, conversationId, status: "ended" });
+      res.json({ ok: true });
     } catch (error: any) {
       res.status(500).json({ message: error.message });
     }

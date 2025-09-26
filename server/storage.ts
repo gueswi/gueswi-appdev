@@ -32,7 +32,7 @@ import {
   type InsertMessage
 } from "@shared/schema";
 import { db } from "./db";
-import { eq, and, desc, gte, lte, count, sum, sql } from "drizzle-orm";
+import { eq, and, desc, gte, lte, count, sum, sql, isNull } from "drizzle-orm";
 import session from "express-session";
 import createMemoryStore from "memorystore";
 
@@ -679,9 +679,9 @@ export class DatabaseStorage implements IStorage {
     };
   }
 
-  // Get active conversation for softphone
+  // Get active conversation for softphone - STRICT FILTERING
   async getActiveConversation(tenantId: string, userId: string): Promise<Conversation | undefined> {
-    const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
+    const thirtySecsAgo = new Date(Date.now() - 30 * 1000);
     
     const [conversation] = await db
       .select()
@@ -690,26 +690,32 @@ export class DatabaseStorage implements IStorage {
         and(
           eq(conversations.tenantId, tenantId),
           eq(conversations.userId, userId),
-          // Active status means call is ongoing (ringing or answered, but not ended)
+          // ONLY active calls: ringing or answered
           sql`${conversations.status} IN ('ringing', 'answered')`,
-          // Only return recent conversations (within last hour) to avoid stale test data
-          gte(conversations.createdAt, oneHourAgo)
+          // NOT ended (endedAt IS NULL)
+          isNull(conversations.endedAt),
+          // Freshness guard: only recently updated calls (30s)
+          gte(conversations.updatedAt, thirtySecsAgo)
         )
       )
       .orderBy(desc(conversations.createdAt));
 
+    console.log(`🔍 DB Query: Active conversation filter - status IN ('ringing','answered'), endedAt IS NULL, updatedAt > ${thirtySecsAgo.toISOString()}`);
     return conversation;
   }
 
-  // Update conversation status
-  async updateConversationStatus(conversationId: string, status: string): Promise<void> {
+  // Update conversation status - ALWAYS update updatedAt
+  async updateConversationStatus(conversationId: string, status: "active" | "ended" | "ringing" | "answered"): Promise<void> {
+    const now = new Date();
     await db
       .update(conversations)
       .set({ 
         status,
-        updatedAt: new Date()
+        updatedAt: now
       })
       .where(eq(conversations.id, conversationId));
+    
+    console.log(`📝 DB: Conversation ${conversationId} status updated to '${status}' at ${now.toISOString()}`);
   }
 
   async getConversations(tenantId: string, page = 1, pageSize = 10): Promise<{
