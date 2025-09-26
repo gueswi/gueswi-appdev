@@ -1,11 +1,48 @@
 import { Button } from "@/components/ui/button";
-import { Phone } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
+import { Phone, MessageSquare } from "lucide-react";
 import { useLocation } from "wouter";
 import { useAuth } from "@/hooks/use-auth";
+import { useQuery } from "@tanstack/react-query";
 import { ModeBanner } from "@/components/mode-banner";
 
 interface NavbarProps {
   onNavigate?: (path: string) => void;
+}
+
+function ConversationsNavButton({ handleNavigation }: { handleNavigation: (path: string) => void }) {
+  const { data: countData } = useQuery({
+    queryKey: ['/api/conversations/count'],
+    queryFn: async () => {
+      const response = await fetch('/api/conversations/count?hours=24');
+      if (!response.ok) return { count: 0 };
+      return response.json();
+    },
+    refetchInterval: 30000, // Refresh every 30 seconds
+  });
+
+  const count = countData?.count || 0;
+
+  return (
+    <Button 
+      variant="outline" 
+      onClick={() => handleNavigation('/dashboard/conversaciones')}
+      className="relative"
+      data-testid="button-conversations"
+    >
+      <MessageSquare className="h-4 w-4 mr-2" />
+      Conversaciones
+      {count > 0 && (
+        <Badge 
+          variant="secondary" 
+          className="ml-2 px-2 py-0.5 text-xs"
+          data-testid="badge-conversation-count"
+        >
+          {count}
+        </Badge>
+      )}
+    </Button>
+  );
 }
 
 export function Navbar({ onNavigate }: NavbarProps) {
@@ -66,6 +103,7 @@ export function Navbar({ onNavigate }: NavbarProps) {
                 >
                   Dashboard
                 </Button>
+                <ConversationsNavButton handleNavigation={handleNavigation} />
                 <Button 
                   variant="outline" 
                   onClick={handleLogout}

@@ -110,9 +110,9 @@ export interface IStorage {
   // Conversation methods (softphone)
   createConversation(conversation: InsertConversation & { tenantId: string }): Promise<Conversation>;
   endConversation(callId: string): Promise<void>;
-  updateConversationNotes(callId: string, notes: string): Promise<void>;
+  updateConversationNotes(callId: string, notes: string): Promise<Conversation>;
   getConversationWithMessages(id: string, tenantId: string): Promise<(Conversation & { messages: Message[] }) | undefined>;
-  getConversations(tenantId: string, page?: number, pageSize?: number): Promise<{
+  getConversations(tenantId: string, page?: number, pageSize?: number, type?: string, search?: string): Promise<{
     data: Conversation[];
     total: number;
     page: number;
@@ -122,6 +122,9 @@ export interface IStorage {
   
   // Message methods
   createMessage(message: InsertMessage): Promise<Message>;
+  
+  // Conversation count for badge
+  getConversationCount(tenantId: string, hours?: number): Promise<number>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -649,14 +652,17 @@ export class DatabaseStorage implements IStorage {
       .where(eq(conversations.id, conversationId));
   }
 
-  async updateConversationNotes(callId: string, notes: string): Promise<void> {
-    await db
+  async updateConversationNotes(callId: string, notes: string): Promise<Conversation> {
+    const [updatedConversation] = await db
       .update(conversations)
       .set({ 
         notes,
         updatedAt: new Date()
       })
-      .where(eq(conversations.callId, callId));
+      .where(eq(conversations.callId, callId))
+      .returning();
+    
+    return updatedConversation;
   }
 
   async getConversationWithMessages(id: string, tenantId: string): Promise<(Conversation & { messages: Message[] }) | undefined> {
@@ -718,7 +724,7 @@ export class DatabaseStorage implements IStorage {
     console.log(`📝 DB: Conversation ${conversationId} status updated to '${status}' at ${now.toISOString()}`);
   }
 
-  async getConversations(tenantId: string, page = 1, pageSize = 10): Promise<{
+  async getConversations(tenantId: string, page = 1, pageSize = 10, type?: string, search?: string): Promise<{
     data: Conversation[];
     total: number;
     page: number;
@@ -727,15 +733,32 @@ export class DatabaseStorage implements IStorage {
   }> {
     const offset = (page - 1) * pageSize;
 
+    // Build where conditions
+    const whereConditions = [eq(conversations.tenantId, tenantId)];
+    
+    // Add type filter if specified (for now, all conversations are call type)
+    if (type === 'call') {
+      // All conversations in our system are calls, so no additional filter needed
+      // This parameter is ready for future expansion (e.g., chat, email)
+    }
+
+    // Add search filter if specified (search by phone number or call ID)
+    if (search?.trim()) {
+      whereConditions.push(
+        // Use SQL ILIKE for case-insensitive search on phone number OR call ID
+        sql`(${conversations.phoneNumber} ILIKE ${'%' + search.trim() + '%'} OR ${conversations.callId} ILIKE ${'%' + search.trim() + '%'})`
+      );
+    }
+
     const [totalResult] = await db
       .select({ count: count() })
       .from(conversations)
-      .where(eq(conversations.tenantId, tenantId));
+      .where(and(...whereConditions));
 
     const conversationData = await db
       .select()
       .from(conversations)
-      .where(eq(conversations.tenantId, tenantId))
+      .where(and(...whereConditions))
       .orderBy(desc(conversations.createdAt))
       .limit(pageSize)
       .offset(offset);
@@ -758,6 +781,20 @@ export class DatabaseStorage implements IStorage {
       .values(message)
       .returning();
     return newMessage;
+  }
+
+  async getConversationCount(tenantId: string, hours = 24): Promise<number> {
+    const since = new Date(Date.now() - (hours * 60 * 60 * 1000));
+    
+    const [result] = await db
+      .select({ count: count() })
+      .from(conversations)
+      .where(and(
+        eq(conversations.tenantId, tenantId),
+        gte(conversations.createdAt, since)
+      ));
+
+    return result.count;
   }
 }
 

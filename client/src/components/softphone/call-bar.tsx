@@ -15,6 +15,7 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useLocation } from 'wouter';
 
 interface ActiveCall {
   number: string;
@@ -35,6 +36,7 @@ export function CallBar({ onTogglePanel, isPanelOpen }: CallBarProps) {
   const [isSpeakerMuted, setIsSpeakerMuted] = useState(false);
   const { toast } = useToast();
   const queryClient = useQueryClient();
+  const [, setLocation] = useLocation();
 
   // Get active call status - OPTIMIZED POLLING
   const { data: activeCall, isLoading } = useQuery<ActiveCall>({
@@ -51,13 +53,27 @@ export function CallBar({ onTogglePanel, isPanelOpen }: CallBarProps) {
       return apiRequest('POST', `/api/softphone/calls/${activeCall.conversationId}/hangup`);
     },
     onSuccess: () => {
+      const conversationId = activeCall?.conversationId;
+      
       // CLEAR LOCAL STATE AND CACHE IMMEDIATELY
       queryClient.setQueryData(['/api/softphone/status'], null);
       queryClient.invalidateQueries({ queryKey: ['/api/softphone/status'] });
       
       toast({
         title: "Llamada finalizada",
-        description: "La llamada se ha terminado correctamente",
+        description: conversationId 
+          ? "La llamada se ha terminado correctamente" 
+          : "La llamada se ha terminado correctamente",
+        action: conversationId ? (
+          <Button 
+            variant="outline" 
+            size="sm" 
+            onClick={() => setLocation(`/dashboard/conversaciones/${conversationId}`)}
+            data-testid="button-view-conversation-toast"
+          >
+            Ver conversación
+          </Button>
+        ) : undefined,
       });
     }
   });

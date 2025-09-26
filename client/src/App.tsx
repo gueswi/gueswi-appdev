@@ -14,6 +14,8 @@ import TelephonyPage from "@/pages/telephony-page";
 import TransferFormPage from "@/pages/transfer-form-page";
 import AdminTransfersPage from "@/pages/admin-transfers-page";
 import CheckoutPage from "@/pages/checkout-page";
+import ConversationsPage from "@/pages/conversations-page";
+import ConversationDetailPage from "@/pages/conversation-detail-page";
 import NotFound from "@/pages/not-found";
 
 function Router() {
@@ -23,6 +25,8 @@ function Router() {
       <Route path="/auth" component={AuthPage} />
       <ProtectedRoute path="/onboarding" component={OnboardingPage} />
       <ProtectedRoute path="/dashboard" component={DashboardPage} />
+      <ProtectedRoute path="/dashboard/conversaciones/:id" component={ConversationDetailPage} />
+      <ProtectedRoute path="/dashboard/conversaciones" component={ConversationsPage} />
       <ProtectedRoute path="/telephony" component={TelephonyPage} />
       <ProtectedRoute path="/transfer-form" component={TransferFormPage} />
       <ProtectedRoute path="/admin/transfers" component={AdminTransfersPage} />

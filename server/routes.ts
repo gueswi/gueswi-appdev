@@ -339,9 +339,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const { callId } = req.params;
       const { notes } = req.body;
 
-      await storage.updateConversationNotes(callId, notes);
+      const updatedConversation = await storage.updateConversationNotes(callId, notes);
 
-      res.json({ success: true, callId, notes });
+      res.json(updatedConversation);
     } catch (error: any) {
       res.status(500).json({ message: error.message });
     }
@@ -374,14 +374,35 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(401).json({ message: "Authentication required" });
       }
 
-      const { page = 1, pageSize = 10 } = req.query;
+      const { page = 1, pageSize = 10, type, search } = req.query;
       const conversations = await storage.getConversations(
         req.user.tenantId, 
         parseInt(page as string), 
-        parseInt(pageSize as string)
+        parseInt(pageSize as string),
+        type as string,
+        search as string
       );
 
       res.json(conversations);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // Get conversation count for badge
+  app.get("/api/conversations/count", async (req, res) => {
+    try {
+      if (!req.isAuthenticated() || !req.user.tenantId) {
+        return res.status(401).json({ message: "Authentication required" });
+      }
+
+      const { hours = 24 } = req.query;
+      const count = await storage.getConversationCount(
+        req.user.tenantId, 
+        parseInt(hours as string)
+      );
+
+      res.json({ count });
     } catch (error: any) {
       res.status(500).json({ message: error.message });
     }
