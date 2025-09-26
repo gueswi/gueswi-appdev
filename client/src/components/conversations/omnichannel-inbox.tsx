@@ -23,7 +23,11 @@ import {
   Paperclip,
   Smile,
   Send,
-  Trash2
+  Trash2,
+  FileText,
+  Image,
+  X,
+  AtSign
 } from "lucide-react";
 
 interface Conversation {
@@ -64,6 +68,10 @@ export function OmnichannelInbox() {
   const [showCreateViewDialog, setShowCreateViewDialog] = useState<boolean>(false);
   const [newViewName, setNewViewName] = useState<string>("");
   const [newViewShared, setNewViewShared] = useState<boolean>(false);
+  const [attachedFiles, setAttachedFiles] = useState<File[]>([]);
+  const [showMentions, setShowMentions] = useState<boolean>(false);
+  const [mentionQuery, setMentionQuery] = useState<string>("");
+  const [caretPosition, setCaretPosition] = useState<number>(0);
   const queryClient = useQueryClient();
   const { toast } = useToast();
 
@@ -105,6 +113,17 @@ export function OmnichannelInbox() {
     queryKey: ["/api/views"],
     queryFn: getQueryFn({ on401: "throw" }),
   });
+
+  // Fetch team members for @mentions (mock data for now)
+  const teamMembers = [
+    { id: "1", name: "María García", email: "maria@gueswi.com" },
+    { id: "2", name: "Carlos Rodriguez", email: "carlos@gueswi.com" },
+    { id: "3", name: "Ana López", email: "ana@gueswi.com" },
+    { id: "4", name: "Pedro Martín", email: "pedro@gueswi.com" },
+  ].filter(member => 
+    member.name.toLowerCase().includes(mentionQuery.toLowerCase()) ||
+    member.email.toLowerCase().includes(mentionQuery.toLowerCase())
+  );
 
   // Fetch selected conversation with messages
   const { data: selectedConversation, isLoading: messagesLoading } = useQuery<ConversationWithMessages>({
@@ -590,11 +609,11 @@ export function OmnichannelInbox() {
               </div>
               <div className="relative">
                 <Textarea
-                  placeholder={messageType === "internal" ? "Escribe una nota interna..." : "Escribe tu respuesta..."}
+                  placeholder={messageType === "internal" ? "Escribe una nota interna... (@ para mencionar)" : "Escribe tu respuesta... (@ para mencionar)"}
                   className="resize-none pr-20"
                   rows={3}
                   value={messageText}
-                  onChange={(e) => setMessageText(e.target.value)}
+                  onChange={(e) => handleTextChange(e.target.value)}
                   onKeyDown={(e) => {
                     if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
                       handleSendMessage();
@@ -602,10 +621,50 @@ export function OmnichannelInbox() {
                   }}
                   data-testid="textarea-message-composer"
                 />
+                
+                {/* @Mentions Dropdown */}
+                {showMentions && teamMembers.length > 0 && (
+                  <div className="absolute bottom-full left-0 right-0 mb-2 bg-white border rounded-md shadow-lg z-50 max-h-40 overflow-y-auto">
+                    {teamMembers.map((member) => (
+                      <div
+                        key={member.id}
+                        className="px-3 py-2 hover:bg-accent cursor-pointer flex items-center gap-2"
+                        onClick={() => {
+                          const beforeAt = messageText.slice(0, caretPosition);
+                          const afterMention = messageText.slice(caretPosition + 1 + mentionQuery.length);
+                          const newText = beforeAt + `@${member.name} ` + afterMention;
+                          setMessageText(newText);
+                          setShowMentions(false);
+                        }}
+                        data-testid={`mention-${member.id}`}
+                      >
+                        <AtSign className="h-3 w-3 text-muted-foreground" />
+                        <div>
+                          <div className="text-sm font-medium">{member.name}</div>
+                          <div className="text-xs text-muted-foreground">{member.email}</div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                
                 <div className="absolute bottom-3 right-3 flex items-center gap-2">
-                  <Button size="sm" variant="ghost" className="h-6 w-6 p-0">
-                    <Paperclip className="h-3 w-3" />
-                  </Button>
+                  <label htmlFor="file-upload">
+                    <Button size="sm" variant="ghost" className="h-6 w-6 p-0" asChild>
+                      <span className="cursor-pointer">
+                        <Paperclip className="h-3 w-3" />
+                      </span>
+                    </Button>
+                    <input
+                      id="file-upload"
+                      type="file"
+                      multiple
+                      className="hidden"
+                      onChange={handleFileUpload}
+                      accept=".pdf,.doc,.docx,.xls,.xlsx,.txt,.jpg,.jpeg,.png,.gif"
+                      data-testid="file-upload-input"
+                    />
+                  </label>
                   <Button size="sm" variant="ghost" className="h-6 w-6 p-0">
                     <Smile className="h-3 w-3" />
                   </Button>
