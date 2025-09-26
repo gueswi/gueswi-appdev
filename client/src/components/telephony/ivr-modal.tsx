@@ -107,7 +107,7 @@ export function IvrModal({ isOpen, onClose, ivr, mode }: IvrModalProps) {
       // Handle both string and object formats for backward compatibility
       const ivrOptions = typeof ivr.options === 'string' 
         ? JSON.parse(ivr.options || "[]") 
-        : ivr.options || defaultOptions;
+        : ivr.options || [{ key: "1", action: "transfer", destination: "101" }];
       
       form.reset({
         name: ivr.name || "",
@@ -121,7 +121,7 @@ export function IvrModal({ isOpen, onClose, ivr, mode }: IvrModalProps) {
         options: [{ key: "1", action: "transfer", destination: "101" }],
       });
     }
-  }, [ivr, mode, form, defaultOptions]);
+  }, [ivr, mode, form]);
 
   const { fields, append, remove } = useFieldArray({
     control: form.control,
