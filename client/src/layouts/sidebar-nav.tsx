@@ -13,11 +13,12 @@ import {
   Bot, 
   Settings,
   ChevronLeft,
-  ChevronRight
+  ChevronRight,
+  X
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useAuth } from "@/hooks/use-auth";
 
 interface NavItem {
@@ -32,6 +33,11 @@ interface NavSection {
   items: NavItem[];
 }
 
+interface SidebarNavProps {
+  onMobileClose?: () => void;
+  isMobile?: boolean;
+}
+
 /**
  * Sidebar Navigation Component
  * Implements Chatwoot-style sidebar with sections:
@@ -39,11 +45,19 @@ interface NavSection {
  * - Primary Navigation (Inbox, Search, Activity, etc.)
  * - Tools (Sona AI)
  * - Settings
+ * Enhanced with responsive mobile support
  */
-export function SidebarNav() {
+export function SidebarNav({ onMobileClose, isMobile = false }: SidebarNavProps) {
   const [location] = useLocation();
   const [isCollapsed, setIsCollapsed] = useState(false);
   const { user } = useAuth();
+
+  // Reset collapsed state when switching to mobile to prevent stuck drawer
+  useEffect(() => {
+    if (isMobile) {
+      setIsCollapsed(false);
+    }
+  }, [isMobile]);
 
   // Define navigation sections as per requirements
   const navSections: NavSection[] = [
@@ -103,15 +117,31 @@ export function SidebarNav() {
             )}
           </div>
           
-          {/* Collapse button */}
-          <Button 
-            variant="ghost" 
-            size="sm"
-            className="w-6 h-6 p-0"
-            onClick={() => setIsCollapsed(!isCollapsed)}
-          >
-            {isCollapsed ? <ChevronRight className="w-4 h-4" /> : <ChevronLeft className="w-4 h-4" />}
-          </Button>
+          {/* Mobile close button */}
+          {isMobile && (
+            <Button 
+              variant="ghost" 
+              size="sm"
+              className="w-6 h-6 p-0"
+              onClick={onMobileClose}
+              data-testid="mobile-close-button"
+            >
+              <X className="w-4 h-4" />
+            </Button>
+          )}
+          
+          {/* Desktop collapse button - always visible on desktop */}
+          {!isMobile && (
+            <Button 
+              variant="ghost" 
+              size="sm"
+              className="w-6 h-6 p-0 flex-shrink-0"
+              onClick={() => setIsCollapsed(!isCollapsed)}
+              data-testid="desktop-collapse-button"
+            >
+              {isCollapsed ? <ChevronRight className="w-4 h-4" /> : <ChevronLeft className="w-4 h-4" />}
+            </Button>
+          )}
         </div>
       </div>
 
@@ -130,13 +160,16 @@ export function SidebarNav() {
             <div className="space-y-1">
               {section.items.map((item) => (
                 <Link key={item.href} href={item.href}>
-                  <a className={cn(
-                    "flex items-center px-3 py-2 text-sm font-medium rounded-lg transition-colors",
-                    "hover:bg-gray-100 dark:hover:bg-gray-700",
-                    isActive(item.href) 
-                      ? "bg-blue-50 text-blue-700 dark:bg-blue-900/20 dark:text-blue-300"
-                      : "text-gray-700 dark:text-gray-300"
-                  )}>
+                  <a 
+                    className={cn(
+                      "flex items-center px-3 py-2 text-sm font-medium rounded-lg transition-colors",
+                      "hover:bg-gray-100 dark:hover:bg-gray-700",
+                      isActive(item.href) 
+                        ? "bg-blue-50 text-blue-700 dark:bg-blue-900/20 dark:text-blue-300"
+                        : "text-gray-700 dark:text-gray-300"
+                    )}
+                    onClick={isMobile ? onMobileClose : undefined}
+                  >
                     <item.icon className={cn(
                       "w-5 h-5 flex-shrink-0",
                       isCollapsed ? "mx-auto" : "mr-3"
