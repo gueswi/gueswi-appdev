@@ -15,6 +15,7 @@ export const users = pgTable("users", {
   phone: text("phone"),
   role: text("role", { enum: ["owner", "admin", "user"] }).default("user").notNull(),
   tenantId: uuid("tenant_id").references(() => tenants.id),
+  defaultExtension: uuid("default_extension"),
   stripeCustomerId: text("stripe_customer_id"),
   stripeSubscriptionId: text("stripe_subscription_id"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
@@ -127,14 +128,45 @@ export const recordings = pgTable("recordings", {
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
+// Conversations table (softphone)
+export const conversations = pgTable("conversations", {
+  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+  tenantId: uuid("tenant_id").references(() => tenants.id).notNull(),
+  extensionId: uuid("extension_id").references(() => extensions.id),
+  userId: uuid("user_id").references(() => users.id),
+  callId: text("call_id").notNull(),
+  phoneNumber: text("phone_number"),
+  status: text("status", { enum: ["active", "ended", "ringing", "answered"] }).default("ringing").notNull(),
+  startedAt: timestamp("started_at").defaultNow().notNull(),
+  endedAt: timestamp("ended_at"),
+  duration: integer("duration").default(0),
+  notes: text("notes"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+// Messages table (call conversation feed)
+export const messages = pgTable("messages", {
+  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+  conversationId: uuid("conversation_id").references(() => conversations.id).notNull(),
+  from: text("from", { enum: ["customer", "agent", "ai"] }).notNull(),
+  content: text("content").notNull(),
+  timestamp: timestamp("timestamp").defaultNow().notNull(),
+});
+
 // Relations
 export const usersRelations = relations(users, ({ one, many }) => ({
   tenant: one(tenants, {
     fields: [users.tenantId],
     references: [tenants.id],
   }),
+  defaultExtensionRef: one(extensions, {
+    fields: [users.defaultExtension],
+    references: [extensions.id],
+  }),
   extensions: many(extensions),
   bankTransfers: many(bankTransfers),
+  conversations: many(conversations),
 }));
 
 export const tenantsRelations = relations(tenants, ({ many }) => ({
@@ -146,6 +178,7 @@ export const tenantsRelations = relations(tenants, ({ many }) => ({
   ivrMenus: many(ivrMenus),
   queues: many(queues),
   recordings: many(recordings),
+  conversations: many(conversations),
 }));
 
 export const extensionsRelations = relations(extensions, ({ one, many }) => ({
@@ -214,6 +247,29 @@ export const recordingsRelations = relations(recordings, ({ one }) => ({
   }),
 }));
 
+export const conversationsRelations = relations(conversations, ({ one, many }) => ({
+  tenant: one(tenants, {
+    fields: [conversations.tenantId],
+    references: [tenants.id],
+  }),
+  extension: one(extensions, {
+    fields: [conversations.extensionId],
+    references: [extensions.id],
+  }),
+  user: one(users, {
+    fields: [conversations.userId],
+    references: [users.id],
+  }),
+  messages: many(messages),
+}));
+
+export const messagesRelations = relations(messages, ({ one }) => ({
+  conversation: one(conversations, {
+    fields: [messages.conversationId],
+    references: [conversations.id],
+  }),
+}));
+
 // Insert schemas
 export const insertUserSchema = createInsertSchema(users).pick({
   username: true,
@@ -272,6 +328,21 @@ export const insertRecordingSchema = createInsertSchema(recordings).pick({
   url: true,
 });
 
+export const insertConversationSchema = createInsertSchema(conversations).pick({
+  extensionId: true,
+  userId: true,
+  callId: true,
+  phoneNumber: true,
+  status: true,
+  notes: true,
+}).partial({ extensionId: true, userId: true, phoneNumber: true, notes: true });
+
+export const insertMessageSchema = createInsertSchema(messages).pick({
+  conversationId: true,
+  from: true,
+  content: true,
+});
+
 // Types
 export type User = typeof users.$inferSelect;
 export type InsertUser = z.infer<typeof insertUserSchema>;
@@ -289,3 +360,7 @@ export type Queue = typeof queues.$inferSelect;
 export type InsertQueue = z.infer<typeof insertQueueSchema>;
 export type Recording = typeof recordings.$inferSelect;
 export type InsertRecording = z.infer<typeof insertRecordingSchema>;
+export type Conversation = typeof conversations.$inferSelect;
+export type InsertConversation = z.infer<typeof insertConversationSchema>;
+export type Message = typeof messages.$inferSelect;
+export type InsertMessage = z.infer<typeof insertMessageSchema>;

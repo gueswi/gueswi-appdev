@@ -44,6 +44,45 @@ interface ConsumptionData {
   aiMinutes: any[];
 }
 
+interface ExtensionsResponse {
+  data: Array<{
+    id: string;
+    name: string;
+    status: 'active' | 'inactive';
+  }>;
+  pagination: {
+    page: number;
+    pageSize: number;
+    total: number;
+  };
+}
+
+interface IVRsResponse {
+  data: Array<{
+    id: string;
+    name: string;
+  }>;
+  callsToday: number;
+}
+
+interface QueuesResponse {
+  data: Array<{
+    id: string;
+    name: string;
+  }>;
+  waiting: number;
+  avgWaitTime: string;
+}
+
+interface RecordingsResponse {
+  data: Array<{
+    id: string;
+    filename: string;
+  }>;
+  last24h: number;
+  storageUsed: string;
+}
+
 export default function DashboardPage() {
   const [, setLocation] = useLocation();
   const [activeTab, setActiveTab] = useState("telefonia");
@@ -59,6 +98,30 @@ export default function DashboardPage() {
   // Fetch consumption data
   const { data: consumptionData } = useQuery<ConsumptionData>({
     queryKey: ["/api/dashboard/consumption"],
+    queryFn: getQueryFn({ on401: "throw" }),
+  });
+
+  // Extensions query
+  const { data: extensions } = useQuery<ExtensionsResponse>({
+    queryKey: ["/api/extensions"],
+    queryFn: getQueryFn({ on401: "throw" }),
+  });
+
+  // IVRs query
+  const { data: ivrs } = useQuery<IVRsResponse>({
+    queryKey: ["/api/ivrs"],
+    queryFn: getQueryFn({ on401: "throw" }),
+  });
+
+  // Queues query
+  const { data: queues } = useQuery<QueuesResponse>({
+    queryKey: ["/api/queues"],
+    queryFn: getQueryFn({ on401: "throw" }),
+  });
+
+  // Recordings query
+  const { data: recordings } = useQuery<RecordingsResponse>({
+    queryKey: ["/api/recordings"],
     queryFn: getQueryFn({ on401: "throw" }),
   });
 
@@ -180,7 +243,10 @@ export default function DashboardPage() {
                       <SelectItem value="month">Último mes</SelectItem>
                     </SelectContent>
                   </Select>
-                  <Button data-testid="button-new-extension">
+                  <Button 
+                    onClick={() => setLocation('/telephony?action=new-extension')}
+                    data-testid="button-new-extension"
+                  >
                     <Plus className="w-4 h-4 mr-2" />
                     Nueva Extensión
                   </Button>
@@ -205,13 +271,24 @@ export default function DashboardPage() {
                   <div className="space-y-3">
                     <div className="flex items-center justify-between">
                       <span className="text-sm">Activas</span>
-                      <Badge className="bg-emerald-100 text-emerald-700">8</Badge>
+                      <Badge className="bg-emerald-100 text-emerald-700">
+                        {extensions?.data?.filter((ext: any) => ext.status === 'active').length || 0}
+                      </Badge>
                     </div>
                     <div className="flex items-center justify-between">
                       <span className="text-sm">Inactivas</span>
-                      <Badge className="bg-amber-100 text-amber-700">4</Badge>
+                      <Badge className="bg-amber-100 text-amber-700">
+                        {extensions?.data?.filter((ext: any) => ext.status === 'inactive').length || 0}
+                      </Badge>
                     </div>
-                    <Button variant="outline" className="w-full mt-4">Ver detalles</Button>
+                    <Button 
+                      variant="outline" 
+                      className="w-full mt-4"
+                      onClick={() => setLocation('/telephony?tab=extensions')}
+                      data-testid="button-view-extensions"
+                    >
+                      Ver detalles
+                    </Button>
                   </div>
                 </CardContent>
               </Card>
@@ -231,13 +308,20 @@ export default function DashboardPage() {
                   <div className="space-y-3">
                     <div className="flex items-center justify-between">
                       <span className="text-sm">Configurados</span>
-                      <Badge className="bg-emerald-100 text-emerald-700">3</Badge>
+                      <Badge className="bg-emerald-100 text-emerald-700">{ivrs?.data?.length || 0}</Badge>
                     </div>
                     <div className="flex items-center justify-between">
                       <span className="text-sm">Llamadas hoy</span>
-                      <span className="text-sm font-medium">127</span>
+                      <span className="text-sm font-medium">{ivrs?.callsToday || 0}</span>
                     </div>
-                    <Button variant="outline" className="w-full mt-4">Configurar</Button>
+                    <Button 
+                      variant="outline" 
+                      className="w-full mt-4"
+                      onClick={() => setLocation('/telephony?tab=ivrs')}
+                      data-testid="button-configure-ivr"
+                    >
+                      Configurar
+                    </Button>
                   </div>
                 </CardContent>
               </Card>
@@ -257,13 +341,20 @@ export default function DashboardPage() {
                   <div className="space-y-3">
                     <div className="flex items-center justify-between">
                       <span className="text-sm">En espera</span>
-                      <Badge className="bg-amber-100 text-amber-700">3</Badge>
+                      <Badge className="bg-amber-100 text-amber-700">{queues?.waiting || 0}</Badge>
                     </div>
                     <div className="flex items-center justify-between">
                       <span className="text-sm">Tiempo promedio</span>
-                      <span className="text-sm font-medium">2:30</span>
+                      <span className="text-sm font-medium">{queues?.avgWaitTime || '0:00'}</span>
                     </div>
-                    <Button variant="outline" className="w-full mt-4">Gestionar</Button>
+                    <Button 
+                      variant="outline" 
+                      className="w-full mt-4"
+                      onClick={() => setLocation('/telephony?tab=queues')}
+                      data-testid="button-manage-queues"
+                    >
+                      Gestionar
+                    </Button>
                   </div>
                 </CardContent>
               </Card>
@@ -283,13 +374,20 @@ export default function DashboardPage() {
                   <div className="space-y-3">
                     <div className="flex items-center justify-between">
                       <span className="text-sm">Últimas 24h</span>
-                      <span className="text-sm font-medium">45</span>
+                      <span className="text-sm font-medium">{recordings?.last24h || 0}</span>
                     </div>
                     <div className="flex items-center justify-between">
                       <span className="text-sm">Almacenamiento</span>
-                      <span className="text-sm font-medium">2.3 GB</span>
+                      <span className="text-sm font-medium">{recordings?.storageUsed || '0 GB'}</span>
                     </div>
-                    <Button variant="outline" className="w-full mt-4">Reproducir</Button>
+                    <Button 
+                      variant="outline" 
+                      className="w-full mt-4"
+                      onClick={() => setLocation('/telephony?tab=recordings')}
+                      data-testid="button-play-recordings"
+                    >
+                      Reproducir
+                    </Button>
                   </div>
                 </CardContent>
               </Card>

@@ -8,6 +8,8 @@ import {
   ivrMenus,
   queues,
   recordings,
+  conversations,
+  messages,
   type User, 
   type InsertUser, 
   type Tenant, 
@@ -23,7 +25,11 @@ import {
   type Queue,
   type InsertQueue,
   type Recording,
-  type InsertRecording
+  type InsertRecording,
+  type Conversation,
+  type InsertConversation,
+  type Message,
+  type InsertMessage
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, and, desc, gte, lte, count, sum, sql } from "drizzle-orm";
@@ -100,6 +106,22 @@ export interface IStorage {
   bootstrapUserTenant(userId: string, userEmail: string): Promise<{ user: User; tenant: Tenant }>;
   seedDemoData(tenantId: string): Promise<void>;
   resetTenantData(tenantId: string): Promise<void>;
+  
+  // Conversation methods (softphone)
+  createConversation(conversation: InsertConversation & { tenantId: string }): Promise<Conversation>;
+  endConversation(callId: string): Promise<void>;
+  updateConversationNotes(callId: string, notes: string): Promise<void>;
+  getConversationWithMessages(id: string, tenantId: string): Promise<(Conversation & { messages: Message[] }) | undefined>;
+  getConversations(tenantId: string, page?: number, pageSize?: number): Promise<{
+    data: Conversation[];
+    total: number;
+    page: number;
+    pageSize: number;
+    totalPages: number;
+  }>;
+  
+  // Message methods
+  createMessage(message: InsertMessage): Promise<Message>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -591,6 +613,99 @@ export class DatabaseStorage implements IStorage {
     await this.seedDemoData(tenantId);
     
     console.log(`✅ Tenant data reset and reseeded: ${tenantId}`);
+  }
+
+  // Conversation methods (softphone implementation)
+  async createConversation(conversation: InsertConversation & { tenantId: string }): Promise<Conversation> {
+    const [newConversation] = await db
+      .insert(conversations)
+      .values(conversation)
+      .returning();
+    return newConversation;
+  }
+
+  async endConversation(callId: string): Promise<void> {
+    const endedAt = new Date();
+    await db
+      .update(conversations)
+      .set({ 
+        status: 'ended', 
+        endedAt,
+        updatedAt: endedAt
+      })
+      .where(eq(conversations.callId, callId));
+  }
+
+  async updateConversationNotes(callId: string, notes: string): Promise<void> {
+    await db
+      .update(conversations)
+      .set({ 
+        notes,
+        updatedAt: new Date()
+      })
+      .where(eq(conversations.callId, callId));
+  }
+
+  async getConversationWithMessages(id: string, tenantId: string): Promise<(Conversation & { messages: Message[] }) | undefined> {
+    const [conversation] = await db
+      .select()
+      .from(conversations)
+      .where(and(eq(conversations.id, id), eq(conversations.tenantId, tenantId)));
+
+    if (!conversation) return undefined;
+
+    const conversationMessages = await db
+      .select()
+      .from(messages)
+      .where(eq(messages.conversationId, id))
+      .orderBy(messages.timestamp);
+
+    return {
+      ...conversation,
+      messages: conversationMessages
+    };
+  }
+
+  async getConversations(tenantId: string, page = 1, pageSize = 10): Promise<{
+    data: Conversation[];
+    total: number;
+    page: number;
+    pageSize: number;
+    totalPages: number;
+  }> {
+    const offset = (page - 1) * pageSize;
+
+    const [totalResult] = await db
+      .select({ count: count() })
+      .from(conversations)
+      .where(eq(conversations.tenantId, tenantId));
+
+    const conversationData = await db
+      .select()
+      .from(conversations)
+      .where(eq(conversations.tenantId, tenantId))
+      .orderBy(desc(conversations.createdAt))
+      .limit(pageSize)
+      .offset(offset);
+
+    const total = totalResult.count;
+    const totalPages = Math.ceil(total / pageSize);
+
+    return {
+      data: conversationData,
+      total,
+      page,
+      pageSize,
+      totalPages
+    };
+  }
+
+  async createMessage(message: InsertMessage): Promise<Message> {
+    const [newMessage] = await db
+      .insert(messages)
+      .values(message)
+      .returning();
+    return newMessage;
   }
 }
 

@@ -1,0 +1,33 @@
+WIRE DASHBOARD TO LIVE DATA + ADD SOFTPHONE (DEV MOCK) + LINK MANAGEMENT
+
+A) Dashboard real (no estático)
+- Replace static KPI cards with live queries from /api/dashboard/stats (active/inactive extensions, queues, ai-minutes mock, monthly spend mock).
+- Tabs “Telefonía/IA/Consumo/Facturación” must fetch via React Query: /api/extensions, /api/ivrs, /api/queues, /api/recordings, etc.
+- In Telefonía cards: make buttons navigate to working routes:
+  • Extensiones → /dashboard/telefonia/extensiones (list) and /dashboard/telefonia/extensiones/:id (detail)
+  • IVR “Configurar” → open modal wired to /api/ivrs
+  • Colas “Gestionar” → editable table wired to /api/queues
+  • Grabaciones “Reproducir” → list with pagination and <audio> wired to /api/recordings
+
+B) Softphone (dev MOCK today, PBX-ready later)
+- Add a bottom “Call Bar” UI component (minimized dock) and a full “Call Panel” drawer with:
+  • Dialpad, Mute/Unmute, Hold/Resume, Hangup
+  • Transfer (blind) and Notes box
+  • Right-side chat feed that appends messages as the call progresses
+- Create /api/softphone/mock signaling endpoints and a WS channel: 
+  • POST /softphone/calls/dial {to} → returns callId; WS emits "ringing","answered","ended"
+  • POST /softphone/calls/:id/mute, /hold, /hangup, /transfer
+  • WS route /ws/softphone for real-time events
+- Persist call conversation:
+  • When a mock event “speech” arrives, append to Message with from:"customer"|"agent"|"ai"
+  • Save Notes via POST /calls/:id/notes
+- Bind user to extension:
+  • Add userProfile field defaultExtension (show a select in /settings/profile listing my tenant Extensions)
+  • Softphone uses that extension by default (no SIP yet in dev mock)
+- Acceptance:
+  • I can dial a test number, see ringing→answered events, write notes, see chat feed appending “customer/agent/ai” bubbles (mock), and the conversation is saved under /dashboard/conversaciones/:id
+
+C) Dev helpers
+- Add /debug/status chip in header with tenantId and defaultExtension
+- Add “Reset demo data” (owner only) button that calls POST /api/dev/seed/reset and refetches lists
+- Run smoke tests and print the URLs to click

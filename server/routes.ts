@@ -41,6 +41,20 @@ const upload = multer({
 });
 
 export async function registerRoutes(app: Express): Promise<Server> {
+  // Create HTTP server and setup WebSocket support
+  const server = createServer(app);
+  
+  // Mock WebSocket handler for softphone (dev implementation)
+  const wsHandler = {
+    broadcast: (channel: string, data: any) => {
+      console.log(`📡 WebSocket broadcast [${channel}]:`, data);
+      // TODO: Implement real WebSocket broadcasting when WebSocket server is added
+    }
+  };
+  
+  // Attach WebSocket handler to server
+  (server as any).wsHandler = wsHandler;
+
   // Setup authentication
   setupAuth(app);
 
@@ -112,6 +126,217 @@ export async function registerRoutes(app: Express): Promise<Server> {
       });
     } catch (error: any) {
       console.error("❌ Seed reset failed:", error);
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // Softphone API endpoints (mock)
+  app.post("/api/softphone/calls/dial", async (req, res) => {
+    try {
+      if (!req.isAuthenticated() || !req.user.tenantId) {
+        return res.status(401).json({ message: "Authentication required" });
+      }
+
+      const { to } = req.body;
+      if (!to) {
+        return res.status(400).json({ message: "Phone number required" });
+      }
+
+      // Create new conversation
+      const callId = `call_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+      const conversation = await storage.createConversation({
+        tenantId: req.user.tenantId,
+        userId: req.user.id,
+        callId,
+        phoneNumber: to,
+        status: "ringing"
+      });
+
+      // Emit WebSocket event for ringing
+      if (server.wsHandler) {
+        server.wsHandler.broadcast(`tenant:${req.user.tenantId}`, {
+          type: 'call_status',
+          callId,
+          status: 'ringing',
+          phoneNumber: to,
+          conversationId: conversation.id
+        });
+      }
+
+      // Mock call progression after 2 seconds
+      setTimeout(() => {
+        if (server.wsHandler) {
+          server.wsHandler.broadcast(`tenant:${req.user.tenantId}`, {
+            type: 'call_status',
+            callId,
+            status: 'answered',
+            phoneNumber: to,
+            conversationId: conversation.id
+          });
+        }
+      }, 2000);
+
+      res.json({ callId, status: "ringing", conversationId: conversation.id });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.post("/api/softphone/calls/:callId/mute", async (req, res) => {
+    try {
+      if (!req.isAuthenticated() || !req.user.tenantId) {
+        return res.status(401).json({ message: "Authentication required" });
+      }
+
+      const { callId } = req.params;
+      const { muted } = req.body;
+
+      // Emit WebSocket event
+      if (server.wsHandler) {
+        server.wsHandler.broadcast(`tenant:${req.user.tenantId}`, {
+          type: 'call_mute',
+          callId,
+          muted
+        });
+      }
+
+      res.json({ success: true, callId, muted });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.post("/api/softphone/calls/:callId/hold", async (req, res) => {
+    try {
+      if (!req.isAuthenticated() || !req.user.tenantId) {
+        return res.status(401).json({ message: "Authentication required" });
+      }
+
+      const { callId } = req.params;
+      const { held } = req.body;
+
+      // Emit WebSocket event
+      if (server.wsHandler) {
+        server.wsHandler.broadcast(`tenant:${req.user.tenantId}`, {
+          type: 'call_hold',
+          callId,
+          held
+        });
+      }
+
+      res.json({ success: true, callId, held });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.post("/api/softphone/calls/:callId/hangup", async (req, res) => {
+    try {
+      if (!req.isAuthenticated() || !req.user.tenantId) {
+        return res.status(401).json({ message: "Authentication required" });
+      }
+
+      const { callId } = req.params;
+      
+      // Update conversation status
+      await storage.endConversation(callId);
+
+      // Emit WebSocket event
+      if (server.wsHandler) {
+        server.wsHandler.broadcast(`tenant:${req.user.tenantId}`, {
+          type: 'call_status',
+          callId,
+          status: 'ended'
+        });
+      }
+
+      res.json({ success: true, callId, status: "ended" });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.post("/api/softphone/calls/:callId/transfer", async (req, res) => {
+    try {
+      if (!req.isAuthenticated() || !req.user.tenantId) {
+        return res.status(401).json({ message: "Authentication required" });
+      }
+
+      const { callId } = req.params;
+      const { to } = req.body;
+
+      if (!to) {
+        return res.status(400).json({ message: "Transfer target required" });
+      }
+
+      // Emit WebSocket event
+      if (server.wsHandler) {
+        server.wsHandler.broadcast(`tenant:${req.user.tenantId}`, {
+          type: 'call_transfer',
+          callId,
+          transferTo: to
+        });
+      }
+
+      res.json({ success: true, callId, transferTo: to });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.post("/api/calls/:callId/notes", async (req, res) => {
+    try {
+      if (!req.isAuthenticated() || !req.user.tenantId) {
+        return res.status(401).json({ message: "Authentication required" });
+      }
+
+      const { callId } = req.params;
+      const { notes } = req.body;
+
+      await storage.updateConversationNotes(callId, notes);
+
+      res.json({ success: true, callId, notes });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // Get conversation details
+  app.get("/api/conversations/:id", async (req, res) => {
+    try {
+      if (!req.isAuthenticated() || !req.user.tenantId) {
+        return res.status(401).json({ message: "Authentication required" });
+      }
+
+      const { id } = req.params;
+      const conversation = await storage.getConversationWithMessages(id, req.user.tenantId);
+
+      if (!conversation) {
+        return res.status(404).json({ message: "Conversation not found" });
+      }
+
+      res.json(conversation);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // List conversations
+  app.get("/api/conversations", async (req, res) => {
+    try {
+      if (!req.isAuthenticated() || !req.user.tenantId) {
+        return res.status(401).json({ message: "Authentication required" });
+      }
+
+      const { page = 1, pageSize = 10 } = req.query;
+      const conversations = await storage.getConversations(
+        req.user.tenantId, 
+        parseInt(page as string), 
+        parseInt(pageSize as string)
+      );
+
+      res.json(conversations);
+    } catch (error: any) {
       res.status(500).json({ message: error.message });
     }
   });
@@ -385,8 +610,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       const { from, to } = req.query;
-      const fromDate = new Date(from as string);
-      const toDate = new Date(to as string);
+      
+      // Provide default date range if not specified (last 30 days)
+      const fromDate = from ? new Date(from as string) : new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+      const toDate = to ? new Date(to as string) : new Date();
+      
+      // Validate dates
+      if (isNaN(fromDate.getTime()) || isNaN(toDate.getTime())) {
+        return res.status(400).json({ message: "Invalid date format" });
+      }
       
       const data = await storage.getConsumptionData(req.user.tenantId, fromDate, toDate);
       res.json(data);
@@ -702,7 +934,5 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  const httpServer = createServer(app);
-
-  return httpServer;
+  return server;
 }
