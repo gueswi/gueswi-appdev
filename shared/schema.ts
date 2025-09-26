@@ -159,8 +159,8 @@ export const messages = pgTable("messages", {
   id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
   conversationId: uuid("conversation_id").references(() => conversations.id).notNull(),
   type: text("type", { enum: ["text", "note", "event", "transcript", "attachment"] }).default("text").notNull(),
-  role: text("role", { enum: ["customer", "agent", "ai", "system"] }).notNull(),
-  text: text("text").notNull(),
+  role: text("role", { enum: ["customer", "agent", "ai", "system"] }).default("customer").notNull(),
+  text: text("text").default("").notNull(),
   attachments: jsonb("attachments").default("[]"),
   // Legacy fields for backward compatibility
   from: text("from", { enum: ["customer", "agent", "ai"] }),
