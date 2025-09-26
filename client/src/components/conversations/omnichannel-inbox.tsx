@@ -4,6 +4,7 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest, getQueryFn } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
@@ -21,7 +22,8 @@ import {
   StickyNote,
   Paperclip,
   Smile,
-  Send
+  Send,
+  Trash2
 } from "lucide-react";
 
 interface Conversation {
@@ -54,26 +56,54 @@ interface ConversationWithMessages extends Conversation {
 }
 
 export function OmnichannelInbox() {
+  const [activeView, setActiveView] = useState<string>("all");
+  const [searchQuery, setSearchQuery] = useState<string>("");
   const [selectedConversationId, setSelectedConversationId] = useState<string | null>(null);
   const [messageText, setMessageText] = useState("");
   const [messageType, setMessageType] = useState<"reply" | "internal">("reply");
+  const [showCreateViewDialog, setShowCreateViewDialog] = useState<boolean>(false);
+  const [newViewName, setNewViewName] = useState<string>("");
+  const [newViewShared, setNewViewShared] = useState<boolean>(false);
   const queryClient = useQueryClient();
   const { toast } = useToast();
 
+  // Build query params based on active view
+  const buildQueryParams = () => {
+    const params = new URLSearchParams();
+    params.set("pageSize", "50");
+    
+    if (activeView !== "all") {
+      params.set("view", activeView);
+    }
+    
+    if (searchQuery.trim()) {
+      params.set("q", searchQuery.trim());
+    }
+    
+    return params.toString();
+  };
+
   // Fetch conversations list
+  const queryParams = buildQueryParams();
   const { data: conversationsData, isLoading: conversationsLoading } = useQuery<{
     conversations: Conversation[];
     total: number;
   }>({
-    queryKey: ["/api/conversations", "pageSize=50"],
+    queryKey: ["/api/conversations", queryParams],
     queryFn: getQueryFn({ on401: "throw" }),
   });
 
-  // Fetch conversation count for views
-  const { data: countData } = useQuery<{ count: number }>({
-    queryKey: ["/api/conversations/count"],
+  // Fetch conversation counts for all views
+  const { data: viewCounts } = useQuery<Record<string, number>>({
+    queryKey: ["/api/conversations/counts-by-view"],
     queryFn: getQueryFn({ on401: "throw" }),
     refetchInterval: 30000,
+  });
+
+  // Fetch saved views
+  const { data: savedViews } = useQuery<any[]>({
+    queryKey: ["/api/views"],
+    queryFn: getQueryFn({ on401: "throw" }),
   });
 
   // Fetch selected conversation with messages
@@ -118,6 +148,56 @@ export function OmnichannelInbox() {
     },
   });
 
+  // Create saved view mutation
+  const createViewMutation = useMutation({
+    mutationFn: async (data: { name: string; shared: boolean }) => {
+      const res = await apiRequest("POST", "/api/views", {
+        name: data.name,
+        query: { view: activeView, search: searchQuery },
+        shared: data.shared,
+      });
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/views"] });
+      setShowCreateViewDialog(false);
+      setNewViewName("");
+      setNewViewShared(false);
+      toast({
+        title: "Vista guardada",
+        description: "La vista personalizada se ha guardado exitosamente.",
+      });
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Error al guardar vista",
+        description: error.message,
+        variant: "destructive",
+      });
+    },
+  });
+
+  // Delete saved view mutation
+  const deleteViewMutation = useMutation({
+    mutationFn: async (viewId: string) => {
+      await apiRequest("DELETE", `/api/views/${viewId}`);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/views"] });
+      toast({
+        title: "Vista eliminada",
+        description: "La vista personalizada se ha eliminado.",
+      });
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Error al eliminar vista",
+        description: error.message,
+        variant: "destructive",
+      });
+    },
+  });
+
   const handleSendMessage = () => {
     if (!selectedConversationId || !messageText.trim()) return;
 
@@ -130,7 +210,7 @@ export function OmnichannelInbox() {
   };
 
   const conversations = conversationsData?.conversations || [];
-  const totalCount = countData?.count || 0;
+  const totalCount = viewCounts?.all || conversationsData?.total || 0;
 
   // Auto-select first conversation if none selected
   useEffect(() => {
@@ -149,16 +229,17 @@ export function OmnichannelInbox() {
         <div className="flex-1 overflow-y-auto">
           <div className="p-2 space-y-1">
             {[
-              { id: 'all', name: 'Todas', count: totalCount, active: true },
-              { id: 'mine', name: 'Asignadas a mí', count: 0 },
-              { id: 'unassigned', name: 'Sin asignar', count: 0 },
-              { id: 'mentioned', name: 'Con menciones', count: 0 },
-              { id: 'closed', name: 'Cerradas', count: 0 }
+              { id: 'all', name: 'Todas', count: viewCounts?.all || conversationsData?.total || 0 },
+              { id: 'mine', name: 'Asignadas a mí', count: viewCounts?.mine || 0 },
+              { id: 'unassigned', name: 'Sin asignar', count: viewCounts?.unassigned || 0 },
+              { id: 'mentioned', name: 'Con menciones', count: viewCounts?.mentioned || 0 },
+              { id: 'closed', name: 'Cerradas', count: viewCounts?.closed || 0 }
             ].map((view) => (
               <Button
                 key={view.id}
-                variant={view.active ? "secondary" : "ghost"}
+                variant={activeView === view.id ? "secondary" : "ghost"}
                 className="w-full justify-between text-left h-8"
+                onClick={() => setActiveView(view.id)}
                 data-testid={`view-${view.id}`}
               >
                 <span className="text-sm">{view.name}</span>
@@ -172,9 +253,93 @@ export function OmnichannelInbox() {
           <div className="p-2 mt-4">
             <div className="flex items-center justify-between mb-2">
               <h4 className="font-semibold text-xs text-muted-foreground uppercase tracking-wide">Vistas guardadas</h4>
-              <Button size="sm" variant="ghost" className="h-6 w-6 p-0" data-testid="button-add-view">
-                <Plus className="h-3 w-3" />
-              </Button>
+              <Dialog open={showCreateViewDialog} onOpenChange={setShowCreateViewDialog}>
+                <DialogTrigger asChild>
+                  <Button size="sm" variant="ghost" className="h-6 w-6 p-0" data-testid="button-add-view">
+                    <Plus className="h-3 w-3" />
+                  </Button>
+                </DialogTrigger>
+                <DialogContent className="sm:max-w-md">
+                  <DialogHeader>
+                    <DialogTitle>Guardar vista personalizada</DialogTitle>
+                    <DialogDescription>
+                      Guarda la configuración actual de filtros como una vista personalizada.
+                    </DialogDescription>
+                  </DialogHeader>
+                  <div className="space-y-4">
+                    <div>
+                      <Input
+                        placeholder="Nombre de la vista"
+                        value={newViewName}
+                        onChange={(e) => setNewViewName(e.target.value)}
+                        data-testid="input-view-name"
+                      />
+                    </div>
+                    <div className="flex items-center space-x-2">
+                      <input 
+                        type="checkbox" 
+                        id="shared"
+                        checked={newViewShared}
+                        onChange={(e) => setNewViewShared(e.target.checked)}
+                      />
+                      <label htmlFor="shared" className="text-sm">Compartir con el equipo</label>
+                    </div>
+                  </div>
+                  <DialogFooter>
+                    <Button 
+                      variant="outline" 
+                      onClick={() => setShowCreateViewDialog(false)}
+                      data-testid="button-cancel-view"
+                    >
+                      Cancelar
+                    </Button>
+                    <Button 
+                      onClick={() => createViewMutation.mutate({ name: newViewName, shared: newViewShared })}
+                      disabled={!newViewName.trim() || createViewMutation.isPending}
+                      data-testid="button-save-view"
+                    >
+                      Guardar vista
+                    </Button>
+                  </DialogFooter>
+                </DialogContent>
+              </Dialog>
+            </div>
+            
+            {/* Saved Views List */}
+            <div className="space-y-1">
+              {savedViews && savedViews.length > 0 ? (
+                savedViews.map((view) => (
+                  <div key={view.id} className="flex items-center justify-between group">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="flex-1 justify-start text-left h-7 text-xs"
+                      onClick={() => {
+                        const query = view.query || {};
+                        setActiveView(query.view || "all");
+                        setSearchQuery(query.search || "");
+                      }}
+                      data-testid={`saved-view-${view.id}`}
+                    >
+                      <span className="truncate">{view.name}</span>
+                      {view.shared && (
+                        <span className="ml-1 text-xs text-muted-foreground">🔗</span>
+                      )}
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-6 w-6 p-0 opacity-0 group-hover:opacity-100"
+                      onClick={() => deleteViewMutation.mutate(view.id)}
+                      data-testid={`delete-view-${view.id}`}
+                    >
+                      <Trash2 className="h-3 w-3" />
+                    </Button>
+                  </div>
+                ))
+              ) : (
+                <p className="text-xs text-muted-foreground px-2">No hay vistas guardadas</p>
+              )}
             </div>
           </div>
         </div>
@@ -195,6 +360,8 @@ export function OmnichannelInbox() {
             <Input
               placeholder="Buscar conversaciones..."
               className="pl-10"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
               data-testid="input-search-conversations"
             />
           </div>
