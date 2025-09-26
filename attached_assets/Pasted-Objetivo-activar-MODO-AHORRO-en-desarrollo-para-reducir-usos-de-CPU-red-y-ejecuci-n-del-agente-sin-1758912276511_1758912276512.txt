@@ -1,0 +1,47 @@
+Objetivo: activar MODO AHORRO en desarrollo para reducir usos de CPU, red y ejecución del agente sin romper funcionalidades clave (login, dashboard, softphone mock).
+
+Tareas (aplícalas todas):
+
+1) Polling & React Query
+- Softphone: elevar polling a 8000 ms por defecto, controlado por env:
+  VITE_SOFTPHONE_STATUS_POLL_MS=8000
+- Dashboard y listados (extensiones/colas/IVR/recordings/conversaciones):
+  usar React Query con:
+    refetchOnWindowFocus: false
+    refetchOnReconnect: false
+    staleTime: 15_000
+    cacheTime: 60_000
+- Evitar “reintentos” agresivos: retry: 1 en GET.
+
+2) WebSocket & “idle”
+- WS pings/heartbeats cada 30 s en dev (no cada 5 s).
+- Si no hay usuario autenticado, no inicies ninguna conexión WS (no conectar en login screen).
+- Si no hay llamada activa, no hacer broadcast ni procesamiento en backend (early return).
+- Añadir flag:
+  VITE_WS_DISABLED_WHEN_IDLE=true  (en frontend)
+  WS_IDLE_BROADCASTS=off          (en backend)
+
+3) Logging & debug
+- Quitar logs ruidosos por defecto. Añadir flags:
+  SOFTPHONE_DEBUG_LOGS=off
+  LOG_LEVEL=warn
+- En el backend, envolver logs de “status” y SQL debug detrás de SOFTPHONE_DEBUG_LOGS !== 'off'.
+- En el frontend, no usar console.debug salvo tras chequear VITE_DEBUG === 'on'.
+
+4) Rutas “pesadas”
+- Conversaciones: paginar a 20 ítems, sin contar totales en cada request (usar endpoint /counts-by-view con caching 30 s).
+- Desactivar carga automática de “mensajes” hasta que el usuario selecciona conversación.
+
+5) HMR/Build
+- Mantener Vite HMR, pero desactivar overlay de errores en producción únicamente (en dev queda igual).
+- Evitar build/watch innecesarios del servidor. Un único proceso de API; no lanzar segundo proceso desde Preview si ya está corriendo.
+- Verificar .replit para que no inicie doble servidor. Si hay “run = …”, que ejecute solo `npm run dev` (un proceso).
+
+6) Agente
+- No ejecutar pruebas E2E automáticas en cada cambio en dev.
+- Evitar “architect/tool” salvo petición explícita del usuario.
+
+Entregables:
+- Commits con los cambios.
+- Variables de entorno añadidas/documentadas.
+- Notas de verificación: tiempos de polling aplicados, WS sólo tras login, logs silenciosos por defecto, paginación OK.
