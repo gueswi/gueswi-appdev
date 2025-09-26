@@ -79,6 +79,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
     next();
   });
 
+  // WhoAmI endpoint - returns current user session info
+  app.get("/api/whoami", async (req, res) => {
+    try {
+      if (!req.isAuthenticated() || !req.user) {
+        return res.status(401).json({ message: "Not authenticated" });
+      }
+
+      const { id, email, role, tenantId } = req.user;
+      res.json({ id, email, role, tenantId });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
   // Dev seed reset endpoint (owner only)
   app.post("/api/dev/seed/reset", async (req, res) => {
     try {

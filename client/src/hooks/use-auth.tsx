@@ -12,6 +12,7 @@ type AuthContextType = {
   user: SelectUser | null;
   isLoading: boolean;
   error: Error | null;
+  refetch: () => void;
   loginMutation: UseMutationResult<SelectUser, Error, LoginData>;
   logoutMutation: UseMutationResult<void, Error, void>;
   registerMutation: UseMutationResult<SelectUser, Error, InsertUser>;
@@ -23,13 +24,55 @@ export const AuthContext = createContext<AuthContextType | null>(null);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const { toast } = useToast();
+  // Use whoami endpoint with bootstrap logic
   const {
     data: user,
     error,
     isLoading,
+    refetch,
   } = useQuery<SelectUser | undefined, Error>({
-    queryKey: ["/api/user"],
-    queryFn: getQueryFn({ on401: "returnNull" }),
+    queryKey: ["/api/whoami"],
+    queryFn: async () => {
+      console.log("🔍 API Base URL:", window.location.origin);
+      
+      const response = await fetch("/api/whoami", { credentials: "include" });
+      
+      if (response.status === 401) {
+        return null; // Not authenticated
+      }
+      
+      if (!response.ok) {
+        throw new Error(`Failed to fetch user: ${response.status}`);
+      }
+      
+      const userData: SelectUser = await response.json();
+      
+      // If user has no tenantId, trigger bootstrap
+      if (!userData.tenantId) {
+        console.log("🚀 User has no tenant, triggering bootstrap...");
+        
+        try {
+          // Make any authenticated API call to trigger bootstrap middleware
+          await fetch("/api/dashboard/stats", { credentials: "include" });
+          
+          // Refetch user after bootstrap
+          const retriedResponse = await fetch("/api/whoami", { 
+            credentials: "include" 
+          });
+          
+          if (retriedResponse.ok) {
+            const retriedUserData = await retriedResponse.json();
+            console.log("✅ Bootstrap completed, user updated:", retriedUserData);
+            return retriedUserData;
+          }
+        } catch (bootstrapError) {
+          console.error("❌ Bootstrap failed:", bootstrapError);
+        }
+      }
+      
+      console.log("✅ User authenticated:", userData);
+      return userData;
+    },
   });
 
   const loginMutation = useMutation({
@@ -38,7 +81,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       return await res.json();
     },
     onSuccess: (user: SelectUser) => {
-      queryClient.setQueryData(["/api/user"], user);
+      queryClient.setQueryData(["/api/whoami"], user);
+      // Trigger refetch to get updated user with tenantId
+      refetch();
     },
     onError: (error: Error) => {
       toast({
@@ -55,7 +100,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       return await res.json();
     },
     onSuccess: (user: SelectUser) => {
-      queryClient.setQueryData(["/api/user"], user);
+      queryClient.setQueryData(["/api/whoami"], user);
+      // Trigger refetch to get updated user with tenantId
+      refetch();
     },
     onError: (error: Error) => {
       toast({
@@ -71,7 +118,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       await apiRequest("POST", "/api/logout");
     },
     onSuccess: () => {
-      queryClient.setQueryData(["/api/user"], null);
+      queryClient.setQueryData(["/api/whoami"], null);
     },
     onError: (error: Error) => {
       toast({
@@ -88,6 +135,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         user: user ?? null,
         isLoading,
         error,
+        refetch,
         loginMutation,
         logoutMutation,
         registerMutation,
