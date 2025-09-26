@@ -48,12 +48,16 @@ import { ExtensionModal } from "@/components/telephony/extension-modal";
 import { IvrModal } from "@/components/telephony/ivr-modal";
 import { AudioPlayer } from "@/components/telephony/audio-player";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { useUrlState } from "@/hooks/use-url-state";
 import type { Extension, IvrMenu } from "@shared/schema";
 
 function ExtensionsTab() {
-  const [search, setSearch] = useState("");
-  const [status, setStatus] = useState<string>("");
-  const [page, setPage] = useState(1);
+  const { getParam, getNumberParam, setParam, setMultipleParams } = useUrlState();
+  
+  const search = getParam("search", "");
+  const status = getParam("status", "");
+  const page = getNumberParam("page", 1);
+  
   const [extensionModal, setExtensionModal] = useState<{
     isOpen: boolean;
     mode: "create" | "edit";
@@ -119,12 +123,12 @@ function ExtensionsTab() {
           <Input
             placeholder="Buscar extensiones..."
             value={search}
-            onChange={(e) => setSearch(e.target.value)}
+            onChange={(e) => setParam("search", e.target.value)}
             className="pl-8"
             data-testid="input-search-extensions"
           />
         </div>
-        <Select value={status} onValueChange={setStatus}>
+        <Select value={status} onValueChange={(value) => setParam("status", value)}>
           <SelectTrigger className="w-40" data-testid="select-status-filter">
             <SelectValue placeholder="Estado" />
           </SelectTrigger>
@@ -229,7 +233,7 @@ function ExtensionsTab() {
           <Button
             variant="outline"
             size="sm"
-            onClick={() => setPage(page - 1)}
+            onClick={() => setParam("page", page - 1)}
             disabled={page === 1}
             data-testid="button-prev-page"
           >
@@ -241,7 +245,7 @@ function ExtensionsTab() {
           <Button
             variant="outline"
             size="sm"
-            onClick={() => setPage(page + 1)}
+            onClick={() => setParam("page", page + 1)}
             disabled={page === extensionsData.totalPages}
             data-testid="button-next-page"
           >
@@ -305,7 +309,7 @@ function IvrsTab() {
                   </Button>
                 </CardTitle>
                 <CardDescription>
-                  Opciones: {JSON.parse(ivr.options || "[]").length}
+                  Opciones: {typeof ivr.options === 'string' ? JSON.parse(ivr.options || "[]").length : (ivr.options || []).length}
                 </CardDescription>
               </CardHeader>
               <CardContent>
@@ -392,7 +396,8 @@ function QueuesTab() {
 }
 
 function RecordingsTab() {
-  const [page, setPage] = useState(1);
+  const { getNumberParam, setParam } = useUrlState();
+  const page = getNumberParam("recordings_page", 1);
   const [audioPlayer, setAudioPlayer] = useState<{
     isOpen: boolean;
     recording: any | null;
@@ -525,7 +530,7 @@ function RecordingsTab() {
           <Button
             variant="outline"
             size="sm"
-            onClick={() => setPage(page - 1)}
+            onClick={() => setParam("recordings_page", page - 1)}
             disabled={page === 1}
             data-testid="button-prev-page-recordings"
           >
@@ -537,7 +542,7 @@ function RecordingsTab() {
           <Button
             variant="outline"
             size="sm"
-            onClick={() => setPage(page + 1)}
+            onClick={() => setParam("recordings_page", page + 1)}
             disabled={page === recordingsData.totalPages}
             data-testid="button-next-page-recordings"
           >
