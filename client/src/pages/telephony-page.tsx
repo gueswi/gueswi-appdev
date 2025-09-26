@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
@@ -42,7 +42,8 @@ import {
   useCreateExtension,
   useUpdateExtension,
   useDeleteExtension,
-  useResetExtensionPin
+  useResetExtensionPin,
+  useCreateQueue
 } from "@/hooks/use-telephony";
 import { ExtensionModal } from "@/components/telephony/extension-modal";
 import { IvrModal } from "@/components/telephony/ivr-modal";
@@ -62,6 +63,7 @@ import {
   RecordingsEmptyState,
   ErrorState 
 } from "@/components/telephony/empty-states";
+import { PaginationControls } from "@/components/ui/pagination-controls";
 import type { Extension, IvrMenu } from "@shared/schema";
 
 function ExtensionsTab() {
@@ -84,6 +86,16 @@ function ExtensionsTab() {
     page,
     pageSize,
   });
+
+  // Bounds checking for pagination - ensure page is within valid range (always >=1)
+  const validExtensionsPage = Math.max(1, Math.min(page, extensionsData?.totalPages ?? 1));
+
+  // Automatically correct page if it's out of bounds (use effect to avoid render-time mutations)
+  useEffect(() => {
+    if (!isLoading && page !== validExtensionsPage) {
+      setParam("page", validExtensionsPage);
+    }
+  }, [isLoading, page, validExtensionsPage, setParam]);
 
   const createExtensionMutation = useCreateExtension();
   const updateExtensionMutation = useUpdateExtension();
@@ -230,31 +242,16 @@ function ExtensionsTab() {
       )}
 
       {/* Pagination */}
-      {extensionsData && extensionsData.totalPages > 1 && (
-        <div className="flex items-center justify-center gap-2">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => setParam("page", page - 1)}
-            disabled={page === 1}
-            data-testid="button-prev-page"
-          >
-            Anterior
-          </Button>
-          <span className="text-sm text-muted-foreground">
-            Página {page} de {extensionsData.totalPages}
-          </span>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => setParam("page", page + 1)}
-            disabled={page === extensionsData.totalPages}
-            data-testid="button-next-page"
-          >
-            Siguiente
-          </Button>
-        </div>
-      )}
+      <PaginationControls
+        currentPage={validExtensionsPage}
+        totalPages={extensionsData?.totalPages}
+        isLoading={isLoading}
+        onPageChange={(newPage) => setParam("page", newPage)}
+        testIdPrefix="extensions"
+        showFirstLast={true}
+        showPageInput={true}
+        className="mt-4"
+      />
 
       <ExtensionModal
         isOpen={extensionModal.isOpen}
@@ -362,10 +359,8 @@ function QueuesTab() {
     if (queueName && queueName.trim()) {
       createQueue.mutate({
         name: queueName.trim(),
-        description: "Cola creada desde la interfaz",
-        strategy: "round_robin", // Default strategy
-        maxWaitTime: 300, // 5 minutes default
-        agents: [] // Empty agents array initially
+        waiting: 0, // Default waiting count
+        avgWaitSec: 0 // Default average wait time
       });
     }
   };
@@ -440,6 +435,16 @@ function RecordingsTab() {
     page,
     pageSize,
   });
+
+  // Bounds checking for pagination - ensure page is within valid range (always >=1)
+  const validRecordingsPage = Math.max(1, Math.min(page, recordingsData?.totalPages ?? 1));
+
+  // Automatically correct page if it's out of bounds (use effect to avoid render-time mutations)
+  useEffect(() => {
+    if (!isLoading && page !== validRecordingsPage) {
+      setParam("recordings_page", validRecordingsPage);
+    }
+  }, [isLoading, page, validRecordingsPage, setParam]);
 
   const openAudioPlayer = (recording: any) => {
     setAudioPlayer({
@@ -543,31 +548,16 @@ function RecordingsTab() {
       )}
 
       {/* Pagination */}
-      {recordingsData && recordingsData.totalPages > 1 && (
-        <div className="flex items-center justify-center gap-2">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => setParam("recordings_page", page - 1)}
-            disabled={page === 1}
-            data-testid="button-prev-page-recordings"
-          >
-            Anterior
-          </Button>
-          <span className="text-sm text-muted-foreground">
-            Página {page} de {recordingsData.totalPages}
-          </span>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => setParam("recordings_page", page + 1)}
-            disabled={page === recordingsData.totalPages}
-            data-testid="button-next-page-recordings"
-          >
-            Siguiente
-          </Button>
-        </div>
-      )}
+      <PaginationControls
+        currentPage={validRecordingsPage}
+        totalPages={recordingsData?.totalPages}
+        isLoading={isLoading}
+        onPageChange={(newPage) => setParam("recordings_page", newPage)}
+        testIdPrefix="recordings"
+        showFirstLast={true}
+        showPageInput={true}
+        className="mt-4"
+      />
 
       {/* Audio Player Dialog */}
       <Dialog open={audioPlayer.isOpen} onOpenChange={closeAudioPlayer}>
