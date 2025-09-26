@@ -636,6 +636,19 @@ export class DatabaseStorage implements IStorage {
       .where(eq(conversations.callId, callId));
   }
 
+  // End conversation by conversationId (for softphone controls)
+  async endConversationById(conversationId: string): Promise<void> {
+    const endedAt = new Date();
+    await db
+      .update(conversations)
+      .set({ 
+        status: 'ended', 
+        endedAt,
+        updatedAt: endedAt
+      })
+      .where(eq(conversations.id, conversationId));
+  }
+
   async updateConversationNotes(callId: string, notes: string): Promise<void> {
     await db
       .update(conversations)
@@ -664,6 +677,39 @@ export class DatabaseStorage implements IStorage {
       ...conversation,
       messages: conversationMessages
     };
+  }
+
+  // Get active conversation for softphone
+  async getActiveConversation(tenantId: string, userId: string): Promise<Conversation | undefined> {
+    const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
+    
+    const [conversation] = await db
+      .select()
+      .from(conversations)
+      .where(
+        and(
+          eq(conversations.tenantId, tenantId),
+          eq(conversations.userId, userId),
+          // Active status means call is ongoing (ringing or answered, but not ended)
+          sql`${conversations.status} IN ('ringing', 'answered')`,
+          // Only return recent conversations (within last hour) to avoid stale test data
+          gte(conversations.createdAt, oneHourAgo)
+        )
+      )
+      .orderBy(desc(conversations.createdAt));
+
+    return conversation;
+  }
+
+  // Update conversation status
+  async updateConversationStatus(conversationId: string, status: string): Promise<void> {
+    await db
+      .update(conversations)
+      .set({ 
+        status,
+        updatedAt: new Date()
+      })
+      .where(eq(conversations.id, conversationId));
   }
 
   async getConversations(tenantId: string, page = 1, pageSize = 10): Promise<{

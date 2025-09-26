@@ -156,23 +156,31 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (server.wsHandler) {
         server.wsHandler.broadcast(`tenant:${req.user.tenantId}`, {
           type: 'call_status',
+          conversationId: conversation.id,
           callId,
           status: 'ringing',
-          phoneNumber: to,
-          conversationId: conversation.id
+          phoneNumber: to
         });
       }
 
       // Mock call progression after 2 seconds
-      setTimeout(() => {
-        if (server.wsHandler) {
-          server.wsHandler.broadcast(`tenant:${req.user.tenantId}`, {
-            type: 'call_status',
-            callId,
-            status: 'answered',
-            phoneNumber: to,
-            conversationId: conversation.id
-          });
+      setTimeout(async () => {
+        try {
+          // Update conversation status in database
+          await storage.updateConversationStatus(conversation.id, 'answered');
+          
+          // Broadcast WebSocket event
+          if (server.wsHandler) {
+            server.wsHandler.broadcast(`tenant:${req.user.tenantId}`, {
+              type: 'call_status',
+              conversationId: conversation.id,
+              callId,
+              status: 'answered',
+              phoneNumber: to
+            });
+          }
+        } catch (error) {
+          console.error('❌ Error updating call status:', error);
         }
       }, 2000);
 
@@ -182,87 +190,119 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/softphone/calls/:callId/mute", async (req, res) => {
+  // Get current call status
+  app.get("/api/softphone/status", async (req, res) => {
     try {
       if (!req.isAuthenticated() || !req.user.tenantId) {
         return res.status(401).json({ message: "Authentication required" });
       }
 
-      const { callId } = req.params;
+      // Get active conversation for this user
+      const activeConversation = await storage.getActiveConversation(req.user.tenantId, req.user.id);
+      
+      console.log(`🔍 Status: Active conversation check:`, activeConversation ? `${activeConversation.id} (${activeConversation.status})` : 'none');
+      
+      if (!activeConversation) {
+        return res.json(null); // No active call
+      }
+
+      // Return call status data
+      res.json({
+        number: activeConversation.phoneNumber,
+        status: activeConversation.status,
+        duration: Math.floor((Date.now() - new Date(activeConversation.createdAt).getTime()) / 1000),
+        conversationId: activeConversation.id
+      });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.post("/api/softphone/calls/:conversationId/mute", async (req, res) => {
+    try {
+      if (!req.isAuthenticated() || !req.user.tenantId) {
+        return res.status(401).json({ message: "Authentication required" });
+      }
+
+      const { conversationId } = req.params;
       const { muted } = req.body;
 
       // Emit WebSocket event
       if (server.wsHandler) {
         server.wsHandler.broadcast(`tenant:${req.user.tenantId}`, {
           type: 'call_mute',
-          callId,
+          conversationId,
           muted
         });
       }
 
-      res.json({ success: true, callId, muted });
+      res.json({ success: true, conversationId, muted });
     } catch (error: any) {
       res.status(500).json({ message: error.message });
     }
   });
 
-  app.post("/api/softphone/calls/:callId/hold", async (req, res) => {
+  app.post("/api/softphone/calls/:conversationId/hold", async (req, res) => {
     try {
       if (!req.isAuthenticated() || !req.user.tenantId) {
         return res.status(401).json({ message: "Authentication required" });
       }
 
-      const { callId } = req.params;
+      const { conversationId } = req.params;
       const { held } = req.body;
 
       // Emit WebSocket event
       if (server.wsHandler) {
         server.wsHandler.broadcast(`tenant:${req.user.tenantId}`, {
           type: 'call_hold',
-          callId,
+          conversationId,
           held
         });
       }
 
-      res.json({ success: true, callId, held });
+      res.json({ success: true, conversationId, held });
     } catch (error: any) {
       res.status(500).json({ message: error.message });
     }
   });
 
-  app.post("/api/softphone/calls/:callId/hangup", async (req, res) => {
+  app.post("/api/softphone/calls/:conversationId/hangup", async (req, res) => {
     try {
       if (!req.isAuthenticated() || !req.user.tenantId) {
         return res.status(401).json({ message: "Authentication required" });
       }
 
-      const { callId } = req.params;
+      const { conversationId } = req.params;
+      
+      console.log(`🔧 Hangup: Ending conversation ${conversationId}`);
       
       // Update conversation status
-      await storage.endConversation(callId);
+      await storage.endConversationById(conversationId);
+      
+      console.log(`✅ Hangup: Conversation ${conversationId} ended`);
 
       // Emit WebSocket event
       if (server.wsHandler) {
         server.wsHandler.broadcast(`tenant:${req.user.tenantId}`, {
           type: 'call_status',
-          callId,
+          conversationId,
           status: 'ended'
         });
       }
 
-      res.json({ success: true, callId, status: "ended" });
+      res.json({ success: true, conversationId, status: "ended" });
     } catch (error: any) {
       res.status(500).json({ message: error.message });
     }
   });
 
-  app.post("/api/softphone/calls/:callId/transfer", async (req, res) => {
+  app.post("/api/softphone/calls/:conversationId/transfer", async (req, res) => {
     try {
       if (!req.isAuthenticated() || !req.user.tenantId) {
         return res.status(401).json({ message: "Authentication required" });
       }
 
-      const { callId } = req.params;
+      const { conversationId } = req.params;
       const { to } = req.body;
 
       if (!to) {
@@ -273,12 +313,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (server.wsHandler) {
         server.wsHandler.broadcast(`tenant:${req.user.tenantId}`, {
           type: 'call_transfer',
-          callId,
+          conversationId,
           transferTo: to
         });
       }
 
-      res.json({ success: true, callId, transferTo: to });
+      res.json({ success: true, conversationId, transferTo: to });
     } catch (error: any) {
       res.status(500).json({ message: error.message });
     }
