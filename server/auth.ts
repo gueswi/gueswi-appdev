@@ -29,19 +29,22 @@ async function comparePasswords(supplied: string, stored: string) {
 }
 
 export function setupAuth(app: Express) {
+  // AUTH HARDENING: Session configuration with explicit settings
   const sessionSettings: session.SessionOptions = {
-    secret: process.env.SESSION_SECRET || "gueswi-dev-secret",
+    name: 'connect.sid',
+    secret: process.env.SESSION_SECRET || 'dev-secret',
     resave: false,
     saveUninitialized: false,
     store: storage.sessionStore,
     cookie: {
-      secure: process.env.NODE_ENV === "production",
       httpOnly: true,
-      maxAge: 24 * 60 * 60 * 1000, // 24 hours
+      sameSite: 'lax',
+      secure: process.env.NODE_ENV === 'production',
+      path: '/',
+      maxAge: 1000*60*60*24, // 24 hours
     },
   };
 
-  app.set("trust proxy", 1);
   app.use(session(sessionSettings));
   app.use(passport.initialize());
   app.use(passport.session());
@@ -50,24 +53,39 @@ export function setupAuth(app: Express) {
     new LocalStrategy(
       { usernameField: "email" },
       async (email, password, done) => {
+        console.log('🔍 LocalStrategy attempt:', { email, passwordProvided: !!password });
         try {
           const user = await storage.getUserByEmail(email);
-          if (!user || !(await comparePasswords(password, user.password))) {
-            return done(null, false);
-          } else {
-            return done(null, user);
+          console.log('🔍 User found:', !!user);
+          
+          if (!user) {
+            console.log('❌ User not found');
+            return done(null, false, { message: 'User not found' });
           }
+          
+          const passwordMatch = await comparePasswords(password, user.password);
+          console.log('🔍 Password match:', passwordMatch);
+          
+          if (!passwordMatch) {
+            console.log('❌ Password mismatch');
+            return done(null, false, { message: 'Invalid password' });
+          }
+          
+          console.log('✅ Authentication successful');
+          return done(null, user);
         } catch (error) {
+          console.log('❌ Error in auth:', error);
           return done(error);
         }
       },
     ),
   );
 
-  passport.serializeUser((user, done) => done(null, user.id));
-  passport.deserializeUser(async (id: string, done) => {
+  // AUTH HARDENING: Enhanced serialization with tenant data
+  passport.serializeUser((user, done) => done(null, { id: user.id, tenantId: user.tenantId, role: user.role }));
+  passport.deserializeUser(async (userData: any, done) => {
     try {
-      const user = await storage.getUser(id);
+      const user = await storage.getUser(userData.id);
       done(null, user);
     } catch (error) {
       done(error);
@@ -95,14 +113,43 @@ export function setupAuth(app: Express) {
     }
   });
 
-  app.post("/api/login", passport.authenticate("local"), (req, res) => {
-    res.status(200).json(req.user);
+  // AUTH HARDENING: Robust login route with explicit callback
+  app.post('/api/login', (req, res, next) => {
+    console.log('🔍 Login attempt:', { email: req.body.email, passwordProvided: !!req.body.password });
+    
+    passport.authenticate('local', (err: any, user: any, info: any) => {
+      console.log('🔍 Auth result:', { err: !!err, user: !!user, info });
+      
+      if (err) return next(err);
+      if (!user) return res.status(401).json({ ok: false, reason: info?.message || 'INVALID' });
+      
+      req.login(user, (err) => {
+        if (err) return next(err);
+        
+        // Debug session info
+        console.log('🔍 sessionID after login:', req.sessionID);
+        console.log('🔍 session.passport:', (req.session as any)?.passport);
+        
+        return res.status(200).json({ ok: true });
+      });
+    })(req, res, next);
   });
 
+  // AUTH HARDENING: Enhanced logout
   app.post("/api/logout", (req, res, next) => {
     req.logout((err) => {
       if (err) return next(err);
-      res.sendStatus(200);
+      res.json({ ok: true });
+    });
+  });
+
+  // AUTH HARDENING: Debug endpoint
+  app.get("/api/debug/session", (req, res) => {
+    res.json({
+      sessionID: req.sessionID,
+      passport: (req.session as any)?.passport,
+      isAuth: req.isAuthenticated(),
+      user: req.user ? { id: req.user.id, email: req.user.email } : null
     });
   });
 

@@ -1,0 +1,80 @@
+AUTH HARDENING — Fix 401 after login (NOW)
+Goal: when POST /api/login succeeds, the server must create a session, set Set-Cookie, and /api/whoami must return my user (id, email, role, tenantId).
+
+Orden correcto de middlewares (server)
+Set this exact order before routes:
+
+app.set('trust proxy', 1);
+app.use(cookieParser());
+app.use(bodyParser.json());
+app.use(bodyParser.urlencoded({ extended: true }));
+app.use(session({
+  name: 'connect.sid',
+  secret: process.env.SESSION_SECRET || 'dev-secret',
+  resave: false,
+  saveUninitialized: false,
+  cookie: {
+    httpOnly: true,
+    sameSite: 'lax',
+    secure: process.env.NODE_ENV === 'production',
+    path: '/',
+    maxAge: 1000*60*60*24
+  },
+  // In dev use MemoryStore; if using PG store, verify connection or fallback to MemoryStore.
+}));
+app.use(passport.initialize());
+app.use(passport.session());
+
+
+Ensure serializeUser stores { id, tenantId, role } and deserializeUser fetches the user.
+
+Ruta de login robusta
+Replace /api/login with explicit callback:
+
+router.post('/login', (req,res,next)=>{
+  passport.authenticate('local', (err,user,info)=>{
+    if(err) return next(err);
+    if(!user) return res.status(401).json({ ok:false, reason: info?.message || 'INVALID' });
+    req.login(user, (err)=>{
+      if(err) return next(err);
+      // At this point session should exist:
+      return res.status(200).json({ ok:true });
+    });
+  })(req,res,next);
+});
+
+
+Add /api/logout that calls req.logout(()=>res.json({ok:true})).
+
+Depuración de sesión
+
+Log in the login handler: console.log('sessionID after login:', req.sessionID, req.session?.passport).
+
+Add /api/debug/session → returns { sessionID, passport: req.session?.passport, isAuth: req.isAuthenticated() }.
+
+Ensure /api/whoami returns {id,email,role,tenantId} only if req.isAuthenticated() is true; else 401.
+
+Frontend auth calls
+
+All auth fetches must be relative (/api/login) and with credentials:
+fetch('/api/login', { method:'POST', credentials:'include', headers:{'Content-Type':'application/json'}, body: JSON.stringify({email,password}) })
+
+After 200, immediately call /api/whoami to hydrate context and redirect a /dashboard/telefonia.
+
+On 401 from whoami, show “Sesión no creada” y sugerir reintentar.
+
+Plan B store
+
+If a PG session store is configured and fails, fallback automático a MemoryStore en dev y log de advertencia.
+
+Smoke test automatizado
+
+Reset password for mc@gueswi.com to Test123! (dev util).
+
+From the web UI: login → capture Set-Cookie in response, show cookie in browser storage.
+
+Call /api/whoami → must return my profile with tenantId.
+
+Open /dashboard/telefonia → list 8 extensiones (2xx).
+
+Print outputs of /api/debug/session before y después de login.
