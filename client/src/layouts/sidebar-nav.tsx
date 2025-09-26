@@ -162,17 +162,6 @@ export function SidebarNav() {
         ))}
       </nav>
 
-      {/* Bottom section - Dev mode indicator (optional) */}
-      {!isCollapsed && (
-        <div className="p-4 border-t border-gray-200 dark:border-gray-700">
-          <div className="text-xs text-gray-500 dark:text-gray-400">
-            <div className="inline-flex items-center space-x-2">
-              <div className="w-2 h-2 bg-green-500 rounded-full"></div>
-              <span>Development</span>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }
