@@ -312,6 +312,129 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Stream transcript chunks during active call
+  app.post("/api/softphone/calls/:conversationId/transcript", async (req, res) => {
+    try {
+      if (!req.isAuthenticated() || !req.user.tenantId) {
+        return res.status(401).json({ message: "Authentication required" });
+      }
+
+      const { conversationId } = req.params;
+      const { text, speaker, timestamp, isPartial = false } = req.body;
+
+      if (!text || !speaker) {
+        return res.status(400).json({ message: "Text and speaker are required" });
+      }
+
+      // Verify conversation belongs to user's tenant
+      const conversation = await storage.getConversationWithMessages(conversationId, req.user.tenantId);
+      if (!conversation) {
+        return res.status(404).json({ message: "Conversation not found" });
+      }
+
+      // Only add complete (non-partial) transcript chunks to database
+      if (!isPartial) {
+        const transcriptMessage = await storage.createMessage({
+          conversationId,
+          type: "transcript",
+          role: speaker === "customer" ? "customer" : "system", // Map speaker to role
+          text,
+          timestamp: timestamp ? new Date(timestamp) : new Date(),
+          attachments: []
+        });
+
+        console.log(`📝 Transcript saved: ${text.substring(0, 50)}...`);
+
+        // Broadcast real-time transcript update
+        if (server.wsHandler) {
+          server.wsHandler.broadcast('conversation:transcript', {
+            type: 'transcript',
+            conversationId,
+            messageId: transcriptMessage.id,
+            text,
+            speaker,
+            timestamp: transcriptMessage.timestamp,
+            isPartial
+          }, req.user.tenantId);
+        }
+      } else {
+        // For partial/interim results, just broadcast without saving
+        if (server.wsHandler) {
+          server.wsHandler.broadcast('conversation:transcript', {
+            type: 'transcript',
+            conversationId,
+            text,
+            speaker,
+            timestamp: timestamp ? new Date(timestamp) : new Date(),
+            isPartial: true
+          }, req.user.tenantId);
+        }
+      }
+
+      res.json({ ok: true, saved: !isPartial });
+    } catch (error: any) {
+      console.error('❌ Transcript error:', error);
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // Mock endpoint to test transcript streaming (development only)
+  app.post("/api/softphone/test/transcript/:conversationId", async (req, res) => {
+    try {
+      if (!req.isAuthenticated() || !req.user.tenantId) {
+        return res.status(401).json({ message: "Authentication required" });
+      }
+
+      const { conversationId } = req.params;
+      
+      // Simulate streaming transcript chunks
+      const transcriptChunks = [
+        { text: "Hola, buen día", speaker: "customer", delay: 0 },
+        { text: "¿En qué puedo ayudarle hoy?", speaker: "agent", delay: 1500 },
+        { text: "Necesito información sobre sus servicios", speaker: "customer", delay: 3000 },
+        { text: "Por supuesto, le explico nuestros planes", speaker: "agent", delay: 4500 },
+      ];
+
+      // Send each chunk with delay
+      transcriptChunks.forEach(async (chunk, index) => {
+        setTimeout(async () => {
+          try {
+            // Add transcript message to database
+            const transcriptMessage = await storage.createMessage({
+              conversationId,
+              type: "transcript",
+              role: chunk.speaker === "customer" ? "customer" : "system",
+              text: chunk.text,
+              timestamp: new Date(),
+              attachments: []
+            });
+
+            // Broadcast real-time update
+            if (server.wsHandler) {
+              server.wsHandler.broadcast('conversation:transcript', {
+                type: 'transcript',
+                conversationId,
+                messageId: transcriptMessage.id,
+                text: chunk.text,
+                speaker: chunk.speaker,
+                timestamp: transcriptMessage.timestamp,
+                isPartial: false
+              }, req.user.tenantId);
+            }
+
+            console.log(`📝 Mock transcript: ${chunk.text}`);
+          } catch (error) {
+            console.error('Mock transcript error:', error);
+          }
+        }, chunk.delay);
+      });
+
+      res.json({ ok: true, message: "Mock transcript streaming started" });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
   // Get current call status
   app.get("/api/softphone/status", async (req, res) => {
     try {

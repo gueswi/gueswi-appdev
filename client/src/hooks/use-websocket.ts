@@ -150,6 +150,25 @@ export function useWebSocket(options: UseWebSocketOptions = {}) {
         }
         break;
 
+      case 'conversation:transcript':
+        // Handle real-time transcript updates
+        if (data.conversationId) {
+          // Invalidate conversation query to refresh message list
+          queryClient.invalidateQueries({
+            queryKey: ['/api/conversations', data.conversationId]
+          });
+          
+          // Show brief toast for real-time transcript (optional)
+          if (data.text && !data.isPartial) {
+            toast({
+              title: `🎙️ ${data.speaker === 'customer' ? 'Cliente' : 'Agente'}`,
+              description: data.text.length > 50 ? data.text.substring(0, 47) + '...' : data.text,
+              duration: 2000,
+            });
+          }
+        }
+        break;
+
       case 'conversations:closed':
         if (data.conversation) {
           queryClient.setQueryData(
