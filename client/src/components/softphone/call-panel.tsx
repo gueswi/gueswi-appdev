@@ -28,6 +28,7 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useMutation, useQueryClient, useQuery } from '@tanstack/react-query';
+import { featureFlags } from '@/lib/feature-flags';
 
 interface ActiveCall {
   number: string;
@@ -67,7 +68,7 @@ export function CallPanel({ isOpen, onClose }: CallPanelProps) {
   // Get active call status
   const { data: activeCall } = useQuery<ActiveCall>({
     queryKey: ['/api/softphone/status'],
-    refetchInterval: 1000,
+    refetchInterval: featureFlags.softphoneStatusPollMs,
   });
 
   // Get call conversation if call is active

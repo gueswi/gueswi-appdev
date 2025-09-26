@@ -7,7 +7,7 @@ export const featureFlags = {
   enableNewUI: import.meta.env.VITE_ENABLE_NEW_UI === 'true',
   
   // Performance optimizations
-  softphoneStatusPollMs: parseInt(import.meta.env.VITE_SOFTPHONE_STATUS_POLL_MS) || 8000,
+  softphoneStatusPollMs: parseInt(import.meta.env.VITE_SOFTPHONE_STATUS_POLL_MS) || 15000,
   wsDisabledWhenIdle: import.meta.env.VITE_WS_DISABLED_WHEN_IDLE === 'true',
   
   // Debug settings

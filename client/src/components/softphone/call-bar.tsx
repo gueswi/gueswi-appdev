@@ -15,6 +15,7 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { featureFlags } from '@/lib/feature-flags';
 
 interface ActiveCall {
   number: string;
@@ -39,7 +40,7 @@ export function CallBar({ onTogglePanel, isPanelOpen }: CallBarProps) {
   // Get active call status - OPTIMIZED POLLING
   const { data: activeCall, isLoading } = useQuery<ActiveCall>({
     queryKey: ['/api/softphone/status'],
-    refetchInterval: 2000, // Reduced from 1s to 2s to save resources
+    refetchInterval: featureFlags.softphoneStatusPollMs,
     // TODO: Disable polling completely when WebSocket is connected
   });
 
