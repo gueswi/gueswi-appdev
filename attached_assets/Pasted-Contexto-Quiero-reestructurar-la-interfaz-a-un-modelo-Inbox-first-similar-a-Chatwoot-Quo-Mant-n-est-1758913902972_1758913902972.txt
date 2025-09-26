@@ -1,0 +1,162 @@
+Contexto
+Quiero reestructurar la interfaz a un modelo Inbox-first similar a Chatwoot/Quo. Mantén estable lo que ya funciona (auth, softphone, conversaciones y WebSocket). Hazlo detrás de una bandera para no romper la UI actual.
+
+0) Bandera de activación
+
+Añade una flag: VITE_ENABLE_NEW_UI=true (si está OFF, todo sigue igual).
+
+Documenta cómo activarla en .env.example y README.
+
+1) Nuevo AppShell (layout raíz)
+
+Crea client/src/layouts/AppShell.tsx y úsalo cuando la flag esté ON:
+
+Sidebar (foco en trabajo diario):
+
+Inbox (Conversaciones) con vistas: Open, Mine, Unassigned, Closed, y Saved Views (usa el CRUD ya existente).
+
+Search (búsqueda global de conversaciones).
+
+Activity (timeline/notifs si hay stub).
+
+Contacts (si existe; si no, placeholder).
+
+Sona AI agent (enlace a su sección si aplica).
+
+Settings (toda la configuración).
+
+Topbar: breadcrumbs dinámicos + indicador de estado WebSocket.
+
+Softphone Dock: fijo abajo, siempre visible; estados inactive/ringing/active, controles (mute/hold/transfer/hangup) y botón para abrir el panel completo.
+
+Importante: No renderices KPI cards dentro del AppShell salvo en la home del dashboard (punto 2).
+
+2) Rutas y navegación
+
+/dashboard → Home con KPI cards (llamadas activas, extensiones, gasto, etc.) y accesos rápidos.
+
+/inbox → Omnichannel Inbox de 3 paneles:
+
+Izquierda: vistas del sistema + vistas guardadas + búsqueda/filtros.
+
+Centro: lista paginada de conversaciones.
+
+Derecha: hilo de mensajes + sidebar de contacto (datos, tags, estado, notas).
+
+Nunca muestres KPI aquí.
+
+/settings → hub de configuración con subrutas:
+
+/settings/telephony (Extensiones, IVR, Colas, Grabaciones)
+
+/settings/ai (agentes IA, prompts, TTS/voices)
+
+/settings/consumption
+
+/settings/billing
+
+(Opcional) /settings/teams, /settings/integrations
+
+Redirecciones: rutas antiguas (/telephony, /ia, /consumo, /facturacion) → su equivalente en /settings/*.
+
+Añade breadcrumbs en todas las páginas que no sean la Home.
+
+3) Métricas solo en Home
+
+Asegura que las KPI cards se muestran únicamente en /dashboard.
+
+Inbox y Settings no deben mostrar tarjetas/contadores globales.
+
+4) Inbox (usar lo que ya existe)
+
+Conecta a los endpoints y WS ya implementados para conversaciones/mensajes (GET + paginación + WS).
+
+Mantén @mentions, adjuntos, tags, asignación y cambio de estado.
+
+Al iniciar llamada desde el dock: crea/abre conversación; al colgar: limpia estado y agrega resumen/nota.
+
+Ahorro: polling de softphone a 5000 ms (respetar SOFTPHONE_STATUS_POLL_MS) y WS-first para mensajes.
+
+5) Settings — mover configuración
+
+Mueve estas secciones bajo Settings con breadcrumbs:
+
+Telefonía → Settings > Telephony (Extensiones, IVR, Colas, Grabaciones)
+
+IA → Settings > AI (agentes, prompts, conocimiento, TTS)
+
+Consumo → Settings > Consumption
+
+Facturación → Settings > Billing
+
+Elimina menús duplicados y redirige las rutas viejas.
+
+6) IVR con TTS (stub si no hay proveedor)
+
+En Settings > Telephony > IVR:
+
+En el modal “Nuevo IVR”, añade texto a locución + selector de voz (Hombre/Mujer/Estilo).
+
+Endpoint POST /api/tts/synthesize (si no hay provider, retorna una URL de audio estática).
+
+Guarda la URL en el IVR y permite previsualizar.
+
+7) No romper lo estable
+
+Haz:
+
+Mantener auth/sesión y WS tal como están.
+
+Respetar SOFTPHONE_STATUS_POLL_MS=5000 y los logs silenciados.
+
+Dejar la UI previa accesible cuando la flag esté OFF.
+
+No hagas:
+
+KPI fuera de /dashboard.
+
+Duplicar páginas: usa redirecciones.
+
+8) QA / Criterios de aceptación
+
+Marca como “done” cuando todo esto pase:
+
+ Con VITE_ENABLE_NEW_UI=true se ve Sidebar + Topbar + Dock globales.
+
+ /dashboard muestra KPI; /inbox y /settings/* no muestran KPI.
+
+ Inbox 3 paneles carga datos reales; búsqueda/filtros/vistas; actualiza por WS.
+
+ Softphone dock: visible siempre; llamar → abre conversación; colgar → limpia estado y agrega resumen.
+
+ Settings contiene Telephony, AI, Consumption, Billing con breadcrumbs.
+
+ Rutas viejas redirigen a Settings.
+
+ Sin spam de logs; polling a 5s.
+
+9) Entrega
+
+Deja todo detrás de VITE_ENABLE_NEW_UI.
+
+Actualiza .env.example y README con cómo activar la nueva UI.
+
+Adjunta capturas o un short video: Home → Inbox → Settings → (Telephony/IVR) → volver.
+
+Notas
+
+Si necesitas mock para TTS: retorna un audio fijo y marca con // TODO provider.
+
+Prioriza no romper el flujo actual. Si algo peligra, aislar tras la flag.
+
+Cómo lo voy a probar (smoke test)
+
+Activo la flag: añado VITE_ENABLE_NEW_UI=true en .env.
+
+Login → veo Sidebar/Topbar/Dock.
+
+Voy a /dashboard → veo KPI.
+
+Voy a /inbox → 3 paneles, sin KPI.
+
+Voy a /settings/telephony → IVR con TTS y breadcrumbs.

@@ -21,8 +21,19 @@ import {
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { Plus, Trash2 } from "lucide-react";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Plus, Trash2, Volume2, Play, Loader2 } from "lucide-react";
 import { useCreateIvr, useUpdateIvr } from "@/hooks/use-telephony";
+import { useMutation } from "@tanstack/react-query";
+import { apiRequest } from "@/lib/queryClient";
+import { useToast } from "@/hooks/use-toast";
 import type { IvrMenu } from "@shared/schema";
 
 const ivrOptionSchema = z.object({
@@ -61,6 +72,20 @@ const ivrSchema = z.object({
       (val) => !val || /^https?:\/\//.test(val),
       "URL debe comenzar con http:// o https://"
     ),
+  // TTS fields
+  greetingText: z
+    .string()
+    .optional()
+    .refine(
+      (val) => !val || val.length <= 500,
+      "El texto no puede exceder 500 caracteres"
+    ),
+  voiceType: z
+    .enum(["male", "female", "neutral"])
+    .optional(),
+  voiceStyle: z
+    .enum(["formal", "friendly", "energetic", "calm"])
+    .optional(),
   options: z
     .array(ivrOptionSchema)
     .min(1, "Al menos una opción requerida")
@@ -86,6 +111,12 @@ interface IvrModalProps {
 export function IvrModal({ isOpen, onClose, ivr, mode }: IvrModalProps) {
   const createMutation = useCreateIvr();
   const updateMutation = useUpdateIvr();
+  const { toast } = useToast();
+  
+  // TTS state
+  const [generatedAudioUrl, setGeneratedAudioUrl] = useState<string | null>(null);
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [currentAudio, setCurrentAudio] = useState<HTMLAudioElement | null>(null);
 
   // Handle both string and object formats for backward compatibility
   const defaultOptions = ivr?.options 
@@ -97,9 +128,131 @@ export function IvrModal({ isOpen, onClose, ivr, mode }: IvrModalProps) {
     defaultValues: {
       name: "",
       greetingUrl: "",
+      greetingText: "",
+      voiceType: "female",
+      voiceStyle: "friendly",
       options: [{ key: "1", action: "transfer", destination: "101" }],
     },
   });
+
+  // TTS synthesis mutation
+  const synthesizeMutation = useMutation({
+    mutationFn: async (data: { text: string; voiceType: string; voiceStyle: string }) => {
+      return apiRequest('POST', '/api/tts/synthesize', data);
+    },
+    onSuccess: (response: { audioUrl: string }) => {
+      setGeneratedAudioUrl(response.audioUrl);
+      // Auto-fill the greetingUrl with the generated audio
+      form.setValue('greetingUrl', response.audioUrl);
+      toast({
+        title: "Audio generado",
+        description: "El audio TTS se ha generado correctamente",
+      });
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Error al generar audio",
+        description: error.message || "No se pudo generar el audio TTS",
+        variant: "destructive",
+      });
+    },
+  });
+
+  // TTS generation handler
+  const handleGenerateTTS = () => {
+    const greetingText = form.getValues('greetingText');
+    const voiceType = form.getValues('voiceType') || 'female';
+    const voiceStyle = form.getValues('voiceStyle') || 'friendly';
+    
+    if (!greetingText?.trim()) {
+      toast({
+        title: "Texto requerido",
+        description: "Ingresa el texto para generar el audio",
+        variant: "destructive",
+      });
+      return;
+    }
+    
+    synthesizeMutation.mutate({
+      text: greetingText,
+      voiceType,
+      voiceStyle,
+    });
+  };
+
+  // Audio preview handler with proper cleanup
+  const handlePreviewAudio = () => {
+    const audioUrl = generatedAudioUrl || form.getValues('greetingUrl');
+    if (!audioUrl) {
+      toast({
+        title: "Sin audio",
+        description: "No hay audio para reproducir",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    // Stop and cleanup any existing audio
+    if (currentAudio) {
+      currentAudio.pause();
+      currentAudio.currentTime = 0;
+      setCurrentAudio(null);
+    }
+
+    if (isPlaying) {
+      setIsPlaying(false);
+      return; // Just stop if already playing
+    }
+    
+    const audio = new Audio(audioUrl);
+    setCurrentAudio(audio);
+    setIsPlaying(true);
+    
+    audio.onended = () => {
+      setIsPlaying(false);
+      setCurrentAudio(null);
+    };
+    
+    audio.onerror = () => {
+      setIsPlaying(false);
+      setCurrentAudio(null);
+      toast({
+        title: "Error de reproducción",
+        description: "No se pudo reproducir el audio",
+        variant: "destructive",
+      });
+    };
+    
+    audio.play().catch(() => {
+      setIsPlaying(false);
+      setCurrentAudio(null);
+      toast({
+        title: "Error de reproducción",
+        description: "No se pudo reproducir el audio",
+        variant: "destructive",
+      });
+    });
+  };
+
+  // Cleanup audio on component unmount or modal close
+  useEffect(() => {
+    return () => {
+      if (currentAudio) {
+        currentAudio.pause();
+        currentAudio.currentTime = 0;
+      }
+    };
+  }, [currentAudio]);
+
+  // Cleanup audio when modal closes
+  useEffect(() => {
+    if (!isOpen && currentAudio) {
+      currentAudio.pause();
+      currentAudio.currentTime = 0;
+      setCurrentAudio(null);
+      setIsPlaying(false);
+    }
+  }, [isOpen, currentAudio]);
 
   // Reset form when IVR or mode changes
   useEffect(() => {
@@ -112,15 +265,22 @@ export function IvrModal({ isOpen, onClose, ivr, mode }: IvrModalProps) {
       form.reset({
         name: ivr.name || "",
         greetingUrl: ivr.greetingUrl || "",
+        greetingText: "",
+        voiceType: "female",
+        voiceStyle: "friendly",
         options: ivrOptions,
       });
     } else if (mode === "create") {
       form.reset({
         name: "",
         greetingUrl: "",
+        greetingText: "",
+        voiceType: "female",
+        voiceStyle: "friendly",
         options: [{ key: "1", action: "transfer", destination: "101" }],
       });
     }
+    setGeneratedAudioUrl(null);
   }, [ivr, mode, form]);
 
   const { fields, append, remove } = useFieldArray({
@@ -133,6 +293,9 @@ export function IvrModal({ isOpen, onClose, ivr, mode }: IvrModalProps) {
       const ivrData = {
         name: data.name,
         greetingUrl: data.greetingUrl || null,
+        greetingText: data.greetingText || null,
+        voiceType: data.voiceType || null,
+        voiceStyle: data.voiceStyle || null,
         options: data.options, // Send as actual JSON object, not stringified
       };
 
@@ -192,23 +355,166 @@ export function IvrModal({ isOpen, onClose, ivr, mode }: IvrModalProps) {
               )}
             />
 
-            <FormField
-              control={form.control}
-              name="greetingUrl"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>URL del Saludo (Opcional)</FormLabel>
-                  <FormControl>
-                    <Input
-                      {...field}
-                      placeholder="https://example.com/audio/greeting.mp3"
-                      data-testid="input-greeting-url"
+            {/* TTS and Greeting Section */}
+            <div className="space-y-4">
+              <FormLabel>Configuración del Saludo</FormLabel>
+              <Tabs defaultValue="tts" className="w-full">
+                <TabsList className="grid w-full grid-cols-2">
+                  <TabsTrigger value="tts" data-testid="tab-tts">
+                    <Volume2 className="w-4 h-4 mr-2" />
+                    Generar con TTS
+                  </TabsTrigger>
+                  <TabsTrigger value="url" data-testid="tab-url">
+                    URL de Audio
+                  </TabsTrigger>
+                </TabsList>
+                
+                <TabsContent value="tts" className="space-y-4 mt-4">
+                  <FormField
+                    control={form.control}
+                    name="greetingText"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Texto del Saludo</FormLabel>
+                        <FormControl>
+                          <Textarea
+                            {...field}
+                            placeholder="Bienvenido a nuestra empresa. Por favor, seleccione una opción..."
+                            rows={3}
+                            maxLength={500}
+                            disabled={synthesizeMutation.isPending}
+                            data-testid="textarea-greeting-text"
+                          />
+                        </FormControl>
+                        <div className="text-xs text-muted-foreground">
+                          {(field.value?.length || 0)}/500 caracteres
+                        </div>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  
+                  <div className="grid grid-cols-2 gap-4">
+                    <FormField
+                      control={form.control}
+                      name="voiceType"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Tipo de Voz</FormLabel>
+                          <FormControl>
+                            <Select onValueChange={field.onChange} value={field.value} disabled={synthesizeMutation.isPending}>
+                              <SelectTrigger data-testid="select-voice-type">
+                                <SelectValue placeholder="Seleccionar voz" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="female">Femenina</SelectItem>
+                                <SelectItem value="male">Masculina</SelectItem>
+                                <SelectItem value="neutral">Neutral</SelectItem>
+                              </SelectContent>
+                            </Select>
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
                     />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
+                    
+                    <FormField
+                      control={form.control}
+                      name="voiceStyle"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Estilo de Voz</FormLabel>
+                          <FormControl>
+                            <Select onValueChange={field.onChange} value={field.value} disabled={synthesizeMutation.isPending}>
+                              <SelectTrigger data-testid="select-voice-style">
+                                <SelectValue placeholder="Seleccionar estilo" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="formal">Formal</SelectItem>
+                                <SelectItem value="friendly">Amigable</SelectItem>
+                                <SelectItem value="energetic">Energético</SelectItem>
+                                <SelectItem value="calm">Calmado</SelectItem>
+                              </SelectContent>
+                            </Select>
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                  </div>
+                  
+                  <div className="flex gap-2">
+                    <Button
+                      type="button"
+                      onClick={handleGenerateTTS}
+                      disabled={synthesizeMutation.isPending}
+                      data-testid="button-generate-tts"
+                    >
+                      {synthesizeMutation.isPending ? (
+                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                      ) : (
+                        <Volume2 className="w-4 h-4 mr-2" />
+                      )}
+                      Generar Audio
+                    </Button>
+                    
+                    {(generatedAudioUrl || form.watch('greetingUrl')) && (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        onClick={handlePreviewAudio}
+                        disabled={isPlaying}
+                        data-testid="button-preview-audio"
+                      >
+                        <Play className="w-4 h-4 mr-2" />
+                        {isPlaying ? "Reproduciendo..." : "Escuchar"}
+                      </Button>
+                    )}
+                  </div>
+                  
+                  {generatedAudioUrl && (
+                    <div className="p-3 bg-green-50 border border-green-200 rounded-md">
+                      <p className="text-sm text-green-800">
+                        ✓ Audio TTS generado correctamente
+                      </p>
+                    </div>
+                  )}
+                </TabsContent>
+                
+                <TabsContent value="url" className="mt-4">
+                  <FormField
+                    control={form.control}
+                    name="greetingUrl"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>URL del Audio</FormLabel>
+                        <FormControl>
+                          <Input
+                            {...field}
+                            placeholder="https://example.com/audio/greeting.mp3"
+                            data-testid="input-greeting-url"
+                          />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  
+                  {form.watch('greetingUrl') && (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={handlePreviewAudio}
+                      disabled={isPlaying}
+                      data-testid="button-preview-url-audio"
+                    >
+                      <Play className="w-4 h-4 mr-2" />
+                      {isPlaying ? "Reproduciendo..." : "Escuchar"}
+                    </Button>
+                  )}
+                </TabsContent>
+              </Tabs>
+            </div>
 
             <div className="space-y-3">
               <div className="flex items-center justify-between">

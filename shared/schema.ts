@@ -100,6 +100,10 @@ export const ivrMenus = pgTable("ivr_menus", {
   tenantId: uuid("tenant_id").references(() => tenants.id).notNull(),
   name: text("name").notNull(),
   greetingUrl: text("greeting_url"),
+  // TTS fields for text-to-speech generation
+  greetingText: text("greeting_text"),
+  voiceType: text("voice_type", { enum: ["male", "female", "neutral"] }),
+  voiceStyle: text("voice_style", { enum: ["formal", "friendly", "energetic", "calm"] }),
   options: jsonb("options").notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
@@ -311,6 +315,9 @@ export const insertExtensionSchema = createInsertSchema(extensions).pick({
 export const insertIvrMenuSchema = createInsertSchema(ivrMenus).pick({
   name: true,
   greetingUrl: true,
+  greetingText: true,
+  voiceType: true,
+  voiceStyle: true,
   options: true,
 });
 

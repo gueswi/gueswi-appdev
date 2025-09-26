@@ -750,6 +750,64 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // TTS (Text-to-Speech) synthesis endpoint
+  app.post("/api/tts/synthesize", async (req, res) => {
+    try {
+      if (!req.isAuthenticated() || !req.user.tenantId) {
+        return res.status(401).json({ message: "Authentication required" });
+      }
+
+      const { text, voiceType = 'female', voiceStyle = 'friendly' } = req.body;
+
+      if (!text || text.trim().length === 0) {
+        return res.status(400).json({ message: "Text is required for TTS synthesis" });
+      }
+
+      if (text.length > 500) {
+        return res.status(400).json({ message: "Text cannot exceed 500 characters" });
+      }
+
+      // Validate voice type against allowed enums
+      const validVoiceTypes = ['male', 'female', 'neutral'];
+      if (!validVoiceTypes.includes(voiceType)) {
+        return res.status(400).json({ message: `Invalid voice type. Must be one of: ${validVoiceTypes.join(', ')}` });
+      }
+
+      // Validate voice style against allowed enums
+      const validVoiceStyles = ['formal', 'friendly', 'energetic', 'calm'];
+      if (!validVoiceStyles.includes(voiceStyle)) {
+        return res.status(400).json({ message: `Invalid voice style. Must be one of: ${validVoiceStyles.join(', ')}` });
+      }
+
+      // Mock TTS synthesis (development implementation)
+      // TODO: Replace with real TTS service (Azure Cognitive Services, AWS Polly, Google Cloud TTS, etc.)
+      const audioId = `tts_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+      const mockAudioUrl = `https://mock-tts-service.gueswi.com/audio/${audioId}.mp3`;
+
+      // Enhanced logging for observability
+      console.log(`🔊 TTS synthesis request [${req.user.tenantId}]:`);
+      console.log(`   Text: "${text.substring(0, 50)}${text.length > 50 ? '...' : ''}" (${text.length} chars)`);
+      console.log(`   Voice: ${voiceType} (${voiceStyle})`);
+      console.log(`   Audio ID: ${audioId}`);
+      console.log(`   Mock URL: ${mockAudioUrl}`);
+
+      // Simulate processing time
+      await new Promise(resolve => setTimeout(resolve, 1500));
+
+      res.json({
+        audioUrl: mockAudioUrl,
+        text,
+        voiceType,
+        voiceStyle,
+        duration: Math.ceil(text.length / 10), // Rough estimate: 10 chars per second
+        audioId
+      });
+    } catch (error: any) {
+      console.error("❌ TTS synthesis error:", error);
+      res.status(500).json({ message: error.message });
+    }
+  });
+
   // AI metrics endpoints
   app.get("/api/ai/metrics", async (req, res) => {
     try {
