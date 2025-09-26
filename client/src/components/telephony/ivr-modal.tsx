@@ -26,15 +26,52 @@ import { useCreateIvr, useUpdateIvr } from "@/hooks/use-telephony";
 import type { IvrMenu } from "@shared/schema";
 
 const ivrOptionSchema = z.object({
-  key: z.string().min(1, "Tecla requerida"),
-  action: z.string().min(1, "Acción requerida"),
-  destination: z.string().min(1, "Destino requerido"),
+  key: z
+    .string()
+    .min(1, "Tecla requerida")
+    .regex(/^[0-9*#]$/, "Solo se permiten números del 0-9, * o #")
+    .refine(
+      (val) => val === "*" || val === "#" || (parseInt(val) >= 0 && parseInt(val) <= 9),
+      "Tecla debe ser 0-9, * o #"
+    ),
+  action: z
+    .string()
+    .min(1, "Acción requerida")
+    .refine(
+      (val) => ["transfer", "queue", "hangup", "repeat"].includes(val),
+      "Acción debe ser transfer, queue, hangup o repeat"
+    ),
+  destination: z
+    .string()
+    .min(1, "Destino requerido")
+    .max(50, "Máximo 50 caracteres"),
 });
 
 const ivrSchema = z.object({
-  name: z.string().min(1, "Nombre requerido").max(100, "Máximo 100 caracteres"),
-  greetingUrl: z.string().optional(),
-  options: z.array(ivrOptionSchema).min(1, "Al menos una opción requerida"),
+  name: z
+    .string()
+    .min(1, "Nombre requerido")
+    .min(3, "Mínimo 3 caracteres")
+    .max(100, "Máximo 100 caracteres")
+    .regex(/^[a-zA-ZáéíóúÁÉÍÓÚñÑ0-9\s\-_]+$/, "Solo letras, números, espacios, guiones y guiones bajos"),
+  greetingUrl: z
+    .string()
+    .optional()
+    .refine(
+      (val) => !val || /^https?:\/\//.test(val),
+      "URL debe comenzar con http:// o https://"
+    ),
+  options: z
+    .array(ivrOptionSchema)
+    .min(1, "Al menos una opción requerida")
+    .max(10, "Máximo 10 opciones permitidas")
+    .refine(
+      (options) => {
+        const keys = options.map(opt => opt.key);
+        return new Set(keys).size === keys.length;
+      },
+      "No puede haber teclas duplicadas"
+    ),
 });
 
 type IvrFormData = z.infer<typeof ivrSchema>;

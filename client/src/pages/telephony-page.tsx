@@ -309,7 +309,7 @@ function IvrsTab() {
                   </Button>
                 </CardTitle>
                 <CardDescription>
-                  Opciones: {typeof ivr.options === 'string' ? JSON.parse(ivr.options || "[]").length : (ivr.options || []).length}
+                  Opciones: {typeof ivr.options === 'string' ? JSON.parse(ivr.options || "[]").length : Array.isArray(ivr.options) ? ivr.options.length : 0}
                 </CardDescription>
               </CardHeader>
               <CardContent>

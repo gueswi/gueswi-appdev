@@ -31,10 +31,31 @@ import { useCreateExtension, useUpdateExtension } from "@/hooks/use-telephony";
 import type { Extension } from "@shared/schema";
 
 const extensionSchema = z.object({
-  number: z.string().min(1, "Número de extensión requerido").max(10, "Máximo 10 caracteres"),
-  userName: z.string().min(1, "Nombre de usuario requerido").max(50, "Máximo 50 caracteres"),
-  userId: z.string().optional(),
-  status: z.enum(["ACTIVE", "INACTIVE"]),
+  number: z
+    .string()
+    .min(1, "Número de extensión requerido")
+    .max(10, "Máximo 10 caracteres")
+    .regex(/^[0-9]+$/, "Solo se permiten números")
+    .refine(
+      (val) => parseInt(val) >= 100 && parseInt(val) <= 9999,
+      "El número debe estar entre 100 y 9999"
+    ),
+  userName: z
+    .string()
+    .min(1, "Nombre de usuario requerido")
+    .min(2, "Mínimo 2 caracteres")
+    .max(50, "Máximo 50 caracteres")
+    .regex(/^[a-zA-ZáéíóúÁÉÍÓÚñÑ\s]+$/, "Solo se permiten letras y espacios"),
+  userId: z
+    .string()
+    .optional()
+    .refine(
+      (val) => !val || (val.length >= 3 && val.length <= 50),
+      "ID de usuario debe tener entre 3 y 50 caracteres si se proporciona"
+    ),
+  status: z.enum(["ACTIVE", "INACTIVE"], {
+    errorMap: () => ({ message: "Estado debe ser Activa o Inactiva" }),
+  }),
 });
 
 type ExtensionFormData = z.infer<typeof extensionSchema>;
@@ -81,6 +102,9 @@ export function ExtensionModal({ isOpen, onClose, extension, mode }: ExtensionMo
 
   const onSubmit = async (data: ExtensionFormData) => {
     try {
+      // Clear any previous errors
+      form.clearErrors();
+      
       if (mode === "create") {
         await createMutation.mutateAsync(data);
       } else if (extension) {
@@ -88,8 +112,29 @@ export function ExtensionModal({ isOpen, onClose, extension, mode }: ExtensionMo
       }
       // Close modal only after successful mutation
       handleClose();
-    } catch (error) {
-      // Error handling is done in the hooks with toast notifications
+    } catch (error: any) {
+      // Handle specific validation errors from the server
+      if (error?.response?.status === 400) {
+        const errorData = error.response.data;
+        
+        // Handle duplicate extension number
+        if (errorData?.message?.includes("extension number")) {
+          form.setError("number", {
+            type: "manual",
+            message: "Este número de extensión ya existe",
+          });
+        }
+        
+        // Handle other field-specific errors
+        if (errorData?.field && errorData?.message) {
+          form.setError(errorData.field, {
+            type: "manual",
+            message: errorData.message,
+          });
+        }
+      }
+      
+      // Error notifications are handled in the hooks
       // Keep modal open so user can see error and retry
     }
   };
