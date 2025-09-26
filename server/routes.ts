@@ -1,19 +1,10 @@
 import type { Express } from "express";
 import { createServer, type Server } from "http";
-import WebSocket, { WebSocketServer } from 'ws';
 
-// WebSocket client interface with authentication
-interface AuthenticatedWebSocket extends WebSocket {
-  userId?: string;
-  tenantId?: string;
-  isAlive?: boolean;
-}
-
-// Extend Server type to include WebSocket server and handler
+// Extend Server type to include wsHandler
 interface ServerWithWebSocket extends Server {
-  wss?: WebSocket.Server;
   wsHandler?: {
-    broadcast: (channel: string, data: any, tenantId?: string) => void;
+    broadcast: (channel: string, data: any) => void;
   };
 }
 import Stripe from "stripe";
@@ -60,122 +51,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Create HTTP server and setup WebSocket support
   const server = createServer(app) as ServerWithWebSocket;
   
-  // Create WebSocket server
-  const wss = new WebSocketServer({ 
-    server,
-    path: '/ws',
-    verifyClient: (info) => {
-      // Basic verification - more auth happens after connection
-      return true;
-    }
-  });
-
-  // Store authenticated connections by tenant
-  const tenantConnections = new Map<string, Set<AuthenticatedWebSocket>>();
-
-  // WebSocket connection handler
-  wss.on('connection', (ws: AuthenticatedWebSocket, req) => {
-    console.log('📡 New WebSocket connection');
-    ws.isAlive = true;
-
-    // Handle authentication message
-    ws.on('message', async (message: string) => {
-      try {
-        const data = JSON.parse(message);
-        
-        if (data.type === 'authenticate' && data.tenantId) {
-          // Simplified authentication for development 
-          // TODO: In production, validate against actual Express session
-          ws.tenantId = data.tenantId;
-          
-          // Add to tenant connections
-          if (ws.tenantId) {
-            if (!tenantConnections.has(ws.tenantId)) {
-              tenantConnections.set(ws.tenantId, new Set());
-            }
-            tenantConnections.get(ws.tenantId)?.add(ws);
-            
-            ws.send(JSON.stringify({ 
-              type: 'authenticated', 
-              tenantId: ws.tenantId 
-            }));
-            
-            console.log(`🔐 WebSocket authenticated for tenant: ${ws.tenantId}`);
-          }
-        }
-      } catch (error) {
-        console.error('WebSocket message error:', error);
-      }
-    });
-
-    // Handle connection close
-    ws.on('close', () => {
-      if (ws.tenantId && tenantConnections.has(ws.tenantId)) {
-        tenantConnections.get(ws.tenantId)?.delete(ws);
-        if (tenantConnections.get(ws.tenantId)?.size === 0) {
-          tenantConnections.delete(ws.tenantId);
-        }
-      }
-      console.log('📡 WebSocket connection closed');
-    });
-
-    // Heartbeat
-    ws.on('pong', () => {
-      ws.isAlive = true;
-    });
-  });
-
-  // Heartbeat interval
-  const heartbeatInterval = setInterval(() => {
-    wss.clients.forEach((ws: AuthenticatedWebSocket) => {
-      if (!ws.isAlive) {
-        ws.terminate();
-        return;
-      }
-      ws.isAlive = false;
-      ws.ping();
-    });
-  }, 30000);
-
-  // Real WebSocket handler with broadcasting
+  // Mock WebSocket handler for softphone (dev implementation)
   const wsHandler = {
-    broadcast: (channel: string, data: any, tenantId?: string) => {
-      const message = JSON.stringify({
-        type: 'broadcast',
-        channel,
-        data,
-        timestamp: new Date().toISOString()
-      });
-
-      if (tenantId && tenantConnections.has(tenantId)) {
-        // Broadcast to specific tenant
-        tenantConnections.get(tenantId)?.forEach((ws) => {
-          if (ws.readyState === WebSocket.OPEN) {
-            ws.send(message);
-          }
-        });
-        console.log(`📡 Broadcast to tenant ${tenantId} [${channel}]:`, data);
-      } else {
-        // Broadcast to all connected clients
-        wss.clients.forEach((ws: AuthenticatedWebSocket) => {
-          if (ws.readyState === WebSocket.OPEN) {
-            ws.send(message);
-          }
-        });
-        console.log(`📡 Global broadcast [${channel}]:`, data);
-      }
+    broadcast: (channel: string, data: any) => {
+      console.log(`📡 WebSocket broadcast [${channel}]:`, data);
+      // TODO: Implement real WebSocket broadcasting when WebSocket server is added
     }
   };
   
-  // Attach WebSocket server and handler to server
-  server.wss = wss;
+  // Attach WebSocket handler to server
   server.wsHandler = wsHandler;
-
-  // Cleanup on server close
-  server.on('close', () => {
-    clearInterval(heartbeatInterval);
-    wss.close();
-  });
 
   // Setup authentication
   setupAuth(app);
@@ -312,129 +197,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Stream transcript chunks during active call
-  app.post("/api/softphone/calls/:conversationId/transcript", async (req, res) => {
-    try {
-      if (!req.isAuthenticated() || !req.user.tenantId) {
-        return res.status(401).json({ message: "Authentication required" });
-      }
-
-      const { conversationId } = req.params;
-      const { text, speaker, timestamp, isPartial = false } = req.body;
-
-      if (!text || !speaker) {
-        return res.status(400).json({ message: "Text and speaker are required" });
-      }
-
-      // Verify conversation belongs to user's tenant
-      const conversation = await storage.getConversationWithMessages(conversationId, req.user.tenantId);
-      if (!conversation) {
-        return res.status(404).json({ message: "Conversation not found" });
-      }
-
-      // Only add complete (non-partial) transcript chunks to database
-      if (!isPartial) {
-        const transcriptMessage = await storage.createMessage({
-          conversationId,
-          type: "transcript",
-          role: speaker === "customer" ? "customer" : "system", // Map speaker to role
-          text,
-          timestamp: timestamp ? new Date(timestamp) : new Date(),
-          attachments: []
-        });
-
-        console.log(`📝 Transcript saved: ${text.substring(0, 50)}...`);
-
-        // Broadcast real-time transcript update
-        if (server.wsHandler) {
-          server.wsHandler.broadcast('conversation:transcript', {
-            type: 'transcript',
-            conversationId,
-            messageId: transcriptMessage.id,
-            text,
-            speaker,
-            timestamp: transcriptMessage.timestamp,
-            isPartial
-          }, req.user.tenantId);
-        }
-      } else {
-        // For partial/interim results, just broadcast without saving
-        if (server.wsHandler) {
-          server.wsHandler.broadcast('conversation:transcript', {
-            type: 'transcript',
-            conversationId,
-            text,
-            speaker,
-            timestamp: timestamp ? new Date(timestamp) : new Date(),
-            isPartial: true
-          }, req.user.tenantId);
-        }
-      }
-
-      res.json({ ok: true, saved: !isPartial });
-    } catch (error: any) {
-      console.error('❌ Transcript error:', error);
-      res.status(500).json({ message: error.message });
-    }
-  });
-
-  // Mock endpoint to test transcript streaming (development only)
-  app.post("/api/softphone/test/transcript/:conversationId", async (req, res) => {
-    try {
-      if (!req.isAuthenticated() || !req.user.tenantId) {
-        return res.status(401).json({ message: "Authentication required" });
-      }
-
-      const { conversationId } = req.params;
-      
-      // Simulate streaming transcript chunks
-      const transcriptChunks = [
-        { text: "Hola, buen día", speaker: "customer", delay: 0 },
-        { text: "¿En qué puedo ayudarle hoy?", speaker: "agent", delay: 1500 },
-        { text: "Necesito información sobre sus servicios", speaker: "customer", delay: 3000 },
-        { text: "Por supuesto, le explico nuestros planes", speaker: "agent", delay: 4500 },
-      ];
-
-      // Send each chunk with delay
-      transcriptChunks.forEach(async (chunk, index) => {
-        setTimeout(async () => {
-          try {
-            // Add transcript message to database
-            const transcriptMessage = await storage.createMessage({
-              conversationId,
-              type: "transcript",
-              role: chunk.speaker === "customer" ? "customer" : "system",
-              text: chunk.text,
-              timestamp: new Date(),
-              attachments: []
-            });
-
-            // Broadcast real-time update
-            if (server.wsHandler) {
-              server.wsHandler.broadcast('conversation:transcript', {
-                type: 'transcript',
-                conversationId,
-                messageId: transcriptMessage.id,
-                text: chunk.text,
-                speaker: chunk.speaker,
-                timestamp: transcriptMessage.timestamp,
-                isPartial: false
-              }, req.user.tenantId);
-            }
-
-            console.log(`📝 Mock transcript: ${chunk.text}`);
-          } catch (error) {
-            console.error('Mock transcript error:', error);
-          }
-        }, chunk.delay);
-      });
-
-      res.json({ ok: true, message: "Mock transcript streaming started" });
-    } catch (error: any) {
-      res.status(500).json({ message: error.message });
-    }
-  });
-
   // Get current call status
   app.get("/api/softphone/status", async (req, res) => {
     try {
@@ -528,10 +290,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       // Emit WebSocket event
       if (server.wsHandler) {
-        server.wsHandler.broadcast('conversations:ended', {
+        server.wsHandler.broadcast(`tenant:${req.user.tenantId}`, {
           type: 'ended',
           conversationId
-        }, req.user.tenantId);
+        });
       }
 
       res.json({ ok: true });
@@ -577,9 +339,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const { callId } = req.params;
       const { notes } = req.body;
 
-      const updatedConversation = await storage.updateConversationNotes(callId, notes);
+      await storage.updateConversationNotes(callId, notes);
 
-      res.json(updatedConversation);
+      res.json({ success: true, callId, notes });
     } catch (error: any) {
       res.status(500).json({ message: error.message });
     }
@@ -612,218 +374,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(401).json({ message: "Authentication required" });
       }
 
-      const { page = 1, pageSize = 10, type, search } = req.query;
+      const { page = 1, pageSize = 10 } = req.query;
       const conversations = await storage.getConversations(
         req.user.tenantId, 
         parseInt(page as string), 
-        parseInt(pageSize as string),
-        type as string,
-        search as string
+        parseInt(pageSize as string)
       );
 
       res.json(conversations);
-    } catch (error: any) {
-      res.status(500).json({ message: error.message });
-    }
-  });
-
-  // Get conversation count for badge
-  app.get("/api/conversations/count", async (req, res) => {
-    try {
-      if (!req.isAuthenticated() || !req.user.tenantId) {
-        return res.status(401).json({ message: "Authentication required" });
-      }
-
-      const { hours = 24 } = req.query;
-      const count = await storage.getConversationCount(
-        req.user.tenantId, 
-        parseInt(hours as string)
-      );
-
-      res.json({ count });
-    } catch (error: any) {
-      res.status(500).json({ message: error.message });
-    }
-  });
-
-  // Update conversation status, assignee, or other properties
-  app.patch("/api/conversations/:id", async (req, res) => {
-    try {
-      if (!req.isAuthenticated() || !req.user.tenantId) {
-        return res.status(401).json({ message: "Authentication required" });
-      }
-
-      const { id } = req.params;
-      const { status, assigneeId, priority, notes } = req.body;
-
-      // Basic validation
-      if (status && !["open", "pending", "closed", "active", "ended", "ringing", "answered"].includes(status)) {
-        return res.status(400).json({ message: "Invalid status value" });
-      }
-
-      const updateData: any = {};
-      if (status !== undefined) updateData.status = status;
-      if (assigneeId !== undefined) updateData.assigneeId = assigneeId;
-      if (priority !== undefined) updateData.priority = priority;
-      if (notes !== undefined) updateData.notes = notes;
-
-      const updatedConversation = await storage.updateConversation(id, updateData);
-      
-      // Broadcast conversation update to tenant
-      if (server.wsHandler) {
-        server.wsHandler.broadcast('conversations:updated', {
-          conversation: updatedConversation
-        }, req.user.tenantId);
-      }
-      
-      res.json(updatedConversation);
-    } catch (error: any) {
-      res.status(500).json({ message: error.message });
-    }
-  });
-
-  // Close conversation
-  app.post("/api/conversations/:id/close", async (req, res) => {
-    try {
-      if (!req.isAuthenticated() || !req.user.tenantId) {
-        return res.status(401).json({ message: "Authentication required" });
-      }
-
-      const { id } = req.params;
-      
-      // Verify conversation belongs to user's tenant
-      const existingConversation = await storage.getConversationWithMessages(id, req.user.tenantId);
-      if (!existingConversation) {
-        return res.status(404).json({ message: "Conversation not found or access denied" });
-      }
-
-      const updatedConversation = await storage.closeConversation(id);
-      
-      // Broadcast conversation close to tenant
-      if (server.wsHandler) {
-        server.wsHandler.broadcast('conversations:closed', {
-          conversation: updatedConversation
-        }, req.user.tenantId);
-      }
-      
-      res.json(updatedConversation);
-    } catch (error: any) {
-      res.status(500).json({ message: error.message });
-    }
-  });
-
-  // Reopen conversation
-  app.post("/api/conversations/:id/reopen", async (req, res) => {
-    try {
-      if (!req.isAuthenticated() || !req.user.tenantId) {
-        return res.status(401).json({ message: "Authentication required" });
-      }
-
-      const { id } = req.params;
-      
-      // Verify conversation belongs to user's tenant
-      const existingConversation = await storage.getConversationWithMessages(id, req.user.tenantId);
-      if (!existingConversation) {
-        return res.status(404).json({ message: "Conversation not found or access denied" });
-      }
-
-      const updatedConversation = await storage.reopenConversation(id);
-      
-      // Broadcast conversation reopen to tenant
-      if (server.wsHandler) {
-        server.wsHandler.broadcast('conversations:reopened', {
-          conversation: updatedConversation
-        }, req.user.tenantId);
-      }
-      
-      res.json(updatedConversation);
-    } catch (error: any) {
-      res.status(500).json({ message: error.message });
-    }
-  });
-
-  // Add tags to conversation
-  app.post("/api/conversations/:id/tags", async (req, res) => {
-    try {
-      if (!req.isAuthenticated() || !req.user.tenantId) {
-        return res.status(401).json({ message: "Authentication required" });
-      }
-
-      const { id } = req.params;
-      const { tags } = req.body;
-
-      // Verify conversation belongs to user's tenant
-      const existingConversation = await storage.getConversationWithMessages(id, req.user.tenantId);
-      if (!existingConversation) {
-        return res.status(404).json({ message: "Conversation not found or access denied" });
-      }
-
-      if (!Array.isArray(tags)) {
-        return res.status(400).json({ message: "Tags must be an array" });
-      }
-
-      const updatedConversation = await storage.addConversationTags(id, tags);
-      
-      // Broadcast tags added to tenant
-      if (server.wsHandler) {
-        server.wsHandler.broadcast('conversations:tags-added', {
-          conversation: updatedConversation,
-          addedTags: tags
-        }, req.user.tenantId);
-      }
-      
-      res.json(updatedConversation);
-    } catch (error: any) {
-      res.status(500).json({ message: error.message });
-    }
-  });
-
-  // Remove tag from conversation
-  app.delete("/api/conversations/:id/tags/:tag", async (req, res) => {
-    try {
-      if (!req.isAuthenticated() || !req.user.tenantId) {
-        return res.status(401).json({ message: "Authentication required" });
-      }
-
-      const { id, tag } = req.params;
-      
-      // Verify conversation belongs to user's tenant
-      const existingConversation = await storage.getConversationWithMessages(id, req.user.tenantId);
-      if (!existingConversation) {
-        return res.status(404).json({ message: "Conversation not found or access denied" });
-      }
-
-      const updatedConversation = await storage.removeConversationTag(id, tag);
-      
-      // Broadcast tag removed to tenant
-      if (server.wsHandler) {
-        server.wsHandler.broadcast('conversations:tag-removed', {
-          conversation: updatedConversation,
-          removedTag: tag
-        }, req.user.tenantId);
-      }
-      
-      res.json(updatedConversation);
-    } catch (error: any) {
-      res.status(500).json({ message: error.message });
-    }
-  });
-
-  // Get tenant team members for assignee dropdown
-  app.get("/api/team-members", async (req, res) => {
-    try {
-      if (!req.isAuthenticated() || !req.user.tenantId) {
-        return res.status(401).json({ message: "Authentication required" });
-      }
-
-      // Get all users in the same tenant
-      const teamMembers = await storage.getTenantUsers(req.user.tenantId);
-      res.json(teamMembers.map(user => ({
-        id: user.id,
-        name: `${user.firstName || ''} ${user.lastName || ''}`.trim() || user.username,
-        email: user.email,
-        role: user.role
-      })));
     } catch (error: any) {
       res.status(500).json({ message: error.message });
     }

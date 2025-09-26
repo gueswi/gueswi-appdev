@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -6,7 +6,6 @@ import { Badge } from "@/components/ui/badge";
 import { DashboardLayout } from "@/components/layouts/dashboard-layout";
 import { MetricCard } from "@/components/ui/metric-card";
 import { EmptyState } from "@/components/ui/empty-state";
-import { OmnichannelInbox } from "@/components/conversations/omnichannel-inbox";
 import { 
   Phone, 
   PhoneCall, 
@@ -22,8 +21,7 @@ import {
   Zap,
   Download,
   CreditCard,
-  Settings,
-  MessageSquare
+  Settings
 } from "lucide-react";
 import { useLocation } from "wouter";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
@@ -32,8 +30,6 @@ import { useToast } from "@/hooks/use-toast";
 import { Slider } from "@/components/ui/slider";
 import { Switch } from "@/components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 
 interface DashboardStats {
@@ -92,24 +88,6 @@ export default function DashboardPage() {
   const [activeTab, setActiveTab] = useState("telefonia");
   const { toast } = useToast();
   const queryClient = useQueryClient();
-
-  // Handle URL query parameters for tab switching
-  useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    const tab = params.get('tab');
-    if (tab && ['telefonia', 'conversaciones', 'ia', 'consumo', 'facturacion'].includes(tab)) {
-      setActiveTab(tab);
-    }
-  }, []);
-
-  // Handle tab change and update URL
-  const handleTabChange = (tab: string) => {
-    setActiveTab(tab);
-    const params = new URLSearchParams(window.location.search);
-    params.set('tab', tab);
-    const newUrl = `${window.location.pathname}?${params.toString()}`;
-    window.history.pushState(null, '', newUrl);
-  };
 
   // Fetch dashboard stats
   const { data: stats, isLoading: statsLoading } = useQuery<DashboardStats>({
@@ -199,8 +177,8 @@ export default function DashboardPage() {
 
       {/* Tabs Navigation */}
       <Card className="p-2 mb-8" data-testid="dashboard-tabs">
-        <Tabs value={activeTab} onValueChange={handleTabChange}>
-          <TabsList className="grid w-full grid-cols-5 bg-transparent gap-2">
+        <Tabs value={activeTab} onValueChange={setActiveTab}>
+          <TabsList className="grid w-full grid-cols-4 bg-transparent gap-2">
             <TabsTrigger 
               value="telefonia" 
               className="rounded-full data-[state=active]:bg-primary data-[state=active]:text-primary-foreground"
@@ -208,14 +186,6 @@ export default function DashboardPage() {
             >
               <Phone className="w-4 h-4 mr-2" />
               Telefonía
-            </TabsTrigger>
-            <TabsTrigger 
-              value="conversaciones" 
-              className="rounded-full data-[state=active]:bg-primary data-[state=active]:text-primary-foreground"
-              data-testid="tab-conversaciones"
-            >
-              <MessageSquare className="w-4 h-4 mr-2" />
-              Conversaciones
             </TabsTrigger>
             <TabsTrigger 
               value="ia" 
@@ -422,11 +392,6 @@ export default function DashboardPage() {
                 </CardContent>
               </Card>
             </div>
-          </TabsContent>
-
-          {/* Tab Content: Conversaciones */}
-          <TabsContent value="conversaciones" className="mt-6" data-testid="conversaciones-content">
-            <OmnichannelInbox />
           </TabsContent>
 
           {/* Tab Content: IA */}

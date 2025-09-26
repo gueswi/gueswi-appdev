@@ -1,5 +1,4 @@
 import { useState, useEffect } from "react";
-import { useLocation } from "wouter";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
@@ -32,8 +31,7 @@ import {
   Pause,
   Download,
   Users,
-  Volume2,
-  MessageSquare
+  Volume2
 } from "lucide-react";
 import { DashboardLayout } from "@/components/layouts/dashboard-layout";
 import { 
@@ -424,7 +422,6 @@ function QueuesTab() {
 
 function RecordingsTab() {
   const { getNumberParam, setParam } = useUrlState();
-  const [, setLocation] = useLocation();
   const page = getNumberParam("recordings_page", 1);
   const [audioPlayer, setAudioPlayer] = useState<{
     isOpen: boolean;
@@ -473,30 +470,6 @@ function RecordingsTab() {
   const getRecordingFileName = (recording: any) => {
     const date = new Date(recording.startedAt).toISOString().split('T')[0];
     return `recording-${recording.callId}-${date}.wav`;
-  };
-
-  const handleViewConversation = async (recording: any) => {
-    try {
-      // Find conversation by callId
-      const response = await fetch(`/api/conversations?search=${recording.callId}&pageSize=1&type=call`);
-      if (response.ok) {
-        const data = await response.json();
-        if (data.data && data.data.length > 0) {
-          // Navigate to specific conversation detail page
-          setLocation(`/dashboard/conversaciones/${data.data[0].id}`);
-        } else {
-          // Fallback to conversations page
-          setLocation('/dashboard/conversaciones');
-        }
-      } else {
-        // Fallback to conversations page
-        setLocation('/dashboard/conversaciones');
-      }
-    } catch (error) {
-      console.error('Error finding conversation:', error);
-      // Fallback to conversations page
-      setLocation('/dashboard/conversaciones');
-    }
   };
 
   return (
@@ -563,14 +536,6 @@ function RecordingsTab() {
                           data-testid={`button-download-${recording.id}`}
                         >
                           <Download className="h-4 w-4" />
-                        </Button>
-                        <Button 
-                          variant="ghost" 
-                          size="sm"
-                          onClick={() => handleViewConversation(recording)}
-                          data-testid={`button-conversation-${recording.id}`}
-                        >
-                          <MessageSquare className="h-4 w-4" />
                         </Button>
                       </div>
                     </TableCell>

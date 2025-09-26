@@ -10,8 +10,6 @@ import {
   recordings,
   conversations,
   messages,
-  mentions,
-  views,
   type User, 
   type InsertUser, 
   type Tenant, 
@@ -31,11 +29,7 @@ import {
   type Conversation,
   type InsertConversation,
   type Message,
-  type InsertMessage,
-  type Mention,
-  type InsertMention,
-  type View,
-  type InsertView
+  type InsertMessage
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, and, desc, gte, lte, count, sum, sql, isNull } from "drizzle-orm";
@@ -50,7 +44,6 @@ export interface IStorage {
   // User methods
   getUser(id: string): Promise<User | undefined>;
   getUserByEmail(email: string): Promise<User | undefined>;
-  getTenantUsers(tenantId: string): Promise<User[]>;
   createUser(user: InsertUser): Promise<User>;
   updateUser(id: string, data: Partial<InsertUser>): Promise<User>;
   updateUserStripeInfo(id: string, customerId: string, subscriptionId: string): Promise<User>;
@@ -117,9 +110,9 @@ export interface IStorage {
   // Conversation methods (softphone)
   createConversation(conversation: InsertConversation & { tenantId: string }): Promise<Conversation>;
   endConversation(callId: string): Promise<void>;
-  updateConversationNotes(callId: string, notes: string): Promise<Conversation>;
+  updateConversationNotes(callId: string, notes: string): Promise<void>;
   getConversationWithMessages(id: string, tenantId: string): Promise<(Conversation & { messages: Message[] }) | undefined>;
-  getConversations(tenantId: string, page?: number, pageSize?: number, type?: string, search?: string): Promise<{
+  getConversations(tenantId: string, page?: number, pageSize?: number): Promise<{
     data: Conversation[];
     total: number;
     page: number;
@@ -129,30 +122,6 @@ export interface IStorage {
   
   // Message methods
   createMessage(message: InsertMessage): Promise<Message>;
-  updateMessage(id: string, data: Partial<InsertMessage>): Promise<Message>;
-  
-  // Omnichannel conversation methods
-  updateConversation(id: string, data: Partial<InsertConversation>): Promise<Conversation>;
-  assignConversation(id: string, assigneeId?: string): Promise<Conversation>;
-  closeConversation(id: string): Promise<Conversation>;
-  reopenConversation(id: string): Promise<Conversation>;
-  addConversationTags(id: string, tags: string[]): Promise<Conversation>;
-  removeConversationTag(id: string, tag: string): Promise<Conversation>;
-  
-  // Views methods (saved filters)
-  getViews(tenantId: string, userId?: string): Promise<View[]>;
-  createView(view: InsertView & { tenantId: string }): Promise<View>;
-  updateView(id: string, data: Partial<InsertView>): Promise<View>;
-  deleteView(id: string): Promise<void>;
-  
-  // Mentions methods
-  getMentionsByMessage(messageId: string): Promise<Mention[]>;
-  getMentionsByUser(userId: string, tenantId: string): Promise<Mention[]>;
-  createMention(mention: InsertMention): Promise<Mention>;
-  deleteMention(id: string): Promise<void>;
-  
-  // Conversation count for badge
-  getConversationCount(tenantId: string, hours?: number): Promise<number>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -202,14 +171,6 @@ export class DatabaseStorage implements IStorage {
       .where(eq(users.id, id))
       .returning();
     return user;
-  }
-
-  async getTenantUsers(tenantId: string): Promise<User[]> {
-    return await db
-      .select()
-      .from(users)
-      .where(eq(users.tenantId, tenantId))
-      .orderBy(users.firstName, users.lastName, users.username);
   }
 
   async getTenant(id: string): Promise<Tenant | undefined> {
@@ -688,17 +649,14 @@ export class DatabaseStorage implements IStorage {
       .where(eq(conversations.id, conversationId));
   }
 
-  async updateConversationNotes(callId: string, notes: string): Promise<Conversation> {
-    const [updatedConversation] = await db
+  async updateConversationNotes(callId: string, notes: string): Promise<void> {
+    await db
       .update(conversations)
       .set({ 
         notes,
         updatedAt: new Date()
       })
-      .where(eq(conversations.callId, callId))
-      .returning();
-    
-    return updatedConversation;
+      .where(eq(conversations.callId, callId));
   }
 
   async getConversationWithMessages(id: string, tenantId: string): Promise<(Conversation & { messages: Message[] }) | undefined> {
@@ -760,7 +718,7 @@ export class DatabaseStorage implements IStorage {
     console.log(`📝 DB: Conversation ${conversationId} status updated to '${status}' at ${now.toISOString()}`);
   }
 
-  async getConversations(tenantId: string, page = 1, pageSize = 10, type?: string, search?: string): Promise<{
+  async getConversations(tenantId: string, page = 1, pageSize = 10): Promise<{
     data: Conversation[];
     total: number;
     page: number;
@@ -769,32 +727,15 @@ export class DatabaseStorage implements IStorage {
   }> {
     const offset = (page - 1) * pageSize;
 
-    // Build where conditions
-    const whereConditions = [eq(conversations.tenantId, tenantId)];
-    
-    // Add type filter if specified (for now, all conversations are call type)
-    if (type === 'call') {
-      // All conversations in our system are calls, so no additional filter needed
-      // This parameter is ready for future expansion (e.g., chat, email)
-    }
-
-    // Add search filter if specified (search by phone number or call ID)
-    if (search?.trim()) {
-      whereConditions.push(
-        // Use SQL ILIKE for case-insensitive search on phone number OR call ID
-        sql`(${conversations.phoneNumber} ILIKE ${'%' + search.trim() + '%'} OR ${conversations.callId} ILIKE ${'%' + search.trim() + '%'})`
-      );
-    }
-
     const [totalResult] = await db
       .select({ count: count() })
       .from(conversations)
-      .where(and(...whereConditions));
+      .where(eq(conversations.tenantId, tenantId));
 
     const conversationData = await db
       .select()
       .from(conversations)
-      .where(and(...whereConditions))
+      .where(eq(conversations.tenantId, tenantId))
       .orderBy(desc(conversations.createdAt))
       .limit(pageSize)
       .offset(offset);
@@ -817,210 +758,6 @@ export class DatabaseStorage implements IStorage {
       .values(message)
       .returning();
     return newMessage;
-  }
-
-  // Omnichannel conversation methods implementation
-  async updateMessage(id: string, data: Partial<InsertMessage>): Promise<Message> {
-    const [updatedMessage] = await db
-      .update(messages)
-      .set({ ...data, createdAt: new Date() })
-      .where(eq(messages.id, id))
-      .returning();
-    return updatedMessage;
-  }
-
-  async updateConversation(id: string, data: Partial<InsertConversation>): Promise<Conversation> {
-    const [updatedConversation] = await db
-      .update(conversations)
-      .set({ ...data, updatedAt: new Date() })
-      .where(eq(conversations.id, id))
-      .returning();
-    return updatedConversation;
-  }
-
-  async assignConversation(id: string, assigneeId?: string): Promise<Conversation> {
-    const [updatedConversation] = await db
-      .update(conversations)
-      .set({ 
-        assigneeId,
-        updatedAt: new Date()
-      })
-      .where(eq(conversations.id, id))
-      .returning();
-    return updatedConversation;
-  }
-
-  async closeConversation(id: string): Promise<Conversation> {
-    const [updatedConversation] = await db
-      .update(conversations)
-      .set({ 
-        status: "closed",
-        endedAt: new Date(),
-        updatedAt: new Date()
-      })
-      .where(eq(conversations.id, id))
-      .returning();
-    return updatedConversation;
-  }
-
-  async reopenConversation(id: string): Promise<Conversation> {
-    const [updatedConversation] = await db
-      .update(conversations)
-      .set({ 
-        status: "open",
-        endedAt: null,
-        updatedAt: new Date()
-      })
-      .where(eq(conversations.id, id))
-      .returning();
-    return updatedConversation;
-  }
-
-  async addConversationTags(id: string, tags: string[]): Promise<Conversation> {
-    // Get current conversation to merge tags
-    const [conversation] = await db
-      .select()
-      .from(conversations)
-      .where(eq(conversations.id, id));
-
-    if (!conversation) {
-      throw new Error('Conversation not found');
-    }
-
-    const currentTags = conversation.tags || [];
-    const newTags = Array.from(new Set([...currentTags, ...tags]));
-
-    const [updatedConversation] = await db
-      .update(conversations)
-      .set({ 
-        tags: newTags,
-        updatedAt: new Date()
-      })
-      .where(eq(conversations.id, id))
-      .returning();
-    return updatedConversation;
-  }
-
-  async removeConversationTag(id: string, tag: string): Promise<Conversation> {
-    // Get current conversation to filter tags
-    const [conversation] = await db
-      .select()
-      .from(conversations)
-      .where(eq(conversations.id, id));
-
-    if (!conversation) {
-      throw new Error('Conversation not found');
-    }
-
-    const currentTags = conversation.tags || [];
-    const newTags = currentTags.filter(t => t !== tag);
-
-    const [updatedConversation] = await db
-      .update(conversations)
-      .set({ 
-        tags: newTags,
-        updatedAt: new Date()
-      })
-      .where(eq(conversations.id, id))
-      .returning();
-    return updatedConversation;
-  }
-
-  // Views methods implementation
-  async getViews(tenantId: string, userId?: string): Promise<View[]> {
-    const whereConditions = [eq(views.tenantId, tenantId)];
-    
-    if (userId) {
-      whereConditions.push(
-        // Get views owned by user OR shared views
-        sql`(${views.ownerId} = ${userId} OR ${views.shared} = true)`
-      );
-    }
-
-    const viewsData = await db
-      .select()
-      .from(views)
-      .where(and(...whereConditions))
-      .orderBy(views.name);
-
-    return viewsData;
-  }
-
-  async createView(view: InsertView & { tenantId: string }): Promise<View> {
-    const [newView] = await db
-      .insert(views)
-      .values(view)
-      .returning();
-    return newView;
-  }
-
-  async updateView(id: string, data: Partial<InsertView>): Promise<View> {
-    const [updatedView] = await db
-      .update(views)
-      .set({ ...data, updatedAt: new Date() })
-      .where(eq(views.id, id))
-      .returning();
-    return updatedView;
-  }
-
-  async deleteView(id: string): Promise<void> {
-    await db
-      .delete(views)
-      .where(eq(views.id, id));
-  }
-
-  // Mentions methods implementation
-  async getMentionsByMessage(messageId: string): Promise<Mention[]> {
-    const mentionsData = await db
-      .select()
-      .from(mentions)
-      .where(eq(mentions.messageId, messageId))
-      .orderBy(mentions.createdAt);
-
-    return mentionsData;
-  }
-
-  async getMentionsByUser(userId: string, tenantId: string): Promise<Mention[]> {
-    const mentionsData = await db
-      .select()
-      .from(mentions)
-      .innerJoin(messages, eq(mentions.messageId, messages.id))
-      .innerJoin(conversations, eq(messages.conversationId, conversations.id))
-      .where(and(
-        eq(mentions.userId, userId),
-        eq(conversations.tenantId, tenantId)
-      ))
-      .orderBy(desc(mentions.createdAt));
-
-    return mentionsData.map(row => row.mentions);
-  }
-
-  async createMention(mention: InsertMention): Promise<Mention> {
-    const [newMention] = await db
-      .insert(mentions)
-      .values(mention)
-      .returning();
-    return newMention;
-  }
-
-  async deleteMention(id: string): Promise<void> {
-    await db
-      .delete(mentions)
-      .where(eq(mentions.id, id));
-  }
-
-  async getConversationCount(tenantId: string, hours = 24): Promise<number> {
-    const since = new Date(Date.now() - (hours * 60 * 60 * 1000));
-    
-    const [result] = await db
-      .select({ count: count() })
-      .from(conversations)
-      .where(and(
-        eq(conversations.tenantId, tenantId),
-        gte(conversations.createdAt, since)
-      ));
-
-    return result.count;
   }
 }
 

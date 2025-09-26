@@ -128,24 +128,15 @@ export const recordings = pgTable("recordings", {
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
-// Conversations table (omnichannel inbox)
+// Conversations table (softphone)
 export const conversations = pgTable("conversations", {
   id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
   tenantId: uuid("tenant_id").references(() => tenants.id).notNull(),
   extensionId: uuid("extension_id").references(() => extensions.id),
   userId: uuid("user_id").references(() => users.id),
-  callId: text("call_id"),
+  callId: text("call_id").notNull(),
   phoneNumber: text("phone_number"),
-  // Omnichannel fields
-  channel: text("channel", { enum: ["voice", "whatsapp", "instagram", "facebook", "email", "webchat"] }).default("voice").notNull(),
-  status: text("status", { enum: ["open", "pending", "closed", "active", "ended", "ringing", "answered"] }).default("open").notNull(),
-  assigneeId: uuid("assignee_id").references(() => users.id),
-  teamId: uuid("team_id"), // Could reference a future teams table
-  lastMessageAt: timestamp("last_message_at").defaultNow().notNull(),
-  priority: text("priority", { enum: ["low", "normal", "high", "urgent"] }).default("normal"),
-  tags: text("tags").array().default(sql`'{}'`),
-  customFields: jsonb("custom_fields").default("{}"),
-  // Legacy voice fields
+  status: text("status", { enum: ["active", "ended", "ringing", "answered"] }).default("ringing").notNull(),
   startedAt: timestamp("started_at").defaultNow().notNull(),
   endedAt: timestamp("ended_at"),
   duration: integer("duration").default(0),
@@ -154,39 +145,13 @@ export const conversations = pgTable("conversations", {
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
 
-// Messages table (omnichannel conversation feed)
+// Messages table (call conversation feed)
 export const messages = pgTable("messages", {
   id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
   conversationId: uuid("conversation_id").references(() => conversations.id).notNull(),
-  type: text("type", { enum: ["text", "note", "event", "transcript", "attachment"] }).default("text").notNull(),
-  role: text("role", { enum: ["customer", "agent", "ai", "system"] }).default("customer").notNull(),
-  text: text("text").default("").notNull(),
-  attachments: jsonb("attachments").default("[]"),
-  // Legacy fields for backward compatibility
-  from: text("from", { enum: ["customer", "agent", "ai"] }),
-  content: text("content"),
+  from: text("from", { enum: ["customer", "agent", "ai"] }).notNull(),
+  content: text("content").notNull(),
   timestamp: timestamp("timestamp").defaultNow().notNull(),
-  createdAt: timestamp("created_at").defaultNow().notNull(),
-});
-
-// Mentions table (for @mentions in messages)
-export const mentions = pgTable("mentions", {
-  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
-  messageId: uuid("message_id").references(() => messages.id).notNull(),
-  userId: uuid("user_id").references(() => users.id).notNull(),
-  createdAt: timestamp("created_at").defaultNow().notNull(),
-});
-
-// Views table (saved filters for inbox)
-export const views = pgTable("views", {
-  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
-  tenantId: uuid("tenant_id").references(() => tenants.id).notNull(),
-  ownerId: uuid("owner_id").references(() => users.id),
-  name: text("name").notNull(),
-  query: jsonb("query").notNull(),
-  shared: boolean("shared").default(false).notNull(),
-  createdAt: timestamp("created_at").defaultNow().notNull(),
-  updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
 
 // Relations
@@ -295,40 +260,13 @@ export const conversationsRelations = relations(conversations, ({ one, many }) =
     fields: [conversations.userId],
     references: [users.id],
   }),
-  assignee: one(users, {
-    fields: [conversations.assigneeId],
-    references: [users.id],
-  }),
   messages: many(messages),
 }));
 
-export const messagesRelations = relations(messages, ({ one, many }) => ({
+export const messagesRelations = relations(messages, ({ one }) => ({
   conversation: one(conversations, {
     fields: [messages.conversationId],
     references: [conversations.id],
-  }),
-  mentions: many(mentions),
-}));
-
-export const mentionsRelations = relations(mentions, ({ one }) => ({
-  message: one(messages, {
-    fields: [mentions.messageId],
-    references: [messages.id],
-  }),
-  user: one(users, {
-    fields: [mentions.userId],
-    references: [users.id],
-  }),
-}));
-
-export const viewsRelations = relations(views, ({ one }) => ({
-  tenant: one(tenants, {
-    fields: [views.tenantId],
-    references: [tenants.id],
-  }),
-  owner: one(users, {
-    fields: [views.ownerId],
-    references: [users.id],
   }),
 }));
 
@@ -395,49 +333,15 @@ export const insertConversationSchema = createInsertSchema(conversations).pick({
   userId: true,
   callId: true,
   phoneNumber: true,
-  channel: true,
   status: true,
-  assigneeId: true,
-  teamId: true,
-  priority: true,
-  tags: true,
-  customFields: true,
   notes: true,
-}).partial({ 
-  extensionId: true, 
-  userId: true, 
-  callId: true,
-  phoneNumber: true,
-  assigneeId: true,
-  teamId: true,
-  priority: true,
-  tags: true,
-  customFields: true,
-  notes: true 
-});
+}).partial({ extensionId: true, userId: true, phoneNumber: true, notes: true });
 
 export const insertMessageSchema = createInsertSchema(messages).pick({
   conversationId: true,
-  type: true,
-  role: true,
-  text: true,
-  attachments: true,
-  // Legacy fields for backward compatibility
   from: true,
   content: true,
-}).partial({ attachments: true, from: true, content: true });
-
-export const insertMentionSchema = createInsertSchema(mentions).pick({
-  messageId: true,
-  userId: true,
 });
-
-export const insertViewSchema = createInsertSchema(views).pick({
-  ownerId: true,
-  name: true,
-  query: true,
-  shared: true,
-}).partial({ ownerId: true, shared: true });
 
 // Types
 export type User = typeof users.$inferSelect;
@@ -460,7 +364,3 @@ export type Conversation = typeof conversations.$inferSelect;
 export type InsertConversation = z.infer<typeof insertConversationSchema>;
 export type Message = typeof messages.$inferSelect;
 export type InsertMessage = z.infer<typeof insertMessageSchema>;
-export type Mention = typeof mentions.$inferSelect;
-export type InsertMention = z.infer<typeof insertMentionSchema>;
-export type View = typeof views.$inferSelect;
-export type InsertView = z.infer<typeof insertViewSchema>;
