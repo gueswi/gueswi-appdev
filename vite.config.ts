@@ -36,16 +36,5 @@ export default defineConfig({
       strict: true,
       deny: ["**/.*"],
     },
-    proxy: {
-      "/api": {
-        target: "http://0.0.0.0:5000", // tu API Express
-        changeOrigin: true,
-        secure: false,
-      },
-      "/ws": {
-        target: "ws://0.0.0.0:5000", // websockets del backend
-        ws: true,
-      },
-    },
   },
 });

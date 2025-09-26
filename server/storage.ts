@@ -700,10 +700,7 @@ export class DatabaseStorage implements IStorage {
       )
       .orderBy(desc(conversations.createdAt));
 
-    // Remove noisy DB filter logs during polling - can be enabled with SOFTPHONE_DEBUG_LOGS
-    if (process.env.SOFTPHONE_DEBUG_LOGS !== 'off') {
-      console.log(`🔍 DB Query: Active conversation filter - status IN ('ringing','answered'), endedAt IS NULL, updatedAt > ${thirtySecsAgo.toISOString()}`);
-    }
+    console.log(`🔍 DB Query: Active conversation filter - status IN ('ringing','answered'), endedAt IS NULL, updatedAt > ${thirtySecsAgo.toISOString()}`);
     return conversation;
   }
 
@@ -718,9 +715,7 @@ export class DatabaseStorage implements IStorage {
       })
       .where(eq(conversations.id, conversationId));
     
-    if (process.env.SOFTPHONE_DEBUG_LOGS !== 'off') {
-      console.log(`📝 DB: Conversation ${conversationId} status updated to '${status}' at ${now.toISOString()}`);
-    }
+    console.log(`📝 DB: Conversation ${conversationId} status updated to '${status}' at ${now.toISOString()}`);
   }
 
   async getConversations(tenantId: string, page = 1, pageSize = 10): Promise<{
