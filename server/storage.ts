@@ -85,6 +85,7 @@ export interface IStorage {
   updateIvr(id: string, data: Partial<InsertIvrMenu>): Promise<IvrMenu>;
   
   getQueues(tenantId: string): Promise<Queue[]>;
+  createQueue(queue: InsertQueue & { tenantId: string }): Promise<Queue>;
   updateQueue(id: string, data: Partial<InsertQueue>): Promise<Queue>;
   
   getRecordings(tenantId: string, from?: Date, to?: Date, page?: number, pageSize?: number): Promise<{
@@ -381,6 +382,11 @@ export class DatabaseStorage implements IStorage {
       .from(queues)
       .where(eq(queues.tenantId, tenantId))
       .orderBy(queues.createdAt);
+  }
+
+  async createQueue(queue: InsertQueue & { tenantId: string }): Promise<Queue> {
+    const [created] = await db.insert(queues).values(queue).returning();
+    return created;
   }
 
   async updateQueue(id: string, data: Partial<InsertQueue>): Promise<Queue> {

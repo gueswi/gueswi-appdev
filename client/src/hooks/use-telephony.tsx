@@ -219,6 +219,31 @@ export function useQueues() {
   });
 }
 
+export function useCreateQueue() {
+  const { toast } = useToast();
+  
+  return useMutation({
+    mutationFn: async (data: InsertQueue) => {
+      const res = await apiRequest("POST", "/api/queues", data);
+      return res.json();
+    },
+    onSuccess: () => {
+      toast({
+        title: "Cola creada",
+        description: "La cola se ha creado exitosamente.",
+      });
+      queryClient.invalidateQueries({ queryKey: ["/api/queues"] });
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Error al crear cola",
+        description: error.message,
+        variant: "destructive",
+      });
+    },
+  });
+}
+
 export function useUpdateQueue() {
   const { toast } = useToast();
   

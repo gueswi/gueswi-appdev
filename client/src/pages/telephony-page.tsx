@@ -49,6 +49,19 @@ import { IvrModal } from "@/components/telephony/ivr-modal";
 import { AudioPlayer } from "@/components/telephony/audio-player";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { useUrlState } from "@/hooks/use-url-state";
+import { 
+  ExtensionsTableSkeleton, 
+  RecordingsTableSkeleton, 
+  IvrCardsSkeleton, 
+  QueueCardsSkeleton 
+} from "@/components/telephony/loading-states";
+import { 
+  ExtensionsEmptyState, 
+  IvrsEmptyState, 
+  QueuesEmptyState, 
+  RecordingsEmptyState,
+  ErrorState 
+} from "@/components/telephony/empty-states";
 import type { Extension, IvrMenu } from "@shared/schema";
 
 function ExtensionsTab() {
@@ -141,37 +154,25 @@ function ExtensionsTab() {
       </div>
 
       {/* Extensions Table */}
-      <Card>
-        <CardContent className="p-0">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Extensión</TableHead>
-                <TableHead>Usuario</TableHead>
-                <TableHead>Estado</TableHead>
-                <TableHead>SIP</TableHead>
-                <TableHead className="text-right">Acciones</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {isLoading ? (
+      {isLoading ? (
+        <ExtensionsTableSkeleton />
+      ) : extensionsData?.data.length === 0 ? (
+        <ExtensionsEmptyState onCreateExtension={openCreateModal} />
+      ) : (
+        <Card>
+          <CardContent className="p-0">
+            <Table>
+              <TableHeader>
                 <TableRow>
-                  <TableCell colSpan={5} className="text-center py-8">
-                    Cargando extensiones...
-                  </TableCell>
+                  <TableHead>Extensión</TableHead>
+                  <TableHead>Usuario</TableHead>
+                  <TableHead>Estado</TableHead>
+                  <TableHead>SIP</TableHead>
+                  <TableHead className="text-right">Acciones</TableHead>
                 </TableRow>
-              ) : extensionsData?.data.length === 0 ? (
-                <TableRow>
-                  <TableCell colSpan={5} className="text-center py-8">
-                    <div className="flex flex-col items-center gap-2">
-                      <Phone className="h-8 w-8 text-muted-foreground" />
-                      <p className="text-sm text-muted-foreground">
-                        No hay extensiones configuradas
-                      </p>
-                    </div>
-                  </TableCell>
-                </TableRow>
-              ) : (
+              </TableHeader>
+              <TableBody>
+                {
                 extensionsData?.data.map((extension) => (
                   <TableRow key={extension.id} data-testid={`row-extension-${extension.id}`}>
                     <TableCell className="font-medium">
@@ -221,11 +222,12 @@ function ExtensionsTab() {
                     </TableCell>
                   </TableRow>
                 ))
-              )}
+              }
             </TableBody>
           </Table>
         </CardContent>
       </Card>
+      )}
 
       {/* Pagination */}
       {extensionsData && extensionsData.totalPages > 1 && (
@@ -266,6 +268,24 @@ function ExtensionsTab() {
 
 function IvrsTab() {
   const { data: ivrs, isLoading } = useIvrs();
+  
+  const [ivrModal, setIvrModal] = useState<{
+    isOpen: boolean;
+    mode: "create" | "edit";
+    ivr?: IvrMenu | null;
+  }>({ isOpen: false, mode: "create", ivr: null });
+
+  const openCreateIvrModal = () => {
+    setIvrModal({ isOpen: true, mode: "create", ivr: null });
+  };
+
+  const openEditIvrModal = (ivr: IvrMenu) => {
+    setIvrModal({ isOpen: true, mode: "edit", ivr });
+  };
+
+  const closeIvrModal = () => {
+    setIvrModal({ isOpen: false, mode: "create", ivr: null });
+  };
 
   return (
     <div className="space-y-6">
@@ -276,7 +296,7 @@ function IvrsTab() {
             Configura los menús de respuesta automática
           </p>
         </div>
-        <Button data-testid="button-create-ivr">
+        <Button onClick={openCreateIvrModal} data-testid="button-create-ivr">
           <Plus className="h-4 w-4 mr-2" />
           Nuevo IVR
         </Button>
@@ -284,27 +304,21 @@ function IvrsTab() {
 
       <div className="grid gap-4">
         {isLoading ? (
-          <Card>
-            <CardContent className="flex items-center justify-center py-8">
-              Cargando menús IVR...
-            </CardContent>
-          </Card>
+          <IvrCardsSkeleton />
         ) : ivrs?.length === 0 ? (
-          <Card>
-            <CardContent className="flex flex-col items-center justify-center py-8">
-              <Settings className="h-8 w-8 text-muted-foreground mb-2" />
-              <p className="text-sm text-muted-foreground">
-                No hay menús IVR configurados
-              </p>
-            </CardContent>
-          </Card>
+          <IvrsEmptyState onCreateIvr={openCreateIvrModal} />
         ) : (
           ivrs?.map((ivr) => (
             <Card key={ivr.id} data-testid={`card-ivr-${ivr.id}`}>
               <CardHeader>
                 <CardTitle className="flex items-center justify-between">
                   <span>{ivr.name}</span>
-                  <Button variant="ghost" size="sm" data-testid={`button-edit-ivr-${ivr.id}`}>
+                  <Button 
+                    variant="ghost" 
+                    size="sm" 
+                    onClick={() => openEditIvrModal(ivr)}
+                    data-testid={`button-edit-ivr-${ivr.id}`}
+                  >
                     <Edit className="h-4 w-4" />
                   </Button>
                 </CardTitle>
@@ -327,12 +341,34 @@ function IvrsTab() {
           ))
         )}
       </div>
+
+      <IvrModal
+        isOpen={ivrModal.isOpen}
+        onClose={closeIvrModal}
+        ivr={ivrModal.ivr}
+        mode={ivrModal.mode}
+      />
     </div>
   );
 }
 
 function QueuesTab() {
   const { data: queues, isLoading } = useQueues();
+  const createQueue = useCreateQueue();
+
+  const handleCreateQueue = () => {
+    // Simple queue creation with basic data
+    const queueName = prompt("Nombre de la nueva cola:");
+    if (queueName && queueName.trim()) {
+      createQueue.mutate({
+        name: queueName.trim(),
+        description: "Cola creada desde la interfaz",
+        strategy: "round_robin", // Default strategy
+        maxWaitTime: 300, // 5 minutes default
+        agents: [] // Empty agents array initially
+      });
+    }
+  };
 
   return (
     <div className="space-y-6">
@@ -343,24 +379,17 @@ function QueuesTab() {
             Gestiona las colas y distribución de llamadas
           </p>
         </div>
+        <Button onClick={handleCreateQueue} data-testid="button-create-queue">
+          <Plus className="h-4 w-4 mr-2" />
+          Nueva Cola
+        </Button>
       </div>
 
       <div className="grid gap-4">
         {isLoading ? (
-          <Card>
-            <CardContent className="flex items-center justify-center py-8">
-              Cargando colas...
-            </CardContent>
-          </Card>
+          <QueueCardsSkeleton />
         ) : queues?.length === 0 ? (
-          <Card>
-            <CardContent className="flex flex-col items-center justify-center py-8">
-              <Users className="h-8 w-8 text-muted-foreground mb-2" />
-              <p className="text-sm text-muted-foreground">
-                No hay colas configuradas
-              </p>
-            </CardContent>
-          </Card>
+          <QueuesEmptyState onCreateQueue={handleCreateQueue} />
         ) : (
           queues?.map((queue) => (
             <Card key={queue.id} data-testid={`card-queue-${queue.id}`}>
@@ -448,37 +477,25 @@ function RecordingsTab() {
         </div>
       </div>
 
-      <Card>
-        <CardContent className="p-0">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Fecha</TableHead>
-                <TableHead>Duración</TableHead>
-                <TableHead>Extensión</TableHead>
-                <TableHead>Tipo</TableHead>
-                <TableHead className="text-right">Acciones</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {isLoading ? (
+      {isLoading ? (
+        <RecordingsTableSkeleton />
+      ) : recordingsData?.data.length === 0 ? (
+        <RecordingsEmptyState />
+      ) : (
+        <Card>
+          <CardContent className="p-0">
+            <Table>
+              <TableHeader>
                 <TableRow>
-                  <TableCell colSpan={5} className="text-center py-8">
-                    Cargando grabaciones...
-                  </TableCell>
+                  <TableHead>Fecha</TableHead>
+                  <TableHead>Duración</TableHead>
+                  <TableHead>Extensión</TableHead>
+                  <TableHead>Tipo</TableHead>
+                  <TableHead className="text-right">Acciones</TableHead>
                 </TableRow>
-              ) : recordingsData?.data.length === 0 ? (
-                <TableRow>
-                  <TableCell colSpan={5} className="text-center py-8">
-                    <div className="flex flex-col items-center gap-2">
-                      <Play className="h-8 w-8 text-muted-foreground" />
-                      <p className="text-sm text-muted-foreground">
-                        No hay grabaciones disponibles
-                      </p>
-                    </div>
-                  </TableCell>
-                </TableRow>
-              ) : (
+              </TableHeader>
+              <TableBody>
+                {
                 recordingsData?.data.map((recording) => (
                   <TableRow key={recording.id} data-testid={`row-recording-${recording.id}`}>
                     <TableCell>
@@ -518,11 +535,12 @@ function RecordingsTab() {
                     </TableCell>
                   </TableRow>
                 ))
-              )}
+              }
             </TableBody>
           </Table>
         </CardContent>
       </Card>
+      )}
 
       {/* Pagination */}
       {recordingsData && recordingsData.totalPages > 1 && (

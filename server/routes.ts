@@ -572,6 +572,25 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  app.post("/api/queues", async (req, res) => {
+    try {
+      if (!req.isAuthenticated() || !req.user.tenantId) {
+        return res.sendStatus(401);
+      }
+
+      const queueData = insertQueueSchema.parse(req.body);
+      const queueWithTenant = {
+        ...queueData,
+        tenantId: req.user.tenantId,
+      };
+      
+      const queue = await storage.createQueue(queueWithTenant);
+      res.json(queue);
+    } catch (error: any) {
+      res.status(400).json({ message: error.message });
+    }
+  });
+
   app.patch("/api/queues/:id", async (req, res) => {
     try {
       if (!req.isAuthenticated() || !req.user.tenantId) {
