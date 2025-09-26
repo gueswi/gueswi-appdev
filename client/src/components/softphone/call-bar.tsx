@@ -36,10 +36,10 @@ export function CallBar({ onTogglePanel, isPanelOpen }: CallBarProps) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
-  // Get active call status - OPTIMIZED POLLING
+  // Get active call status - CONFIGURABLE POLLING
   const { data: activeCall, isLoading } = useQuery<ActiveCall>({
     queryKey: ['/api/softphone/status'],
-    refetchInterval: 2000, // Reduced from 1s to 2s to save resources
+    refetchInterval: Number(import.meta.env.SOFTPHONE_STATUS_POLL_MS || 5000), // Default 5000ms (5s)
     // TODO: Disable polling completely when WebSocket is connected
   });
 

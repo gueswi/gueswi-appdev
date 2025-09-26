@@ -207,7 +207,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Get active conversation for this user
       const activeConversation = await storage.getActiveConversation(req.user.tenantId, req.user.id);
       
-      console.log(`🔍 Status: Active conversation check:`, activeConversation ? `${activeConversation.id} (${activeConversation.status})` : 'none');
+      if (process.env.SOFTPHONE_DEBUG_LOGS !== 'off') {
+        console.log(`🔍 Status: Active conversation check:`, activeConversation ? `${activeConversation.id} (${activeConversation.status})` : 'none');
+      }
       
       if (!activeConversation) {
         return res.json(null); // No active call - clean state
@@ -281,12 +283,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       const { conversationId } = req.params;
       
-      console.log(`🔧 Hangup: Ending conversation ${conversationId}`);
+      if (process.env.SOFTPHONE_DEBUG_LOGS !== 'off') {
+        console.log(`🔧 Hangup: Ending conversation ${conversationId}`);
+      }
       
       // Update conversation status (idempotent - safe to call multiple times)
       await storage.endConversationById(conversationId);
       
-      console.log(`✅ Hangup: Conversation ${conversationId} ended`);
+      if (process.env.SOFTPHONE_DEBUG_LOGS !== 'off') {
+        console.log(`✅ Hangup: Conversation ${conversationId} ended`);
+      }
 
       // Emit WebSocket event
       if (server.wsHandler) {
