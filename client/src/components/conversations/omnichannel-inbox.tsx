@@ -80,6 +80,9 @@ export function OmnichannelInbox() {
   const queryClient = useQueryClient();
   const { toast } = useToast();
 
+  // WebSocket real-time connection
+  const { connectionState, isConnected } = useWebSocket();
+
   // Build query params based on active view
   const buildQueryParams = () => {
     const params = new URLSearchParams();

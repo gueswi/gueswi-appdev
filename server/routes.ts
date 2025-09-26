@@ -1,10 +1,19 @@
 import type { Express } from "express";
 import { createServer, type Server } from "http";
+import WebSocket, { WebSocketServer } from 'ws';
 
-// Extend Server type to include wsHandler
+// WebSocket client interface with authentication
+interface AuthenticatedWebSocket extends WebSocket {
+  userId?: string;
+  tenantId?: string;
+  isAlive?: boolean;
+}
+
+// Extend Server type to include WebSocket server and handler
 interface ServerWithWebSocket extends Server {
+  wss?: WebSocket.Server;
   wsHandler?: {
-    broadcast: (channel: string, data: any) => void;
+    broadcast: (channel: string, data: any, tenantId?: string) => void;
   };
 }
 import Stripe from "stripe";
@@ -51,16 +60,122 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Create HTTP server and setup WebSocket support
   const server = createServer(app) as ServerWithWebSocket;
   
-  // Mock WebSocket handler for softphone (dev implementation)
+  // Create WebSocket server
+  const wss = new WebSocketServer({ 
+    server,
+    path: '/ws',
+    verifyClient: (info) => {
+      // Basic verification - more auth happens after connection
+      return true;
+    }
+  });
+
+  // Store authenticated connections by tenant
+  const tenantConnections = new Map<string, Set<AuthenticatedWebSocket>>();
+
+  // WebSocket connection handler
+  wss.on('connection', (ws: AuthenticatedWebSocket, req) => {
+    console.log('📡 New WebSocket connection');
+    ws.isAlive = true;
+
+    // Handle authentication message
+    ws.on('message', async (message: string) => {
+      try {
+        const data = JSON.parse(message);
+        
+        if (data.type === 'authenticate' && data.tenantId) {
+          // Simplified authentication for development 
+          // TODO: In production, validate against actual Express session
+          ws.tenantId = data.tenantId;
+          
+          // Add to tenant connections
+          if (ws.tenantId) {
+            if (!tenantConnections.has(ws.tenantId)) {
+              tenantConnections.set(ws.tenantId, new Set());
+            }
+            tenantConnections.get(ws.tenantId)?.add(ws);
+            
+            ws.send(JSON.stringify({ 
+              type: 'authenticated', 
+              tenantId: ws.tenantId 
+            }));
+            
+            console.log(`🔐 WebSocket authenticated for tenant: ${ws.tenantId}`);
+          }
+        }
+      } catch (error) {
+        console.error('WebSocket message error:', error);
+      }
+    });
+
+    // Handle connection close
+    ws.on('close', () => {
+      if (ws.tenantId && tenantConnections.has(ws.tenantId)) {
+        tenantConnections.get(ws.tenantId)?.delete(ws);
+        if (tenantConnections.get(ws.tenantId)?.size === 0) {
+          tenantConnections.delete(ws.tenantId);
+        }
+      }
+      console.log('📡 WebSocket connection closed');
+    });
+
+    // Heartbeat
+    ws.on('pong', () => {
+      ws.isAlive = true;
+    });
+  });
+
+  // Heartbeat interval
+  const heartbeatInterval = setInterval(() => {
+    wss.clients.forEach((ws: AuthenticatedWebSocket) => {
+      if (!ws.isAlive) {
+        ws.terminate();
+        return;
+      }
+      ws.isAlive = false;
+      ws.ping();
+    });
+  }, 30000);
+
+  // Real WebSocket handler with broadcasting
   const wsHandler = {
-    broadcast: (channel: string, data: any) => {
-      console.log(`📡 WebSocket broadcast [${channel}]:`, data);
-      // TODO: Implement real WebSocket broadcasting when WebSocket server is added
+    broadcast: (channel: string, data: any, tenantId?: string) => {
+      const message = JSON.stringify({
+        type: 'broadcast',
+        channel,
+        data,
+        timestamp: new Date().toISOString()
+      });
+
+      if (tenantId && tenantConnections.has(tenantId)) {
+        // Broadcast to specific tenant
+        tenantConnections.get(tenantId)?.forEach((ws) => {
+          if (ws.readyState === WebSocket.OPEN) {
+            ws.send(message);
+          }
+        });
+        console.log(`📡 Broadcast to tenant ${tenantId} [${channel}]:`, data);
+      } else {
+        // Broadcast to all connected clients
+        wss.clients.forEach((ws: AuthenticatedWebSocket) => {
+          if (ws.readyState === WebSocket.OPEN) {
+            ws.send(message);
+          }
+        });
+        console.log(`📡 Global broadcast [${channel}]:`, data);
+      }
     }
   };
   
-  // Attach WebSocket handler to server
+  // Attach WebSocket server and handler to server
+  server.wss = wss;
   server.wsHandler = wsHandler;
+
+  // Cleanup on server close
+  server.on('close', () => {
+    clearInterval(heartbeatInterval);
+    wss.close();
+  });
 
   // Setup authentication
   setupAuth(app);
@@ -290,10 +405,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       // Emit WebSocket event
       if (server.wsHandler) {
-        server.wsHandler.broadcast(`tenant:${req.user.tenantId}`, {
+        server.wsHandler.broadcast('conversations:ended', {
           type: 'ended',
           conversationId
-        });
+        }, req.user.tenantId);
       }
 
       res.json({ ok: true });
@@ -430,6 +545,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (notes !== undefined) updateData.notes = notes;
 
       const updatedConversation = await storage.updateConversation(id, updateData);
+      
+      // Broadcast conversation update to tenant
+      if (server.wsHandler) {
+        server.wsHandler.broadcast('conversations:updated', {
+          conversation: updatedConversation
+        }, req.user.tenantId);
+      }
+      
       res.json(updatedConversation);
     } catch (error: any) {
       res.status(500).json({ message: error.message });
@@ -452,6 +575,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       const updatedConversation = await storage.closeConversation(id);
+      
+      // Broadcast conversation close to tenant
+      if (server.wsHandler) {
+        server.wsHandler.broadcast('conversations:closed', {
+          conversation: updatedConversation
+        }, req.user.tenantId);
+      }
+      
       res.json(updatedConversation);
     } catch (error: any) {
       res.status(500).json({ message: error.message });
@@ -474,6 +605,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       const updatedConversation = await storage.reopenConversation(id);
+      
+      // Broadcast conversation reopen to tenant
+      if (server.wsHandler) {
+        server.wsHandler.broadcast('conversations:reopened', {
+          conversation: updatedConversation
+        }, req.user.tenantId);
+      }
+      
       res.json(updatedConversation);
     } catch (error: any) {
       res.status(500).json({ message: error.message });
@@ -501,6 +640,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       const updatedConversation = await storage.addConversationTags(id, tags);
+      
+      // Broadcast tags added to tenant
+      if (server.wsHandler) {
+        server.wsHandler.broadcast('conversations:tags-added', {
+          conversation: updatedConversation,
+          addedTags: tags
+        }, req.user.tenantId);
+      }
+      
       res.json(updatedConversation);
     } catch (error: any) {
       res.status(500).json({ message: error.message });
@@ -523,6 +671,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       const updatedConversation = await storage.removeConversationTag(id, tag);
+      
+      // Broadcast tag removed to tenant
+      if (server.wsHandler) {
+        server.wsHandler.broadcast('conversations:tag-removed', {
+          conversation: updatedConversation,
+          removedTag: tag
+        }, req.user.tenantId);
+      }
+      
       res.json(updatedConversation);
     } catch (error: any) {
       res.status(500).json({ message: error.message });
