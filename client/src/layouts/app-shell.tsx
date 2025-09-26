@@ -25,6 +25,7 @@ export function AppShell({ children }: AppShellProps) {
   const { isPanelOpen, openPanel, closePanel } = useSoftphone();
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
   const [isMobile, setIsMobile] = useState(false);
+  const [previousLocation, setPreviousLocation] = useState(location);
 
   // Check if device is mobile
   useEffect(() => {
@@ -40,6 +41,16 @@ export function AppShell({ children }: AppShellProps) {
     return () => window.removeEventListener('resize', checkMobile);
   }, []);
 
+  // Auto-close mobile drawer on location change
+  useEffect(() => {
+    if (location !== previousLocation) {
+      setPreviousLocation(location);
+      if (isMobile && isMobileSidebarOpen) {
+        setIsMobileSidebarOpen(false);
+      }
+    }
+  }, [location, previousLocation, isMobile, isMobileSidebarOpen]);
+
   // Don't show AppShell on auth pages or when feature flag is disabled
   if (!user || location === '/auth' || !featureFlags.chatwootLayout) {
     return <>{children}</>;
@@ -50,26 +61,33 @@ export function AppShell({ children }: AppShellProps) {
       {/* Mobile Overlay */}
       {isMobile && isMobileSidebarOpen && (
         <div 
-          className="fixed inset-0 bg-black bg-opacity-50 z-40 md:hidden"
-          onClick={() => setIsMobileSidebarOpen(false)}
+          className="fixed inset-0 bg-black bg-opacity-50 z-60 md:hidden"
+          onClick={(e) => {
+            e.stopPropagation();
+            setIsMobileSidebarOpen(false);
+          }}
         />
       )}
       
       {/* Responsive Left Sidebar - ~260px */}
-      <aside className={`
-        ${isMobile 
-          ? `fixed left-0 top-0 h-full z-50 transform transition-transform duration-300 ease-in-out ${
-              isMobileSidebarOpen ? 'translate-x-0' : '-translate-x-full'
-            }`
-          : 'relative'
-        } 
-        w-64 bg-white dark:bg-gray-800 border-r border-gray-200 dark:border-gray-700 flex flex-col
-      `}>
-        <SidebarNav 
-          onMobileClose={() => setIsMobileSidebarOpen(false)}
-          isMobile={isMobile}
-        />
-      </aside>
+      {(!isMobile || isMobileSidebarOpen) && (
+        <aside className={`
+          ${isMobile 
+            ? `fixed left-0 top-0 h-full z-50 transform transition-transform duration-300 ease-in-out ${
+                isMobileSidebarOpen ? 'translate-x-0' : '-translate-x-full'
+              }`
+            : 'relative'
+          } 
+          w-64 bg-white dark:bg-gray-800 border-r border-gray-200 dark:border-gray-700 flex flex-col
+        `}>
+          <SidebarNav 
+            onMobileClose={() => {
+                setIsMobileSidebarOpen(false);
+            }}
+            isMobile={isMobile}
+          />
+        </aside>
+      )}
       
       {/* Main Content Area */}
       <div className="flex-1 flex flex-col overflow-hidden">

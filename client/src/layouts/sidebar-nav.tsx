@@ -48,7 +48,7 @@ interface SidebarNavProps {
  * Enhanced with responsive mobile support
  */
 export function SidebarNav({ onMobileClose, isMobile = false }: SidebarNavProps) {
-  const [location] = useLocation();
+  const [location, setLocation] = useLocation();
   const [isCollapsed, setIsCollapsed] = useState(false);
   const { user } = useAuth();
 
@@ -159,8 +159,10 @@ export function SidebarNav({ onMobileClose, isMobile = false }: SidebarNavProps)
             {/* Section Items */}
             <div className="space-y-1">
               {section.items.map((item) => (
-                <Link key={item.href} href={item.href}>
+                isMobile ? (
                   <a 
+                    key={item.href}
+                    href={item.href}
                     className={cn(
                       "flex items-center px-3 py-2 text-sm font-medium rounded-lg transition-colors",
                       "hover:bg-gray-100 dark:hover:bg-gray-700",
@@ -168,7 +170,16 @@ export function SidebarNav({ onMobileClose, isMobile = false }: SidebarNavProps)
                         ? "bg-blue-50 text-blue-700 dark:bg-blue-900/20 dark:text-blue-300"
                         : "text-gray-700 dark:text-gray-300"
                     )}
-                    onClick={isMobile ? onMobileClose : undefined}
+                    onClick={(e) => {
+                      e.preventDefault();
+                      if (onMobileClose) {
+                        onMobileClose();
+                        // Navigate after state update
+                        setTimeout(() => {
+                          setLocation(item.href);
+                        }, 50);
+                      }
+                    }}
                   >
                     <item.icon className={cn(
                       "w-5 h-5 flex-shrink-0",
@@ -183,7 +194,32 @@ export function SidebarNav({ onMobileClose, isMobile = false }: SidebarNavProps)
                       </span>
                     )}
                   </a>
-                </Link>
+                ) : (
+                  <Link key={item.href} href={item.href}>
+                    <a 
+                      className={cn(
+                        "flex items-center px-3 py-2 text-sm font-medium rounded-lg transition-colors",
+                        "hover:bg-gray-100 dark:hover:bg-gray-700",
+                        isActive(item.href) 
+                          ? "bg-blue-50 text-blue-700 dark:bg-blue-900/20 dark:text-blue-300"
+                          : "text-gray-700 dark:text-gray-300"
+                      )}
+                    >
+                      <item.icon className={cn(
+                        "w-5 h-5 flex-shrink-0",
+                        isCollapsed ? "mx-auto" : "mr-3"
+                      )} />
+                      {!isCollapsed && (
+                        <span className="truncate">{item.name}</span>
+                      )}
+                      {!isCollapsed && item.badge && (
+                        <span className="ml-auto bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 px-2 py-0.5 rounded-full text-xs">
+                          {item.badge}
+                        </span>
+                      )}
+                    </a>
+                  </Link>
+                )
               ))}
             </div>
             
