@@ -37,7 +37,7 @@ interface RecordingFilters {
 // Extensions hooks
 export function useExtensions(filters: ExtensionFilters = {}) {
   const params = new URLSearchParams();
-  if (filters.status) params.append('status', filters.status);
+  if (filters.status && filters.status !== 'all') params.append('status', filters.status);
   if (filters.q) params.append('q', filters.q);
   if (filters.page) params.append('page', filters.page.toString());
   if (filters.pageSize) params.append('pageSize', filters.pageSize.toString());

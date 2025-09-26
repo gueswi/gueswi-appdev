@@ -307,6 +307,7 @@ export class DatabaseStorage implements IStorage {
     total: number;
     page: number;
     pageSize: number;
+    totalPages: number;
   }> {
     let query = db.select().from(extensions).where(eq(extensions.tenantId, tenantId));
     
@@ -343,6 +344,7 @@ export class DatabaseStorage implements IStorage {
       total: totalCount.count,
       page,
       pageSize,
+      totalPages: Math.ceil(totalCount.count / pageSize),
     };
   }
 

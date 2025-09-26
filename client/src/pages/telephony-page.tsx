@@ -87,6 +87,7 @@ function ExtensionsTab() {
     pageSize,
   });
 
+
   // Bounds checking for pagination - ensure page is within valid range (always >=1)
   const validExtensionsPage = Math.max(1, Math.min(page, extensionsData?.totalPages ?? 1));
 
@@ -158,7 +159,7 @@ function ExtensionsTab() {
             <SelectValue placeholder="Estado" />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="">Todos</SelectItem>
+            <SelectItem value="all">Todos</SelectItem>
             <SelectItem value="ACTIVE">Activas</SelectItem>
             <SelectItem value="INACTIVE">Inactivas</SelectItem>
           </SelectContent>
