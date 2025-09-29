@@ -1,0 +1,110 @@
+Objetivo: que el botón “Escuchar” del IVR funcione sin errores y que el audio se conserve al guardar/editar.
+Qué hacer (paso a paso, sin usar Shell):
+
+En server/routes.ts, agrega estos imports si faltan:
+
+import fs from "fs";
+import fsp from "fs/promises";
+import path from "path";
+
+
+En el mismo archivo, reemplaza por completo el handler de POST /api/ivr/tts por este código (crea un WAV real de 2 segundos y lo guarda en /uploads/ivr):
+
+// TTS (Text-to-Speech) synthesis endpoint
+// Crea un WAV de silencio corto para pruebas y lo guarda en /uploads/ivr
+app.post("/api/ivr/tts", async (req, res) => {
+  try {
+    if (!req.isAuthenticated() || !req.user?.tenantId) {
+      return res.status(401).json({ message: "Authentication required" });
+    }
+
+    const { text, voice } = req.body;
+    if (!text || typeof text !== "string" || text.trim().length < 10) {
+      return res.status(400).json({ message: "Text must be at least 10 characters" });
+    }
+    if (!voice || typeof voice !== "object") {
+      return res.status(400).json({ message: "Voice configuration is required" });
+    }
+
+    // Generamos un WAV de silencio (2s, 8kHz, 16-bit mono)
+    const sampleRate = 8000;
+    const seconds = 2;
+    const numSamples = sampleRate * seconds;
+    const dataBytes = numSamples * 2;
+
+    function wavHeader(dataSize: number) {
+      const buffer = Buffer.alloc(44);
+      buffer.write("RIFF", 0);
+      buffer.writeUInt32LE(36 + dataSize, 4);
+      buffer.write("WAVE", 8);
+      buffer.write("fmt ", 12);
+      buffer.writeUInt32LE(16, 16);
+      buffer.writeUInt16LE(1, 20);
+      buffer.writeUInt16LE(1, 22);
+      buffer.writeUInt32LE(sampleRate, 24);
+      buffer.writeUInt32LE(sampleRate * 2, 28);
+      buffer.writeUInt16LE(2, 32);
+      buffer.writeUInt16LE(16, 34);
+      buffer.write("data", 36);
+      buffer.writeUInt32LE(dataSize, 40);
+      return buffer;
+    }
+
+    const header = wavHeader(dataBytes);
+    const pcm = Buffer.alloc(dataBytes, 0x00); // silencio
+    const wav = Buffer.concat([header, pcm]);
+
+    const uploadsDir = path.resolve("uploads/ivr");
+    await fsp.mkdir(uploadsDir, { recursive: true });
+
+    const audioId = `ivr_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    const fileName = `${audioId}.wav`;
+    const absPath = path.join(uploadsDir, fileName);
+
+    await fsp.writeFile(absPath, wav);
+    const publicUrl = `/uploads/ivr/${fileName}`;
+    console.log(`🔊 TTS saved: ${absPath} → ${publicUrl}`);
+
+    return res.json({
+      url: publicUrl,
+      duration: seconds,
+      voice,
+      text,
+      audioId,
+    });
+  } catch (err: any) {
+    console.error("❌ IVR TTS error:", err);
+   return res.status(500).json({ message: err?.message || "TTS failed" });
+  }
+});
+
+
+En server/index.ts, monta el estático para /uploads (después de los middlewares como cookieParser, express.json, etc., y antes de registerRoutes(app)):
+
+import path from "path";
+import express from "express";
+
+// ...
+const uploadsAbs = path.resolve("uploads");
+app.use(
+  "/uploads",
+  express.static(uploadsAbs, {
+    fallthrough: true,
+    maxAge: "1h",
+    immutable: true,
+    setHeaders(res, filePath) {
+      if (filePath.endsWith(".wav")) {
+        res.setHeader("Content-Type", "audio/wav");
+      }
+    },
+  })
+);
+
+
+Crea el directorio uploads/ivr si no existe (desde el panel de archivos).
+
+Guarda los archivos y asegura que el server se recompila sin errores. No uses Shell. Si hace falta reiniciar el workflow, hazlo desde el propio Agent/UI.
+
+Verificación manual: en la UI → Settings → Telefonía → IVR → “Generar Audio” y luego “Escuchar”. Debe reproducirse (silencio de 2s) sin error y conservarse al reabrir el IVR.
+
+Si algo falla, dime exactamente el error de consola del navegador y los logs de Node, y arréglalo en el mismo PR.
