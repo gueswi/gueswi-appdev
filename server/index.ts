@@ -14,11 +14,20 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
 // --- BEGIN uploads static ---
-const uploadsDir = path.resolve("uploads");
-const ivrDir = path.join(uploadsDir, "ivr");
-try { fs.mkdirSync(ivrDir, { recursive: true }); } catch {}
-// Servir /uploads estáticamente (debe ir antes de Vite y antes del catch-all)
-app.use("/uploads", express.static(uploadsDir, { fallthrough: false }));
+const uploadsAbs = path.resolve("uploads");
+app.use(
+  "/uploads",
+  express.static(uploadsAbs, {
+    fallthrough: true,
+    maxAge: "1h",
+    immutable: true,
+    setHeaders(res, filePath) {
+      if (filePath.endsWith(".wav")) {
+        res.setHeader("Content-Type", "audio/wav");
+      }
+    },
+  })
+);
 // --- END uploads static ---
 
 app.use((req, res, next) => {

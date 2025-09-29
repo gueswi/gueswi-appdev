@@ -842,7 +842,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const numSamples = sampleRate * seconds;
       const dataBytes = numSamples * 2;
 
-      function wavHeader(dataSize: number) {
+      const wavHeader = (dataSize: number) => {
         const buffer = Buffer.alloc(44);
         buffer.write("RIFF", 0);
         buffer.writeUInt32LE(36 + dataSize, 4);
@@ -858,7 +858,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         buffer.write("data", 36);
         buffer.writeUInt32LE(dataSize, 40);
         return buffer;
-      }
+      };
 
       const header = wavHeader(dataBytes);
       const pcm = Buffer.alloc(dataBytes, 0x00); // silencio
