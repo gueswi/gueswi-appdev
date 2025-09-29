@@ -546,7 +546,7 @@ export class DatabaseStorage implements IStorage {
     // 2. Create 1 IVR Menu
     await this.createIvr({
       name: "Principal",
-      options: [
+      menuOptions: [
         { key: "1", action: "queue", target: "ventas", description: "Queue Ventas" },
         { key: "2", action: "queue", target: "soporte", description: "Queue Soporte" },
         { key: "default", action: "ai_agent", target: "demo", description: "Agente IA demo" }
