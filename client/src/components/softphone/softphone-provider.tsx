@@ -38,10 +38,6 @@ export function SoftphoneProvider({ children }: SoftphoneProviderProps) {
       closePanel
     }}>
       {children}
-      <CallBar 
-        onTogglePanel={togglePanel} 
-        isPanelOpen={isPanelOpen} 
-      />
       <CallPanel 
         isOpen={isPanelOpen} 
         onClose={closePanel} 

@@ -1,8 +1,6 @@
 import { useLocation } from "wouter";
 import { useAuth } from "@/hooks/use-auth";
 import { SidebarNav } from "@/layouts/sidebar-nav";
-import { CallBar } from "@/components/softphone/call-bar";
-import { useSoftphone } from "@/components/softphone/softphone-provider";
 import { featureFlags } from "@/lib/feature-flags";
 import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
@@ -22,7 +20,6 @@ interface AppShellProps {
 export function AppShell({ children }: AppShellProps) {
   const { user } = useAuth();
   const [location] = useLocation();
-  const { isPanelOpen, openPanel, closePanel } = useSoftphone();
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
   const [isMobile, setIsMobile] = useState(false);
   const [previousLocation, setPreviousLocation] = useState(location);

@@ -20,6 +20,8 @@ import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { useState, useEffect } from "react";
 import { useAuth } from "@/hooks/use-auth";
+import { CallBar } from "@/components/softphone/call-bar";
+import { useSoftphone } from "@/components/softphone/softphone-provider";
 
 interface NavItem {
   name: string;
@@ -51,6 +53,7 @@ export function SidebarNav({ onMobileClose, isMobile = false }: SidebarNavProps)
   const [location, setLocation] = useLocation();
   const [isCollapsed, setIsCollapsed] = useState(false);
   const { user } = useAuth();
+  const { isPanelOpen, openPanel, closePanel } = useSoftphone();
 
   // Reset collapsed state when switching to mobile to prevent stuck drawer
   useEffect(() => {
@@ -231,6 +234,13 @@ export function SidebarNav({ onMobileClose, isMobile = false }: SidebarNavProps)
         ))}
       </nav>
 
+      {/* CallBar (Softphone) - Sticky at bottom of sidebar */}
+      <div className="mt-auto">
+        <CallBar 
+          onTogglePanel={() => isPanelOpen ? closePanel() : openPanel()}
+          isPanelOpen={isPanelOpen}
+        />
+      </div>
     </div>
   );
 }
