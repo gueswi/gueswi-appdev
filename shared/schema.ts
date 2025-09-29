@@ -102,8 +102,8 @@ export const ivrMenus = pgTable("ivr_menus", {
   greetingUrl: text("greeting_url"),
   // TTS fields for text-to-speech generation
   greetingText: text("greeting_text"),
-  voiceType: text("voice_type", { enum: ["male", "female", "neutral"] }),
-  voiceStyle: text("voice_style", { enum: ["formal", "friendly", "energetic", "calm"] }),
+  voiceType: text("voice_type", { enum: ["hombre", "mujer"] }),
+  voiceStyle: text("voice_style", { enum: ["neutral", "amable", "energetico"] }),
   options: jsonb("options").notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),

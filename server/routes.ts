@@ -751,43 +751,57 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // TTS (Text-to-Speech) synthesis endpoint
-  app.post("/api/tts/synthesize", async (req, res) => {
+  // IVR TTS endpoint - POST /api/ivr/tts
+  app.post("/api/ivr/tts", async (req, res) => {
     try {
       if (!req.isAuthenticated() || !req.user.tenantId) {
         return res.status(401).json({ message: "Authentication required" });
       }
 
-      const { text, voiceType = 'female', voiceStyle = 'friendly' } = req.body;
+      const { text, voice } = req.body;
 
+      // Validate text
       if (!text || text.trim().length === 0) {
         return res.status(400).json({ message: "Text is required for TTS synthesis" });
       }
 
-      if (text.length > 500) {
-        return res.status(400).json({ message: "Text cannot exceed 500 characters" });
+      if (text.length < 10) {
+        return res.status(400).json({ message: "Text must be at least 10 characters long" });
       }
 
-      // Validate voice type against allowed enums
-      const validVoiceTypes = ['male', 'female', 'neutral'];
-      if (!validVoiceTypes.includes(voiceType)) {
-        return res.status(400).json({ message: `Invalid voice type. Must be one of: ${validVoiceTypes.join(', ')}` });
+      if (text.length > 1000) {
+        return res.status(400).json({ message: "Text cannot exceed 1000 characters" });
       }
 
-      // Validate voice style against allowed enums
-      const validVoiceStyles = ['formal', 'friendly', 'energetic', 'calm'];
-      if (!validVoiceStyles.includes(voiceStyle)) {
-        return res.status(400).json({ message: `Invalid voice style. Must be one of: ${validVoiceStyles.join(', ')}` });
+      // Validate voice structure
+      if (!voice || typeof voice !== 'object') {
+        return res.status(400).json({ message: "Voice configuration is required" });
+      }
+
+      const { gender, style } = voice;
+
+      // Validate gender
+      const validGenders = ['hombre', 'mujer'];
+      if (!validGenders.includes(gender)) {
+        return res.status(400).json({ message: `Invalid gender. Must be one of: ${validGenders.join(', ')}` });
+      }
+
+      // Validate style
+      const validStyles = ['neutral', 'amable', 'energetico'];
+      if (!validStyles.includes(style)) {
+        return res.status(400).json({ message: `Invalid style. Must be one of: ${validStyles.join(', ')}` });
       }
 
       // Mock TTS synthesis (development implementation)
-      // TODO: Replace with real TTS service (Azure Cognitive Services, AWS Polly, Google Cloud TTS, etc.)
-      const audioId = `tts_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-      const mockAudioUrl = `https://mock-tts-service.gueswi.com/audio/${audioId}.mp3`;
+      // Generate a silent WAV file for 2-3 seconds as requested
+      const audioId = `ivr_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+      const audioFileName = `${audioId}.wav`;
+      const mockAudioUrl = `/uploads/ivr/${audioFileName}`;
 
       // Enhanced logging for observability
-      console.log(`🔊 TTS synthesis request [${req.user.tenantId}]:`);
+      console.log(`🔊 IVR TTS synthesis request [${req.user.tenantId}]:`);
       console.log(`   Text: "${text.substring(0, 50)}${text.length > 50 ? '...' : ''}" (${text.length} chars)`);
-      console.log(`   Voice: ${voiceType} (${voiceStyle})`);
+      console.log(`   Voice: ${gender} (${style})`);
       console.log(`   Audio ID: ${audioId}`);
       console.log(`   Mock URL: ${mockAudioUrl}`);
 
@@ -795,15 +809,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
       await new Promise(resolve => setTimeout(resolve, 1500));
 
       res.json({
-        audioUrl: mockAudioUrl,
+        url: mockAudioUrl,
         text,
-        voiceType,
-        voiceStyle,
+        voice: { gender, style },
         duration: Math.ceil(text.length / 10), // Rough estimate: 10 chars per second
         audioId
       });
     } catch (error: any) {
-      console.error("❌ TTS synthesis error:", error);
+      console.error("❌ IVR TTS synthesis error:", error);
       res.status(500).json({ message: error.message });
     }
   });
