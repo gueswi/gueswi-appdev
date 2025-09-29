@@ -22,10 +22,37 @@ async function hashPassword(password: string) {
 }
 
 async function comparePasswords(supplied: string, stored: string) {
-  const [hashed, salt] = stored.split(".");
-  const hashedBuf = Buffer.from(hashed, "hex");
-  const suppliedBuf = (await scryptAsync(supplied, salt, 64)) as Buffer;
-  return timingSafeEqual(hashedBuf, suppliedBuf);
+  // Handle both old format (hash only) and new format (hash.salt)
+  if (stored.includes(".")) {
+    // New format: hash.salt
+    const [hashed, salt] = stored.split(".");
+    const hashedBuf = Buffer.from(hashed, "hex");
+    const suppliedBuf = (await scryptAsync(supplied, salt, 64)) as Buffer;
+    return timingSafeEqual(hashedBuf, suppliedBuf);
+  } else {
+    // Old format: Try multiple approaches for legacy passwords
+    
+    // Try bcrypt-style comparison (common legacy format)
+    try {
+      const bcrypt = require('bcrypt');
+      return await bcrypt.compare(supplied, stored);
+    } catch (error: any) {
+      // If bcrypt fails, try simple hash comparison
+      console.log('🔍 Bcrypt failed, trying simple hash:', error.message);
+    }
+    
+    // Try direct comparison for very old simple hashes
+    const crypto = require('crypto');
+    const hash = crypto.createHash('sha256').update(supplied).digest('hex');
+    if (hash === stored) return true;
+    
+    // Try MD5 (another common legacy format)
+    const md5Hash = crypto.createHash('md5').update(supplied).digest('hex');
+    if (md5Hash === stored) return true;
+    
+    console.log('🔍 All legacy password attempts failed for format:', stored.substring(0, 20) + '...');
+    return false;
+  }
 }
 
 export function setupAuth(app: Express) {
