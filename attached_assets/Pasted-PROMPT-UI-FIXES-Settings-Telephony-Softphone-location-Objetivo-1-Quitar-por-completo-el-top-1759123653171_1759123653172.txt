@@ -1,0 +1,22 @@
+PROMPT — UI FIXES (Settings/Telephony + Softphone location)
+
+Objetivo:
+1) Quitar por completo el top navbar (la barra superior con “Sandbox Mode / Dev / Dashboard / Cerrar sesión”) cuando el usuario navega en rutas de **Settings** (p.ej. /settings, /settings/telephony, /settings/ai, /settings/billing, etc). En esas páginas solo debe existir el **sidebar izquierdo**.
+2) Mover el botón/mini-“marcador” del softphone que hoy está sticky en el **footer** y colocarlo en el **sidebar izquierdo**, fijo (sticky) en la parte inferior del sidebar. Debe permanecer visible en todas las páginas, y abrir/cerrar el CallPanel igual que antes. El footer NO debe tener ya el marcador.
+
+Lineamientos técnicos:
+- Layouts: tenemos un layout general (DashboardLayout) y un layout para Settings. Asegúrate que el layout de Settings NO incluya TopNav. Si hoy reusa el mismo layout que Dashboard, crea/usa un `SettingsLayout` sin top navbar y con el mismo sidebar.
+- Sidebar: añade una zona “footer” dentro del sidebar (sticky bottom) para el botón del softphone. Mantén tooltips y accesibilidad (aria-label).
+- Eliminar sticky footer dialer: remueve el contenedor del marcador del footer global; todo el control de llamada sigue funcionando, solo cambia su ubicación.
+- Rutas impactadas: /settings/** (telephony, ivr, queues, recordings, ai, consumption, billing). En /dashboard/** se mantiene el top navbar (por ahora).
+
+Criterios de aceptación (QA):
+- Al entrar a **/settings/telephony** no se ve ningún top navbar; solo el sidebar izquierdo + contenido.
+- El botón del softphone aparece en la parte inferior del sidebar izquierdo (sticky). Clicarlo abre el panel de llamada como antes.
+- El **footer** ya no contiene el marcador.
+- Sin regresiones: login OK, dashboard OK, navegación a tabs de telefonía OK, call bar/panel siguen funcionando.
+- Tipos: sin errores TypeScript y sin warnings React de “Maximum update depth”.
+
+Entrega:
+- Lista de archivos modificados y secciones.
+- Breve nota de estilos (clases tailwind o styled) aplicados al sticky del sidebar.

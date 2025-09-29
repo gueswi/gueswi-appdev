@@ -112,11 +112,6 @@ export function AppShell({ children }: AppShellProps) {
         </main>
       </div>
       
-      {/* CallBar (Softphone) - Always visible at bottom */}
-      <CallBar 
-        onTogglePanel={() => isPanelOpen ? closePanel() : openPanel()}
-        isPanelOpen={isPanelOpen}
-      />
     </div>
   );
 }
