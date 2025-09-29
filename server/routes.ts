@@ -1,5 +1,7 @@
 import type { Express } from "express";
 import { createServer, type Server } from "http";
+import fs from "fs";
+import { randomUUID } from "crypto";
 
 // Extend Server type to include wsHandler
 interface ServerWithWebSocket extends Server {
@@ -10,22 +12,26 @@ interface ServerWithWebSocket extends Server {
 import Stripe from "stripe";
 import { storage } from "./storage";
 import { setupAuth } from "./auth";
-import { createPaypalOrder, capturePaypalOrder, loadPaypalDefault } from "./paypal";
-import { 
-  insertTenantSchema, 
-  insertBankTransferSchema, 
+import {
+  createPaypalOrder,
+  capturePaypalOrder,
+  loadPaypalDefault,
+} from "./paypal";
+import {
+  insertTenantSchema,
+  insertBankTransferSchema,
   insertExtensionSchema,
   insertIvrMenuSchema,
   insertQueueSchema,
-  insertRecordingSchema
+  insertRecordingSchema,
 } from "@shared/schema";
 import multer from "multer";
 import path from "path";
 
 // Stripe setup with config loader
-import config from './config';
+import config from "./config";
 
-const hasValidStripeKey = config.stripe.secretKey !== 'sk_test_development_key';
+const hasValidStripeKey = config.stripe.secretKey !== "sk_test_development_key";
 let stripe: Stripe | null = null;
 if (hasValidStripeKey) {
   stripe = new Stripe(config.stripe.secretKey, {
@@ -35,30 +41,34 @@ if (hasValidStripeKey) {
 
 // Multer setup for file uploads
 const upload = multer({
-  dest: 'uploads/',
+  dest: "uploads/",
   limits: { fileSize: 5 * 1024 * 1024 }, // 5MB limit
   fileFilter: (req: any, file: any, cb: any) => {
-    const allowedTypes = ['image/jpeg', 'image/png', 'application/pdf'];
+    const allowedTypes = ["image/jpeg", "image/png", "application/pdf"];
     if (allowedTypes.includes(file.mimetype)) {
       cb(null, true);
     } else {
-      cb(new Error('Invalid file type. Only JPEG, PNG, and PDF files are allowed.'));
+      cb(
+        new Error(
+          "Invalid file type. Only JPEG, PNG, and PDF files are allowed.",
+        ),
+      );
     }
-  }
+  },
 });
 
 export async function registerRoutes(app: Express): Promise<Server> {
   // Create HTTP server and setup WebSocket support
   const server = createServer(app) as ServerWithWebSocket;
-  
+
   // Mock WebSocket handler for softphone (dev implementation)
   const wsHandler = {
     broadcast: (channel: string, data: any) => {
       console.log(`📡 WebSocket broadcast [${channel}]:`, data);
       // TODO: Implement real WebSocket broadcasting when WebSocket server is added
-    }
+    },
   };
-  
+
   // Attach WebSocket handler to server
   server.wsHandler = wsHandler;
 
@@ -68,7 +78,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Bootstrap middleware - automatically create tenant for users without one
   app.use("/api", async (req, res, next) => {
     // Skip bootstrap for public routes
-    const publicRoutes = ["/api/login", "/api/register", "/api/system/mode", "/api/logout"];
+    const publicRoutes = [
+      "/api/login",
+      "/api/register",
+      "/api/system/mode",
+      "/api/logout",
+    ];
     if (publicRoutes.includes(req.path)) {
       return next();
     }
@@ -82,17 +97,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
     if (!req.user.tenantId) {
       try {
         console.log(`🚀 Bootstrapping tenant for user: ${req.user.email}`);
-        const { user, tenant } = await storage.bootstrapUserTenant(req.user.id, req.user.email);
-        
+        const { user, tenant } = await storage.bootstrapUserTenant(
+          req.user.id,
+          req.user.email,
+        );
+
         // Update req.user with new tenant info
         req.user = user;
-        
-        console.log(`✅ Tenant bootstrap completed: ${tenant.id} for ${user.email}`);
+
+        console.log(
+          `✅ Tenant bootstrap completed: ${tenant.id} for ${user.email}`,
+        );
       } catch (error) {
         console.error("❌ Bootstrap failed:", error);
-        return res.status(500).json({ 
-          code: "BOOTSTRAP_FAILED", 
-          message: "Failed to create tenant workspace" 
+        return res.status(500).json({
+          code: "BOOTSTRAP_FAILED",
+          message: "Failed to create tenant workspace",
         });
       }
     }
@@ -118,18 +138,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/dev/seed/reset", async (req, res) => {
     try {
       if (!req.isAuthenticated() || !req.user.tenantId) {
-        return res.status(401).json({ code: "UNAUTHORIZED", message: "Authentication required" });
+        return res
+          .status(401)
+          .json({ code: "UNAUTHORIZED", message: "Authentication required" });
       }
 
       if (req.user.role !== "owner") {
-        return res.status(403).json({ code: "FORBIDDEN", message: "Owner role required" });
+        return res
+          .status(403)
+          .json({ code: "FORBIDDEN", message: "Owner role required" });
       }
 
       await storage.resetTenantData(req.user.tenantId);
-      
-      res.json({ 
-        success: true, 
-        message: `Tenant data reset and reseeded for: ${req.user.tenantId}` 
+
+      res.json({
+        success: true,
+        message: `Tenant data reset and reseeded for: ${req.user.tenantId}`,
       });
     } catch (error: any) {
       console.error("❌ Seed reset failed:", error);
@@ -156,17 +180,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
         userId: req.user.id,
         callId,
         phoneNumber: to,
-        status: "ringing"
+        status: "ringing",
       });
 
       // Emit WebSocket event for ringing
       if (server.wsHandler) {
         server.wsHandler.broadcast(`tenant:${req.user.tenantId}`, {
-          type: 'call_status',
+          type: "call_status",
           conversationId: conversation.id,
           callId,
-          status: 'ringing',
-          phoneNumber: to
+          status: "ringing",
+          phoneNumber: to,
         });
       }
 
@@ -174,20 +198,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
       setTimeout(async () => {
         try {
           // Update conversation status in database
-          await storage.updateConversationStatus(conversation.id, 'answered');
-          
+          await storage.updateConversationStatus(conversation.id, "answered");
+
           // Broadcast WebSocket event
           if (server.wsHandler) {
             server.wsHandler.broadcast(`tenant:${req.user.tenantId}`, {
-              type: 'call_status',
+              type: "call_status",
               conversationId: conversation.id,
               callId,
-              status: 'answered',
-              phoneNumber: to
+              status: "answered",
+              phoneNumber: to,
             });
           }
         } catch (error) {
-          console.error('❌ Error updating call status:', error);
+          console.error("❌ Error updating call status:", error);
         }
       }, 2000);
 
@@ -205,10 +229,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       // Get active conversation for this user
-      const activeConversation = await storage.getActiveConversation(req.user.tenantId, req.user.id);
-      
-      console.log(`🔍 Status: Active conversation check:`, activeConversation ? `${activeConversation.id} (${activeConversation.status})` : 'none');
-      
+      const activeConversation = await storage.getActiveConversation(
+        req.user.tenantId,
+        req.user.id,
+      );
+
+      console.log(
+        `🔍 Status: Active conversation check:`,
+        activeConversation
+          ? `${activeConversation.id} (${activeConversation.status})`
+          : "none",
+      );
+
       if (!activeConversation) {
         return res.json(null); // No active call - clean state
       }
@@ -217,8 +249,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json({
         number: activeConversation.phoneNumber,
         status: activeConversation.status,
-        duration: Math.floor((Date.now() - new Date(activeConversation.createdAt).getTime()) / 1000),
-        conversationId: activeConversation.id
+        duration: Math.floor(
+          (Date.now() - new Date(activeConversation.createdAt).getTime()) /
+            1000,
+        ),
+        conversationId: activeConversation.id,
       });
     } catch (error: any) {
       res.status(500).json({ message: error.message });
@@ -237,9 +272,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Emit WebSocket event
       if (server.wsHandler) {
         server.wsHandler.broadcast(`tenant:${req.user.tenantId}`, {
-          type: 'call_mute',
+          type: "call_mute",
           conversationId,
-          muted
+          muted,
         });
       }
 
@@ -261,9 +296,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Emit WebSocket event
       if (server.wsHandler) {
         server.wsHandler.broadcast(`tenant:${req.user.tenantId}`, {
-          type: 'call_hold',
+          type: "call_hold",
           conversationId,
-          held
+          held,
         });
       }
 
@@ -280,19 +315,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       const { conversationId } = req.params;
-      
+
       console.log(`🔧 Hangup: Ending conversation ${conversationId}`);
-      
+
       // Update conversation status (idempotent - safe to call multiple times)
       await storage.endConversationById(conversationId);
-      
+
       console.log(`✅ Hangup: Conversation ${conversationId} ended`);
 
       // Emit WebSocket event
       if (server.wsHandler) {
         server.wsHandler.broadcast(`tenant:${req.user.tenantId}`, {
-          type: 'ended',
-          conversationId
+          type: "ended",
+          conversationId,
         });
       }
 
@@ -302,33 +337,36 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/softphone/calls/:conversationId/transfer", async (req, res) => {
-    try {
-      if (!req.isAuthenticated() || !req.user.tenantId) {
-        return res.status(401).json({ message: "Authentication required" });
+  app.post(
+    "/api/softphone/calls/:conversationId/transfer",
+    async (req, res) => {
+      try {
+        if (!req.isAuthenticated() || !req.user.tenantId) {
+          return res.status(401).json({ message: "Authentication required" });
+        }
+
+        const { conversationId } = req.params;
+        const { to } = req.body;
+
+        if (!to) {
+          return res.status(400).json({ message: "Transfer target required" });
+        }
+
+        // Emit WebSocket event
+        if (server.wsHandler) {
+          server.wsHandler.broadcast(`tenant:${req.user.tenantId}`, {
+            type: "call_transfer",
+            conversationId,
+            transferTo: to,
+          });
+        }
+
+        res.json({ success: true, conversationId, transferTo: to });
+      } catch (error: any) {
+        res.status(500).json({ message: error.message });
       }
-
-      const { conversationId } = req.params;
-      const { to } = req.body;
-
-      if (!to) {
-        return res.status(400).json({ message: "Transfer target required" });
-      }
-
-      // Emit WebSocket event
-      if (server.wsHandler) {
-        server.wsHandler.broadcast(`tenant:${req.user.tenantId}`, {
-          type: 'call_transfer',
-          conversationId,
-          transferTo: to
-        });
-      }
-
-      res.json({ success: true, conversationId, transferTo: to });
-    } catch (error: any) {
-      res.status(500).json({ message: error.message });
-    }
-  });
+    },
+  );
 
   app.post("/api/calls/:callId/notes", async (req, res) => {
     try {
@@ -355,7 +393,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       const { id } = req.params;
-      const conversation = await storage.getConversationWithMessages(id, req.user.tenantId);
+      const conversation = await storage.getConversationWithMessages(
+        id,
+        req.user.tenantId,
+      );
 
       if (!conversation) {
         return res.status(404).json({ message: "Conversation not found" });
@@ -376,9 +417,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       const { page = 1, pageSize = 10 } = req.query;
       const conversations = await storage.getConversations(
-        req.user.tenantId, 
-        parseInt(page as string), 
-        parseInt(pageSize as string)
+        req.user.tenantId,
+        parseInt(page as string),
+        parseInt(pageSize as string),
       );
 
       res.json(conversations);
@@ -408,10 +449,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       if (!stripe) {
-        return res.json({ 
+        return res.json({
           clientSecret: "pi_mock_development_secret",
           mock: true,
-          message: "Running in development mode - Stripe not configured"
+          message: "Running in development mode - Stripe not configured",
         });
       }
 
@@ -433,7 +474,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Subscription route
-  app.post('/api/create-subscription', async (req, res) => {
+  app.post("/api/create-subscription", async (req, res) => {
     if (!req.isAuthenticated()) {
       return res.sendStatus(401);
     }
@@ -447,15 +488,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
           subscriptionId: "sub_mock_development",
           clientSecret: "pi_mock_development_secret",
           mock: true,
-          message: "Running in development mode - Stripe not configured"
+          message: "Running in development mode - Stripe not configured",
         });
       }
 
-      const subscription = await stripe.subscriptions.retrieve(user.stripeSubscriptionId);
+      const subscription = await stripe.subscriptions.retrieve(
+        user.stripeSubscriptionId,
+      );
 
       res.send({
         subscriptionId: subscription.id,
-        clientSecret: (subscription.latest_invoice as any)?.payment_intent?.client_secret,
+        clientSecret: (subscription.latest_invoice as any)?.payment_intent
+          ?.client_secret,
       });
 
       return;
@@ -467,7 +511,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           subscriptionId: "sub_mock_development",
           clientSecret: "pi_mock_development_secret",
           mock: true,
-          message: "Running in development mode - Stripe not configured"
+          message: "Running in development mode - Stripe not configured",
         });
       }
 
@@ -497,24 +541,27 @@ export async function registerRoutes(app: Express): Promise<Server> {
           subscriptionId: "sub_mock_development",
           clientSecret: "pi_mock_development_secret",
           mock: true,
-          message: `Missing Stripe price ID for ${plan} plan. Configure STRIPE_${plan.toUpperCase()}_PRICE_ID environment variable.`
+          message: `Missing Stripe price ID for ${plan} plan. Configure STRIPE_${plan.toUpperCase()}_PRICE_ID environment variable.`,
         });
       }
 
       const subscription = await stripe.subscriptions.create({
         customer: customer.id,
-        items: [{
-          price: priceIds[plan as keyof typeof priceIds] || priceIds.growth,
-        }],
-        payment_behavior: 'default_incomplete',
-        expand: ['latest_invoice.payment_intent'],
+        items: [
+          {
+            price: priceIds[plan as keyof typeof priceIds] || priceIds.growth,
+          },
+        ],
+        payment_behavior: "default_incomplete",
+        expand: ["latest_invoice.payment_intent"],
       });
 
       await storage.updateUserStripeInfo(user.id, customer.id, subscription.id);
 
       res.send({
         subscriptionId: subscription.id,
-        clientSecret: (subscription.latest_invoice as any)?.payment_intent?.client_secret,
+        clientSecret: (subscription.latest_invoice as any)?.payment_intent
+          ?.client_secret,
       });
     } catch (error: any) {
       return res.status(400).send({ error: { message: error.message } });
@@ -529,7 +576,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       const { tenantData, selectedPlan } = req.body;
-      
+
       // Validate tenant data
       const validatedTenant = insertTenantSchema.parse({
         ...tenantData,
@@ -538,9 +585,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       // Create tenant
       const tenant = await storage.createTenant(validatedTenant);
-      
+
       // TODO: Update user with tenant ID - would need to add this method to storage
-      
+
       res.json({ success: true, tenant });
     } catch (error: any) {
       res.status(400).json({ message: error.message });
@@ -548,36 +595,42 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Bank transfer routes
-  app.post("/api/bank-transfers", upload.single('receipt'), async (req, res) => {
-    try {
-      if (!req.isAuthenticated()) {
-        return res.sendStatus(401);
-      }
+  app.post(
+    "/api/bank-transfers",
+    upload.single("receipt"),
+    async (req, res) => {
+      try {
+        if (!req.isAuthenticated()) {
+          return res.sendStatus(401);
+        }
 
-      const validatedTransfer = insertBankTransferSchema.parse({
-        referenceNumber: req.body.referenceNumber,
-        bank: req.body.bank,
-        amount: req.body.amount,
-        transferDate: new Date(req.body.transferDate + 'T' + req.body.transferTime),
-        transferTime: req.body.transferTime,
-        purpose: req.body.purpose,
-        comments: req.body.comments,
-        receiptUrl: (req as any).file?.path,
-      });
-      
-      const transferWithIds = {
-        ...validatedTransfer,
-        userId: req.user.id,
-        tenantId: req.user.tenantId || "",
-      };
-      
-      const transfer = await storage.createBankTransfer(transferWithIds);
-      
-      res.json(transfer);
-    } catch (error: any) {
-      res.status(400).json({ message: error.message });
-    }
-  });
+        const validatedTransfer = insertBankTransferSchema.parse({
+          referenceNumber: req.body.referenceNumber,
+          bank: req.body.bank,
+          amount: req.body.amount,
+          transferDate: new Date(
+            req.body.transferDate + "T" + req.body.transferTime,
+          ),
+          transferTime: req.body.transferTime,
+          purpose: req.body.purpose,
+          comments: req.body.comments,
+          receiptUrl: (req as any).file?.path,
+        });
+
+        const transferWithIds = {
+          ...validatedTransfer,
+          userId: req.user.id,
+          tenantId: req.user.tenantId || "",
+        };
+
+        const transfer = await storage.createBankTransfer(transferWithIds);
+
+        res.json(transfer);
+      } catch (error: any) {
+        res.status(400).json({ message: error.message });
+      }
+    },
+  );
 
   app.get("/api/bank-transfers", async (req, res) => {
     try {
@@ -585,11 +638,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.sendStatus(401);
       }
 
-      if (req.user.role === 'admin' || req.user.role === 'owner') {
+      if (req.user.role === "admin" || req.user.role === "owner") {
         const transfers = await storage.getAllPendingTransfers();
         res.json(transfers);
       } else {
-        const transfers = await storage.getBankTransfersByTenant(req.user.tenantId!);
+        const transfers = await storage.getBankTransfersByTenant(
+          req.user.tenantId!,
+        );
         res.json(transfers);
       }
     } catch (error: any) {
@@ -599,21 +654,29 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.patch("/api/bank-transfers/:id", async (req, res) => {
     try {
-      if (!req.isAuthenticated() || (req.user.role !== 'admin' && req.user.role !== 'owner')) {
+      if (
+        !req.isAuthenticated() ||
+        (req.user.role !== "admin" && req.user.role !== "owner")
+      ) {
         return res.sendStatus(403);
       }
 
       const { id } = req.params;
       const { status, adminComments } = req.body;
-      
-      const transfer = await storage.updateTransferStatus(id, status, adminComments, req.user.id);
-      
+
+      const transfer = await storage.updateTransferStatus(
+        id,
+        status,
+        adminComments,
+        req.user.id,
+      );
+
       // If approved, activate tenant or credit balance
-      if (status === 'approved') {
+      if (status === "approved") {
         // TODO: Implement tenant activation logic
-        await storage.updateTenantStatus(transfer.tenantId, 'active');
+        await storage.updateTenantStatus(transfer.tenantId, "active");
       }
-      
+
       res.json(transfer);
     } catch (error: any) {
       res.status(500).json({ message: error.message });
@@ -626,11 +689,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
       stripeMode: config.stripe.mode,
       paypalMode: config.paypal.mode,
       isTestMode: config.isTestMode,
-      environment: config.isDevelopment ? 'development' : 'production',
+      environment: config.isDevelopment ? "development" : "production",
       webhooks: {
         stripe: config.webhooks.stripeEndpoint,
         paypal: config.webhooks.paypalEndpoint,
-      }
+      },
     });
   });
 
@@ -656,17 +719,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       const { from, to } = req.query;
-      
+
       // Provide default date range if not specified (last 30 days)
-      const fromDate = from ? new Date(from as string) : new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+      const fromDate = from
+        ? new Date(from as string)
+        : new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
       const toDate = to ? new Date(to as string) : new Date();
-      
+
       // Validate dates
       if (isNaN(fromDate.getTime()) || isNaN(toDate.getTime())) {
         return res.status(400).json({ message: "Invalid date format" });
       }
-      
-      const data = await storage.getConsumptionData(req.user.tenantId, fromDate, toDate);
+
+      const data = await storage.getConsumptionData(
+        req.user.tenantId,
+        fromDate,
+        toDate,
+      );
       res.json(data);
     } catch (error: any) {
       res.status(500).json({ message: error.message });
@@ -685,7 +754,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         tenantId: req.user.tenantId,
         pbxId: `pbx_${Math.random().toString(36).substr(2, 9)}`,
         sipDomain: `${req.user.tenantId}.gueswi.com`,
-        status: 'provisioned',
+        status: "provisioned",
       };
 
       // TODO: Integrate with real PBX provisioning API
@@ -707,13 +776,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
         userId: req.body.userId,
         status: req.body.status,
       });
-      
+
       const extensionWithTenant = {
         ...validatedExtension,
         tenantId: req.user.tenantId || "",
         sipPassword: Math.random().toString(36).substr(2, 12),
       };
-      
+
       const extension = await storage.createExtension(extensionWithTenant);
 
       // Mock SIP account creation
@@ -741,7 +810,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         ivrId: `ivr_${Math.random().toString(36).substr(2, 9)}`,
         tenantId: req.user.tenantId,
         menu: req.body.menu || {},
-        status: 'active',
+        status: "active",
       };
 
       res.json(ivrConfig);
@@ -750,74 +819,59 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // TTS (Text-to-Speech) synthesis endpoint
   // IVR TTS endpoint - POST /api/ivr/tts
   app.post("/api/ivr/tts", async (req, res) => {
     try {
-      if (!req.isAuthenticated() || !req.user.tenantId) {
+      if (!req.isAuthenticated() || !req.user?.tenantId) {
         return res.status(401).json({ message: "Authentication required" });
       }
 
-      const { text, voice } = req.body;
+      const { text = "", voice } = req.body || {};
 
-      // Validate text
-      if (!text || text.trim().length === 0) {
-        return res.status(400).json({ message: "Text is required for TTS synthesis" });
+      // Validaciones mínimas (la UI ya hace otras)
+      if (typeof text !== "string" || text.trim().length < 3) {
+        return res.status(400).json({ message: "Text is required" });
+      }
+      if (!voice || typeof voice !== "object") {
+        return res
+          .status(400)
+          .json({ message: "Voice configuration is required" });
       }
 
-      if (text.length < 10) {
-        return res.status(400).json({ message: "Text must be at least 10 characters long" });
-      }
+      // MP3 muy corto válido (1s aprox.) para que el player funcione en dev.
+      const tinyMp3Base64 =
+        "SUQzAwAAAAAAI1RTU0UAAAAPAAAACAAATGF2ZjU2LjQxLjEwMAAAAAAAAAAAAAAA//tQxAADBQQACAAACAAA" +
+        "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA" +
+        "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA//sQxAADAgQAAgAA" +
+        "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA" +
+        "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA//sQxAAAAAEAAAAA";
 
-      if (text.length > 1000) {
-        return res.status(400).json({ message: "Text cannot exceed 1000 characters" });
-      }
+      const buf = Buffer.from(tinyMp3Base64, "base64");
 
-      // Validate voice structure
-      if (!voice || typeof voice !== 'object') {
-        return res.status(400).json({ message: "Voice configuration is required" });
-      }
+      // Carpeta /uploads/tts
+      const relDir = path.join("tts");
+      const absDir = path.join(process.cwd(), "uploads", relDir);
+      fs.mkdirSync(absDir, { recursive: true });
 
-      const { gender, style } = voice;
+      // Nombre de archivo
+      const fileName = `${randomUUID()}.mp3`;
+      const absFile = path.join(absDir, fileName);
+      fs.writeFileSync(absFile, buf);
 
-      // Validate gender
-      const validGenders = ['hombre', 'mujer'];
-      if (!validGenders.includes(gender)) {
-        return res.status(400).json({ message: `Invalid gender. Must be one of: ${validGenders.join(', ')}` });
-      }
+      // URL pública servida por server/index.ts -> app.use("/uploads", express.static(...))
+      const audioUrl = `/uploads/tts/${fileName}`;
 
-      // Validate style
-      const validStyles = ['neutral', 'amable', 'energetico'];
-      if (!validStyles.includes(style)) {
-        return res.status(400).json({ message: `Invalid style. Must be one of: ${validStyles.join(', ')}` });
-      }
-
-      // Mock TTS synthesis (development implementation)
-      // Generate a silent WAV file for 2-3 seconds as requested
-      const audioId = `ivr_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-      const audioFileName = `${audioId}.wav`;
-      const mockAudioUrl = `/uploads/ivr/${audioFileName}`;
-
-      // Enhanced logging for observability
-      console.log(`🔊 IVR TTS synthesis request [${req.user.tenantId}]:`);
-      console.log(`   Text: "${text.substring(0, 50)}${text.length > 50 ? '...' : ''}" (${text.length} chars)`);
-      console.log(`   Voice: ${gender} (${style})`);
-      console.log(`   Audio ID: ${audioId}`);
-      console.log(`   Mock URL: ${mockAudioUrl}`);
-
-      // Simulate processing time
-      await new Promise(resolve => setTimeout(resolve, 1500));
-
-      res.json({
-        url: mockAudioUrl,
+      // Respuesta compatible con la UI actual (conservamos shape similar)
+      return res.json({
+        url: audioUrl,
         text,
-        voice: { gender, style },
-        duration: Math.ceil(text.length / 10), // Rough estimate: 10 chars per second
-        audioId
+        voice,
+        audioId: fileName.replace(/\.mp3$/, ""),
+        duration: Math.max(1, Math.ceil(text.length / 12)), // estimación simple
       });
     } catch (error: any) {
       console.error("❌ IVR TTS synthesis error:", error);
-      res.status(500).json({ message: error.message });
+      return res.status(500).json({ message: "TTS generation failed" });
     }
   });
 
@@ -838,7 +892,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         totalCalls: Math.floor(Math.random() * 500),
         totalCost: Math.random() * 100,
         successRate: 85 + Math.random() * 10,
-        language: 'es',
+        language: "es",
         period: { from: fromDate, to: toDate },
       };
 
@@ -849,7 +903,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Telephony API endpoints (tenant-scoped)
-  
+
   // Extensions endpoints
   app.get("/api/extensions", async (req, res) => {
     try {
@@ -863,7 +917,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         status as string,
         q as string,
         parseInt(page as string),
-        parseInt(pageSize as string)
+        parseInt(pageSize as string),
       );
 
       res.json(result);
@@ -884,7 +938,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         tenantId: req.user.tenantId,
         sipPassword: Math.random().toString(36).substr(2, 12),
       };
-      
+
       const extension = await storage.createExtension(extensionWithTenant);
       res.json(extension);
     } catch (error: any) {
@@ -899,7 +953,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       const extensionData = insertExtensionSchema.partial().parse(req.body);
-      const extension = await storage.updateExtension(req.params.id, extensionData);
+      const extension = await storage.updateExtension(
+        req.params.id,
+        extensionData,
+      );
       res.json(extension);
     } catch (error: any) {
       res.status(400).json({ message: error.message });
@@ -957,7 +1014,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         ...validatedIvr,
         tenantId: req.user.tenantId,
       };
-      
+
       const ivr = await storage.createIvr(ivrWithTenant);
       res.json(ivr);
     } catch (error: any) {
@@ -1004,7 +1061,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         ...queueData,
         tenantId: req.user.tenantId,
       };
-      
+
       const queue = await storage.createQueue(queueWithTenant);
       res.json(queue);
     } catch (error: any) {
@@ -1036,13 +1093,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const { from, to, page = 1, pageSize = 10 } = req.query;
       const fromDate = from ? new Date(from as string) : undefined;
       const toDate = to ? new Date(to as string) : undefined;
-      
+
       const result = await storage.getRecordings(
         req.user.tenantId,
         fromDate,
         toDate,
         parseInt(page as string),
-        parseInt(pageSize as string)
+        parseInt(pageSize as string),
       );
 
       res.json(result);
