@@ -99,12 +99,11 @@ export const ivrMenus = pgTable("ivr_menus", {
   id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
   tenantId: uuid("tenant_id").references(() => tenants.id).notNull(),
   name: text("name").notNull(),
-  greetingUrl: text("greeting_url"),
-  // TTS fields for text-to-speech generation
   greetingText: text("greeting_text"),
-  voiceType: text("voice_type", { enum: ["hombre", "mujer"] }),
-  voiceStyle: text("voice_style", { enum: ["neutral", "amable", "energetico"] }),
-  options: jsonb("options").notNull(),
+  greetingAudioUrl: text("greeting_audio_url"),
+  greetingVoiceGender: text("greeting_voice_gender", { enum: ["hombre", "mujer"] }),
+  greetingVoiceStyle: text("greeting_voice_style", { enum: ["neutral", "amable", "energetico"] }),
+  menuOptions: jsonb("menu_options").default(sql`'[]'::jsonb`),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
@@ -314,11 +313,11 @@ export const insertExtensionSchema = createInsertSchema(extensions).pick({
 
 export const insertIvrMenuSchema = createInsertSchema(ivrMenus).pick({
   name: true,
-  greetingUrl: true,
   greetingText: true,
-  voiceType: true,
-  voiceStyle: true,
-  options: true,
+  greetingAudioUrl: true,
+  greetingVoiceGender: true,
+  greetingVoiceStyle: true,
+  menuOptions: true,
 });
 
 export const insertQueueSchema = createInsertSchema(queues).pick({
