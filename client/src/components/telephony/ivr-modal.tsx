@@ -75,16 +75,17 @@ const ivrSchema = z.object({
   // TTS fields
   greetingText: z
     .string()
-    .optional()
-    .refine(
-      (val) => !val || val.length <= 500,
-      "El texto no puede exceder 500 caracteres"
-    ),
+    .min(1, "Texto del saludo requerido")
+    .min(10, "Mínimo 10 caracteres")
+    .max(1000, "Máximo 1000 caracteres")
+    .optional(),
   voiceType: z
-    .enum(["male", "female", "neutral"])
+    .enum(["hombre", "mujer"])
+    .default("mujer")
     .optional(),
   voiceStyle: z
-    .enum(["formal", "friendly", "energetic", "calm"])
+    .enum(["neutral", "amable", "energetico"])
+    .default("amable")
     .optional(),
   options: z
     .array(ivrOptionSchema)
@@ -129,21 +130,21 @@ export function IvrModal({ isOpen, onClose, ivr, mode }: IvrModalProps) {
       name: "",
       greetingUrl: "",
       greetingText: "",
-      voiceType: "female",
-      voiceStyle: "friendly",
+      voiceType: "mujer",
+      voiceStyle: "amable",
       options: [{ key: "1", action: "transfer", destination: "101" }],
     },
   });
 
   // TTS synthesis mutation
   const synthesizeMutation = useMutation({
-    mutationFn: async (data: { text: string; voiceType: string; voiceStyle: string }) => {
-      return apiRequest('POST', '/api/tts/synthesize', data);
+    mutationFn: async (data: { text: string; voice: { gender: string; style: string } }) => {
+      return apiRequest('POST', '/api/ivr/tts', data);
     },
-    onSuccess: (response: { audioUrl: string }) => {
-      setGeneratedAudioUrl(response.audioUrl);
+    onSuccess: (response: { url: string }) => {
+      setGeneratedAudioUrl(response.url);
       // Auto-fill the greetingUrl with the generated audio
-      form.setValue('greetingUrl', response.audioUrl);
+      form.setValue('greetingUrl', response.url);
       toast({
         title: "Audio generado",
         description: "El audio TTS se ha generado correctamente",
@@ -161,8 +162,8 @@ export function IvrModal({ isOpen, onClose, ivr, mode }: IvrModalProps) {
   // TTS generation handler
   const handleGenerateTTS = () => {
     const greetingText = form.getValues('greetingText');
-    const voiceType = form.getValues('voiceType') || 'female';
-    const voiceStyle = form.getValues('voiceStyle') || 'friendly';
+    const voiceType = form.getValues('voiceType') || 'mujer';
+    const voiceStyle = form.getValues('voiceStyle') || 'amable';
     
     if (!greetingText?.trim()) {
       toast({
@@ -175,8 +176,10 @@ export function IvrModal({ isOpen, onClose, ivr, mode }: IvrModalProps) {
     
     synthesizeMutation.mutate({
       text: greetingText,
-      voiceType,
-      voiceStyle,
+      voice: {
+        gender: voiceType,
+        style: voiceStyle,
+      },
     });
   };
 
@@ -265,9 +268,9 @@ export function IvrModal({ isOpen, onClose, ivr, mode }: IvrModalProps) {
       form.reset({
         name: ivr.name || "",
         greetingUrl: ivr.greetingUrl || "",
-        greetingText: "",
-        voiceType: "female",
-        voiceStyle: "friendly",
+        greetingText: ivr.greetingText || "",
+        voiceType: ivr.voiceType || "mujer",
+        voiceStyle: ivr.voiceStyle || "amable",
         options: ivrOptions,
       });
     } else if (mode === "create") {
@@ -275,8 +278,8 @@ export function IvrModal({ isOpen, onClose, ivr, mode }: IvrModalProps) {
         name: "",
         greetingUrl: "",
         greetingText: "",
-        voiceType: "female",
-        voiceStyle: "friendly",
+        voiceType: "mujer",
+        voiceStyle: "amable",
         options: [{ key: "1", action: "transfer", destination: "101" }],
       });
     }
@@ -381,13 +384,13 @@ export function IvrModal({ isOpen, onClose, ivr, mode }: IvrModalProps) {
                             {...field}
                             placeholder="Bienvenido a nuestra empresa. Por favor, seleccione una opción..."
                             rows={3}
-                            maxLength={500}
+                            maxLength={1000}
                             disabled={synthesizeMutation.isPending}
                             data-testid="textarea-greeting-text"
                           />
                         </FormControl>
                         <div className="text-xs text-muted-foreground">
-                          {(field.value?.length || 0)}/500 caracteres
+                          {(field.value?.length || 0)}/1000 caracteres
                         </div>
                         <FormMessage />
                       </FormItem>
@@ -407,9 +410,8 @@ export function IvrModal({ isOpen, onClose, ivr, mode }: IvrModalProps) {
                                 <SelectValue placeholder="Seleccionar voz" />
                               </SelectTrigger>
                               <SelectContent>
-                                <SelectItem value="female">Femenina</SelectItem>
-                                <SelectItem value="male">Masculina</SelectItem>
-                                <SelectItem value="neutral">Neutral</SelectItem>
+                                <SelectItem value="mujer">Mujer</SelectItem>
+                                <SelectItem value="hombre">Hombre</SelectItem>
                               </SelectContent>
                             </Select>
                           </FormControl>
@@ -430,10 +432,9 @@ export function IvrModal({ isOpen, onClose, ivr, mode }: IvrModalProps) {
                                 <SelectValue placeholder="Seleccionar estilo" />
                               </SelectTrigger>
                               <SelectContent>
-                                <SelectItem value="formal">Formal</SelectItem>
-                                <SelectItem value="friendly">Amigable</SelectItem>
-                                <SelectItem value="energetic">Energético</SelectItem>
-                                <SelectItem value="calm">Calmado</SelectItem>
+                                <SelectItem value="neutral">Neutral</SelectItem>
+                                <SelectItem value="amable">Amable</SelectItem>
+                                <SelectItem value="energetico">Energético</SelectItem>
                               </SelectContent>
                             </Select>
                           </FormControl>
