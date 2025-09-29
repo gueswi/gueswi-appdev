@@ -819,59 +819,79 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // IVR TTS endpoint - POST /api/ivr/tts
+  // TTS (Text-to-Speech) mock: generar WAV de silencio y guardarlo en /uploads/ivr
+  function makeSilentWav(seconds = 2, sampleRate = 8000) {
+    const numChannels = 1;
+    const bitsPerSample = 16;
+    const numSamples = Math.max(1, Math.floor(seconds * sampleRate));
+    const dataSize = numSamples * numChannels * (bitsPerSample / 8);
+    const buffer = Buffer.alloc(44 + dataSize);
+    let o = 0;
+    buffer.write("RIFF", o); o += 4;
+    buffer.writeUInt32LE(36 + dataSize, o); o += 4;
+    buffer.write("WAVE", o); o += 4;
+    buffer.write("fmt ", o); o += 4;
+    buffer.writeUInt32LE(16, o); o += 4;            // subchunk1 size
+    buffer.writeUInt16LE(1, o); o += 2;             // PCM
+    buffer.writeUInt16LE(numChannels, o); o += 2;
+    buffer.writeUInt32LE(sampleRate, o); o += 4;
+    buffer.writeUInt32LE(sampleRate * numChannels * bitsPerSample/8, o); o += 4;
+    buffer.writeUInt16LE(numChannels * bitsPerSample/8, o); o += 2;
+    buffer.writeUInt16LE(bitsPerSample, o); o += 2;
+    buffer.write("data", o); o += 4;
+    buffer.writeUInt32LE(dataSize, o); o += 4;
+    // El resto ya está a cero → silencio
+    return buffer;
+  }
+
   app.post("/api/ivr/tts", async (req, res) => {
     try {
-      if (!req.isAuthenticated() || !req.user?.tenantId) {
+      if (!req.isAuthenticated?.() || !req.user?.tenantId) {
         return res.status(401).json({ message: "Authentication required" });
       }
 
-      const { text = "", voice } = req.body || {};
-
-      // Validaciones mínimas (la UI ya hace otras)
-      if (typeof text !== "string" || text.trim().length < 3) {
-        return res.status(400).json({ message: "Text is required" });
+      const { text, voice } = req.body;
+      if (!text || typeof text !== "string" || text.trim().length < 10) {
+        return res.status(400).json({ message: "Text must be at least 10 characters long" });
       }
       if (!voice || typeof voice !== "object") {
-        return res
-          .status(400)
-          .json({ message: "Voice configuration is required" });
+        return res.status(400).json({ message: "Voice configuration is required" });
+      }
+      const { gender, style } = voice;
+      const validGenders = ["hombre", "mujer"];
+      const validStyles = ["neutral", "amable", "energetico"];
+      if (!validGenders.includes(gender)) {
+        return res.status(400).json({ message: `Invalid gender. Must be one of: ${validGenders.join(", ")}` });
+      }
+      if (!validStyles.includes(style)) {
+        return res.status(400).json({ message: `Invalid style. Must be one of: ${validStyles.join(", ")}` });
       }
 
-      // MP3 muy corto válido (1s aprox.) para que el player funcione en dev.
-      const tinyMp3Base64 =
-        "SUQzAwAAAAAAI1RTU0UAAAAPAAAACAAATGF2ZjU2LjQxLjEwMAAAAAAAAAAAAAAA//tQxAADBQQACAAACAAA" +
-        "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA" +
-        "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA//sQxAADAgQAAgAA" +
-        "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA" +
-        "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA//sQxAAAAAEAAAAA";
+      // Calcular duración "aprox" y crear carpeta si no existe
+      const seconds = Math.min(3, Math.max(2, Math.ceil(Math.min(text.length, 1000) / 20)));
+      const uploadsDir = path.resolve("uploads");
+      const ivrDir = path.join(uploadsDir, "ivr");
+      try { fs.mkdirSync(ivrDir, { recursive: true }); } catch {}
 
-      const buf = Buffer.from(tinyMp3Base64, "base64");
+      // Crear WAV silencioso
+      const audioId = `ivr_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
+      const filePath = path.join(ivrDir, `${audioId}.wav`);
+      const wav = makeSilentWav(seconds, 8000);
+      await fs.promises.writeFile(filePath, wav);
 
-      // Carpeta /uploads/tts
-      const relDir = path.join("tts");
-      const absDir = path.join(process.cwd(), "uploads", relDir);
-      fs.mkdirSync(absDir, { recursive: true });
+      const url = `/uploads/ivr/${audioId}.wav`;
+      console.log(`🔊 TTS mock -> ${url}`);
 
-      // Nombre de archivo
-      const fileName = `${randomUUID()}.mp3`;
-      const absFile = path.join(absDir, fileName);
-      fs.writeFileSync(absFile, buf);
-
-      // URL pública servida por server/index.ts -> app.use("/uploads", express.static(...))
-      const audioUrl = `/uploads/tts/${fileName}`;
-
-      // Respuesta compatible con la UI actual (conservamos shape similar)
       return res.json({
-        url: audioUrl,
+        url,
         text,
-        voice,
-        audioId: fileName.replace(/\.mp3$/, ""),
-        duration: Math.max(1, Math.ceil(text.length / 12)), // estimación simple
+        voice: { gender, style },
+        duration: seconds,
+        audioId,
       });
-    } catch (error: any) {
-      console.error("❌ IVR TTS synthesis error:", error);
-      return res.status(500).json({ message: "TTS generation failed" });
+    } catch (err: any) {
+      console.error("❌ IVR TTS error", err);
+      return res.status(500).json({ message: err?.message || "TTS error" });
     }
   });
 
