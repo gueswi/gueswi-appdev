@@ -22,8 +22,19 @@ app.use(
     maxAge: "1h",
     immutable: true,
     setHeaders(res, filePath) {
+      // Set proper headers for audio files
       if (filePath.endsWith(".wav")) {
         res.setHeader("Content-Type", "audio/wav");
+        res.setHeader("Accept-Ranges", "bytes");
+      } else if (filePath.endsWith(".mp3")) {
+        res.setHeader("Content-Type", "audio/mpeg");
+        res.setHeader("Accept-Ranges", "bytes");
+      } else if (filePath.endsWith(".m4a")) {
+        res.setHeader("Content-Type", "audio/mp4");
+        res.setHeader("Accept-Ranges", "bytes");
+      } else if (filePath.endsWith(".ogg")) {
+        res.setHeader("Content-Type", "audio/ogg");
+        res.setHeader("Accept-Ranges", "bytes");
       }
     },
   })
