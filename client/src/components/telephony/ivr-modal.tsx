@@ -65,12 +65,12 @@ const ivrSchema = z.object({
     .min(3, "Mínimo 3 caracteres")
     .max(100, "Máximo 100 caracteres")
     .regex(/^[a-zA-ZáéíóúÁÉÍÓÚñÑ0-9\s\-_]+$/, "Solo letras, números, espacios, guiones y guiones bajos"),
-  greetingUrl: z
+  greetingAudioUrl: z
     .string()
     .optional()
     .refine(
-      (val) => !val || /^https?:\/\//.test(val),
-      "URL debe comenzar con http:// o https://"
+      (val) => !val || /^(https?:\/\/|\/)/.test(val),
+      "URL debe comenzar con http:// https:// o /"
     ),
   // TTS fields
   greetingText: z
@@ -79,15 +79,15 @@ const ivrSchema = z.object({
     .min(10, "Mínimo 10 caracteres")
     .max(1000, "Máximo 1000 caracteres")
     .optional(),
-  voiceType: z
+  greetingVoiceGender: z
     .enum(["hombre", "mujer"])
     .default("mujer")
     .optional(),
-  voiceStyle: z
+  greetingVoiceStyle: z
     .enum(["neutral", "amable", "energetico"])
     .default("amable")
     .optional(),
-  options: z
+  menuOptions: z
     .array(ivrOptionSchema)
     .min(1, "Al menos una opción requerida")
     .max(10, "Máximo 10 opciones permitidas")
@@ -120,31 +120,32 @@ export function IvrModal({ isOpen, onClose, ivr, mode }: IvrModalProps) {
   const [currentAudio, setCurrentAudio] = useState<HTMLAudioElement | null>(null);
 
   // Handle both string and object formats for backward compatibility
-  const defaultOptions = ivr?.options 
-    ? (typeof ivr.options === 'string' ? JSON.parse(ivr.options || "[]") : ivr.options)
+  const defaultOptions = ivr?.menuOptions 
+    ? (typeof ivr.menuOptions === 'string' ? JSON.parse(ivr.menuOptions || "[]") : ivr.menuOptions)
     : [{ key: "1", action: "transfer", destination: "101" }];
 
   const form = useForm<IvrFormData>({
     resolver: zodResolver(ivrSchema),
     defaultValues: {
       name: "",
-      greetingUrl: "",
+      greetingAudioUrl: "",
       greetingText: "",
-      voiceType: "mujer",
-      voiceStyle: "amable",
-      options: [{ key: "1", action: "transfer", destination: "101" }],
+      greetingVoiceGender: "mujer",
+      greetingVoiceStyle: "amable",
+      menuOptions: [{ key: "1", action: "transfer", destination: "101" }],
     },
   });
 
   // TTS synthesis mutation
   const synthesizeMutation = useMutation({
     mutationFn: async (data: { text: string; voice: { gender: string; style: string } }) => {
-      return apiRequest('POST', '/api/ivr/tts', data);
+      const response = await apiRequest('POST', '/api/ivr/tts', data);
+      return response.json();
     },
-    onSuccess: (response: { url: string }) => {
-      setGeneratedAudioUrl(response.url);
-      // Auto-fill the greetingUrl with the generated audio
-      form.setValue('greetingUrl', response.url);
+    onSuccess: (data: { url: string }) => {
+      setGeneratedAudioUrl(data.url);
+      // Auto-fill the greetingAudioUrl with the generated audio
+      form.setValue('greetingAudioUrl', data.url);
       toast({
         title: "Audio generado",
         description: "El audio TTS se ha generado correctamente",
@@ -162,8 +163,8 @@ export function IvrModal({ isOpen, onClose, ivr, mode }: IvrModalProps) {
   // TTS generation handler
   const handleGenerateTTS = () => {
     const greetingText = form.getValues('greetingText');
-    const voiceType = form.getValues('voiceType') || 'mujer';
-    const voiceStyle = form.getValues('voiceStyle') || 'amable';
+    const voiceType = form.getValues('greetingVoiceGender') || 'mujer';
+    const voiceStyle = form.getValues('greetingVoiceStyle') || 'amable';
     
     if (!greetingText?.trim()) {
       toast({
@@ -185,7 +186,8 @@ export function IvrModal({ isOpen, onClose, ivr, mode }: IvrModalProps) {
 
   // Audio preview handler with proper cleanup
   const handlePreviewAudio = () => {
-    const audioUrl = generatedAudioUrl || form.getValues('greetingUrl');
+    const audioUrl = generatedAudioUrl || form.getValues('greetingAudioUrl');
+    
     if (!audioUrl) {
       toast({
         title: "Sin audio",
@@ -261,26 +263,26 @@ export function IvrModal({ isOpen, onClose, ivr, mode }: IvrModalProps) {
   useEffect(() => {
     if (ivr && mode === "edit") {
       // Handle both string and object formats for backward compatibility
-      const ivrOptions = typeof ivr.options === 'string' 
-        ? JSON.parse(ivr.options || "[]") 
-        : ivr.options || [{ key: "1", action: "transfer", destination: "101" }];
+      const ivrOptions = typeof ivr.menuOptions === 'string' 
+        ? JSON.parse(ivr.menuOptions || "[]") 
+        : ivr.menuOptions || [{ key: "1", action: "transfer", destination: "101" }];
       
       form.reset({
         name: ivr.name || "",
-        greetingUrl: ivr.greetingUrl || "",
+        greetingAudioUrl: ivr.greetingAudioUrl || "",
         greetingText: ivr.greetingText || "",
-        voiceType: ivr.voiceType || "mujer",
-        voiceStyle: ivr.voiceStyle || "amable",
-        options: ivrOptions,
+        greetingVoiceGender: ivr.greetingVoiceGender || "mujer",
+        greetingVoiceStyle: ivr.greetingVoiceStyle || "amable",
+        menuOptions: ivrOptions,
       });
     } else if (mode === "create") {
       form.reset({
         name: "",
-        greetingUrl: "",
+        greetingAudioUrl: "",
         greetingText: "",
-        voiceType: "mujer",
-        voiceStyle: "amable",
-        options: [{ key: "1", action: "transfer", destination: "101" }],
+        greetingVoiceGender: "mujer",
+        greetingVoiceStyle: "amable",
+        menuOptions: [{ key: "1", action: "transfer", destination: "101" }],
       });
     }
     setGeneratedAudioUrl(null);
@@ -288,18 +290,18 @@ export function IvrModal({ isOpen, onClose, ivr, mode }: IvrModalProps) {
 
   const { fields, append, remove } = useFieldArray({
     control: form.control,
-    name: "options",
+    name: "menuOptions",
   });
 
   const onSubmit = async (data: IvrFormData) => {
     try {
       const ivrData = {
         name: data.name,
-        greetingUrl: data.greetingUrl || null,
+        greetingAudioUrl: data.greetingAudioUrl || null,
         greetingText: data.greetingText || null,
-        voiceType: data.voiceType || null,
-        voiceStyle: data.voiceStyle || null,
-        options: data.options, // Send as actual JSON object, not stringified
+        greetingVoiceGender: data.greetingVoiceGender || null,
+        greetingVoiceStyle: data.greetingVoiceStyle || null,
+        menuOptions: data.menuOptions, // Send as actual JSON object, not stringified
       };
 
       if (mode === "create") {
@@ -400,7 +402,7 @@ export function IvrModal({ isOpen, onClose, ivr, mode }: IvrModalProps) {
                   <div className="grid grid-cols-2 gap-4">
                     <FormField
                       control={form.control}
-                      name="voiceType"
+                      name="greetingVoiceGender"
                       render={({ field }) => (
                         <FormItem>
                           <FormLabel>Tipo de Voz</FormLabel>
@@ -422,7 +424,7 @@ export function IvrModal({ isOpen, onClose, ivr, mode }: IvrModalProps) {
                     
                     <FormField
                       control={form.control}
-                      name="voiceStyle"
+                      name="greetingVoiceStyle"
                       render={({ field }) => (
                         <FormItem>
                           <FormLabel>Estilo de Voz</FormLabel>
@@ -459,7 +461,7 @@ export function IvrModal({ isOpen, onClose, ivr, mode }: IvrModalProps) {
                       Generar Audio
                     </Button>
                     
-                    {(generatedAudioUrl || form.watch('greetingUrl')) && (
+                    {(generatedAudioUrl || form.watch('greetingAudioUrl')) && (
                       <Button
                         type="button"
                         variant="outline"
@@ -485,7 +487,7 @@ export function IvrModal({ isOpen, onClose, ivr, mode }: IvrModalProps) {
                 <TabsContent value="url" className="mt-4">
                   <FormField
                     control={form.control}
-                    name="greetingUrl"
+                    name="greetingAudioUrl"
                     render={({ field }) => (
                       <FormItem>
                         <FormLabel>URL del Audio</FormLabel>
@@ -501,7 +503,7 @@ export function IvrModal({ isOpen, onClose, ivr, mode }: IvrModalProps) {
                     )}
                   />
                   
-                  {form.watch('greetingUrl') && (
+                  {form.watch('greetingAudioUrl') && (
                     <Button
                       type="button"
                       variant="outline"
@@ -532,11 +534,11 @@ export function IvrModal({ isOpen, onClose, ivr, mode }: IvrModalProps) {
                 </Button>
               </div>
 
-              {form.watch("options")?.map((option, index) => (
+              {form.watch("menuOptions")?.map((option, index) => (
                 <div key={index} className="flex gap-2 items-end">
                   <FormField
                     control={form.control}
-                    name={`options.${index}.key`}
+                    name={`menuOptions.${index}.key`}
                     render={({ field }) => (
                       <FormItem className="flex-1">
                         <FormLabel>Tecla</FormLabel>
@@ -555,7 +557,7 @@ export function IvrModal({ isOpen, onClose, ivr, mode }: IvrModalProps) {
 
                   <FormField
                     control={form.control}
-                    name={`options.${index}.action`}
+                    name={`menuOptions.${index}.action`}
                     render={({ field }) => (
                       <FormItem className="flex-2">
                         <FormLabel>Acción</FormLabel>
@@ -573,7 +575,7 @@ export function IvrModal({ isOpen, onClose, ivr, mode }: IvrModalProps) {
 
                   <FormField
                     control={form.control}
-                    name={`options.${index}.destination`}
+                    name={`menuOptions.${index}.destination`}
                     render={({ field }) => (
                       <FormItem className="flex-2">
                         <FormLabel>Destino</FormLabel>
