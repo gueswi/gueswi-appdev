@@ -2,8 +2,9 @@ import passport from "passport";
 import { Strategy as LocalStrategy } from "passport-local";
 import { Express } from "express";
 import session from "express-session";
-import { scrypt, randomBytes, timingSafeEqual } from "crypto";
+import { scrypt, randomBytes, timingSafeEqual, createHash } from "crypto";
 import { promisify } from "util";
+import bcrypt from "bcrypt";
 import { storage } from "./storage";
 import { User as SelectUser } from "@shared/schema";
 
@@ -34,7 +35,6 @@ async function comparePasswords(supplied: string, stored: string) {
     
     // Try bcrypt-style comparison (common legacy format)
     try {
-      const bcrypt = require('bcrypt');
       return await bcrypt.compare(supplied, stored);
     } catch (error: any) {
       // If bcrypt fails, try simple hash comparison
@@ -42,12 +42,11 @@ async function comparePasswords(supplied: string, stored: string) {
     }
     
     // Try direct comparison for very old simple hashes
-    const crypto = require('crypto');
-    const hash = crypto.createHash('sha256').update(supplied).digest('hex');
+    const hash = createHash('sha256').update(supplied).digest('hex');
     if (hash === stored) return true;
     
     // Try MD5 (another common legacy format)
-    const md5Hash = crypto.createHash('md5').update(supplied).digest('hex');
+    const md5Hash = createHash('md5').update(supplied).digest('hex');
     if (md5Hash === stored) return true;
     
     console.log('🔍 All legacy password attempts failed for format:', stored.substring(0, 20) + '...');
