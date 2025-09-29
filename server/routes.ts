@@ -1,6 +1,8 @@
 import type { Express } from "express";
 import { createServer, type Server } from "http";
 import fs from "fs";
+import fsp from "fs/promises";
+import path from "path";
 import { randomUUID } from "crypto";
 
 // Extend Server type to include wsHandler
@@ -26,7 +28,6 @@ import {
   insertRecordingSchema,
 } from "@shared/schema";
 import multer from "multer";
-import path from "path";
 
 // Stripe setup with config loader
 import config from "./config";
