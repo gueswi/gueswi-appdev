@@ -821,7 +821,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // TTS (Text-to-Speech) synthesis endpoint
-  // Crea un WAV de silencio corto para pruebas y lo guarda en /uploads/ivr
+  // Production-ready TTS with provider support and development fallback
   app.post("/api/ivr/tts", async (req, res) => {
     try {
       if (!req.isAuthenticated() || !req.user?.tenantId) {
@@ -836,55 +836,44 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ message: "Voice configuration is required" });
       }
 
-      // Generamos un WAV de silencio (2s, 8kHz, 16-bit mono)
-      const sampleRate = 8000;
-      const seconds = 2;
-      const numSamples = sampleRate * seconds;
-      const dataBytes = numSamples * 2;
-
-      const wavHeader = (dataSize: number) => {
-        const buffer = Buffer.alloc(44);
-        buffer.write("RIFF", 0);
-        buffer.writeUInt32LE(36 + dataSize, 4);
-        buffer.write("WAVE", 8);
-        buffer.write("fmt ", 12);
-        buffer.writeUInt32LE(16, 16);
-        buffer.writeUInt16LE(1, 20);
-        buffer.writeUInt16LE(1, 22);
-        buffer.writeUInt32LE(sampleRate, 24);
-        buffer.writeUInt32LE(sampleRate * 2, 28);
-        buffer.writeUInt16LE(2, 32);
-        buffer.writeUInt16LE(16, 34);
-        buffer.write("data", 36);
-        buffer.writeUInt32LE(dataSize, 40);
-        return buffer;
-      };
-
-      const header = wavHeader(dataBytes);
-      const pcm = Buffer.alloc(dataBytes, 0x00); // silencio
-      const wav = Buffer.concat([header, pcm]);
-
-      const uploadsDir = path.resolve("uploads/ivr");
-      await fsp.mkdir(uploadsDir, { recursive: true });
-
+      // Generate unique audio ID
       const audioId = `ivr_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-      const fileName = `${audioId}.wav`;
+      
+      // Determine file extension based on TTS provider
+      const ttsProvider = process.env.TTS_PROVIDER || 'mock';
+      const fileExtension = ttsProvider === 'elevenlabs' ? 'mp3' : 'wav';
+      const fileName = `${audioId}.${fileExtension}`;
+      
+      // Full path for TTS output
+      const uploadsDir = path.resolve("uploads/ivr");
       const absPath = path.join(uploadsDir, fileName);
+      
+      // Use the new TTS system
+      const { synthesizeTTS } = await import('./tts/index.js');
+      
+      const result = await synthesizeTTS({
+        text: text.trim(),
+        voice: {
+          gender: voice.gender || 'mujer',
+          style: voice.style || 'amable'
+        },
+        outPath: absPath
+      });
 
-      await fsp.writeFile(absPath, wav);
-      const publicUrl = `/uploads/ivr/${fileName}`;
-      console.log(`🔊 TTS saved: ${absPath} → ${publicUrl}`);
+      console.log(`🔊 TTS synthesized: ${ttsProvider} → ${result.url} (${result.durationSec}s)`);
 
       return res.json({
-        url: publicUrl,
-        duration: seconds,
+        url: result.url,
+        duration: result.durationSec,
         voice,
         text,
         audioId,
+        provider: ttsProvider !== 'mock' ? ttsProvider : 'development'
       });
+      
     } catch (err: any) {
       console.error("❌ IVR TTS error:", err);
-     return res.status(500).json({ message: err?.message || "TTS failed" });
+      return res.status(500).json({ message: err?.message || "TTS synthesis failed" });
     }
   });
 

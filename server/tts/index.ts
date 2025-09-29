@@ -65,17 +65,13 @@ export async function synthesizeTTS(options: {
       return elevenLabs.synthesize(options.text, options.voice, options.outPath);
       
     case 'google':
-      const { GoogleTTSProvider } = await import('./providers/google.js');
-      const google = new GoogleTTSProvider();
-      return google.synthesize(options.text, options.voice, options.outPath);
+      throw new Error('Google TTS provider not yet implemented. Set TTS_PROVIDER=elevenlabs or leave unset for development mock.');
       
     case 'polly':
-      const { PollyProvider } = await import('./providers/polly.js');
-      const polly = new PollyProvider();
-      return polly.synthesize(options.text, options.voice, options.outPath);
+      throw new Error('AWS Polly provider not yet implemented. Set TTS_PROVIDER=elevenlabs or leave unset for development mock.');
       
     default:
-      throw new Error(`Unsupported TTS provider: ${provider}. Supported: elevenlabs, google, polly`);
+      throw new Error(`Unsupported TTS provider: ${provider}. Supported: elevenlabs (google and polly coming soon)`);
   }
 }
 
