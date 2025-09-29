@@ -13,14 +13,13 @@ app.use(cookieParser());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// --- NEW: asegurar carpeta uploads y servir estáticos ---
-const uploadsDir = path.join(process.cwd(), "uploads");
-if (!fs.existsSync(uploadsDir)) {
-  fs.mkdirSync(uploadsDir, { recursive: true });
-}
-// /uploads/tts/xxxx.mp3 quedará disponible en el navegador
-app.use("/uploads", express.static(uploadsDir));
-// --------------------------------------------------------
+// --- BEGIN uploads static ---
+const uploadsDir = path.resolve("uploads");
+const ivrDir = path.join(uploadsDir, "ivr");
+try { fs.mkdirSync(ivrDir, { recursive: true }); } catch {}
+// Servir /uploads estáticamente (debe ir antes de Vite y antes del catch-all)
+app.use("/uploads", express.static(uploadsDir, { fallthrough: false }));
+// --- END uploads static ---
 
 app.use((req, res, next) => {
   const start = Date.now();
