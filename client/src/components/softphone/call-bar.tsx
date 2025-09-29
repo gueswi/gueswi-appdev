@@ -81,7 +81,7 @@ export function CallBar({ onTogglePanel, isPanelOpen }: CallBarProps) {
 
   if (isLoading) {
     return (
-      <div className="fixed bottom-0 left-0 right-0 bg-background border-t border-border shadow-lg z-50" data-testid="call-bar">
+      <div className="bg-background border-t border-border shadow-lg" data-testid="call-bar">
         <div className="flex items-center justify-center px-4 py-3">
           <div className="animate-spin w-4 h-4 border-2 border-primary border-t-transparent rounded-full mr-2" />
           <span className="text-sm text-muted-foreground">Cargando estado de llamadas...</span>
@@ -93,7 +93,7 @@ export function CallBar({ onTogglePanel, isPanelOpen }: CallBarProps) {
   // ALWAYS SHOW "SIN LLAMADAS" WHEN NO ACTIVE CALL
   if (!activeCall) {
     return (
-      <div className="fixed bottom-0 left-0 right-0 bg-background border-t border-border shadow-lg z-50" data-testid="call-bar">
+      <div className="bg-background border-t border-border shadow-lg" data-testid="call-bar">
         <div className="flex items-center justify-between px-4 py-3">
           <div className="flex items-center gap-3">
             <Phone className="w-5 h-5 text-muted-foreground" />
@@ -140,7 +140,7 @@ export function CallBar({ onTogglePanel, isPanelOpen }: CallBarProps) {
   };
 
   return (
-    <div className="fixed bottom-0 left-0 right-0 bg-background border-t border-border shadow-lg z-50" data-testid="call-bar">
+    <div className="bg-background border-t border-border shadow-lg" data-testid="call-bar">
       <div className="flex items-center justify-between px-4 py-3">
         {/* Call Info */}
         <div className="flex items-center gap-3">
