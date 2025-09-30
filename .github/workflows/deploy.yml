@@ -3,17 +3,38 @@ name: Deploy to VPS
 on:
   push:
     branches: [ "main" ]
-  workflow_dispatch:
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout (no requerido pero lo dejo)
+      - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Test SSH to VPS
+      # Sube el repositorio al VPS (sin .git ni node_modules)
+      - name: Upload project to VPS
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          port: ${{ secrets.SSH_PORT || 22 }}
+          source: |
+            .
+          target: /home/deploy/app
+          rm: true
+          overwrite: true
+          strip_components: 0
+          excludes: |
+            .git
+            node_modules
+            uploads
+            **/.replit
+            **/*.log
+
+      # Provisiona, compila y levanta con PM2
+      - name: Build & restart with PM2
         uses: appleboy/ssh-action@v1.0.3
         with:
           host: ${{ secrets.VPS_HOST }}
@@ -21,4 +42,52 @@ jobs:
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           port: ${{ secrets.SSH_PORT || 22 }}
           script: |
-            echo "✅ SSH OK"; whoami; uname -a
+            set -e
+            export APP_DIR=/home/deploy/app
+
+            # Directorios necesarios (persisten entre deploys)
+            mkdir -p $APP_DIR/uploads/ivr
+
+            # Paquetes base + Node.js 20 si no existe
+            sudo apt-get update -y
+            sudo apt-get install -y curl build-essential
+            if ! command -v node >/dev/null 2>&1; then
+              curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
+              sudo apt-get install -y nodejs
+            fi
+
+            # PM2 global
+            sudo npm i -g pm2
+
+            # App
+            cd $APP_DIR
+
+            # Escribe el .env desde el Secret
+            echo "${{ secrets.ENV_FILE }}" > .env
+
+            # Instala deps y compila
+            npm ci
+            npm run build
+
+            # PM2 config (si no existe lo creamos)
+            cat > ecosystem.config.cjs <<'EOF'
+            module.exports = {
+              apps: [{
+                name: "gueswi",
+                script: "dist/index.js",
+                env: {
+                  NODE_ENV: "production",
+                  PORT: process.env.PORT || 5000
+                }
+              }]
+            }
+            EOF
+
+            # Arranca / recarga
+            pm2 startOrReload ecosystem.config.cjs --update-env || pm2 start dist/index.js --name gueswi
+            pm2 save
+
+            # Abre el puerto 5000 por si UFW está activo (idempotente)
+            sudo ufw allow 5000 || true
+
+            echo "✅ Deploy finished"
