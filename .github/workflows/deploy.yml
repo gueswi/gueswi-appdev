@@ -1,0 +1,40 @@
+name: Deploy to VPS
+
+on:
+  push:
+    branches: [ "main" ]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup SSH agent
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
+
+      - name: Copy project to VPS (rsync)
+        run: |
+          rsync -avz --delete \
+            -e "ssh -p ${{ secrets.VPS_PORT }} -o StrictHostKeyChecking=no" \
+            ./ ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}:${{ secrets.APP_DIR }}/repo/
+
+      - name: Build & run on VPS (docker compose)
+        run: |
+          ssh -p ${{ secrets.VPS_PORT }} -o StrictHostKeyChecking=no \
+            ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} \
+            'set -e
+             cd ${{ secrets.APP_DIR }}
+             # mover el código nuevo a la carpeta raíz de despliegue
+             rsync -a repo/ ./
+             # asegurarnos de que la carpeta de uploads existe
+             mkdir -p uploads/ivr
+             # bajar contenedores antiguos (si existen), construir y levantar
+             docker compose down || true
+             docker compose build
+             docker compose up -d
+            '
