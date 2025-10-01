@@ -743,6 +743,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Advanced metrics dashboard
+  app.get("/api/metrics/dashboard", async (req, res) => {
+    try {
+      if (!req.isAuthenticated() || !req.user.tenantId) {
+        return res.sendStatus(401);
+      }
+
+      const metrics = await storage.getAdvancedMetrics(req.user.tenantId);
+      res.json(metrics);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
   // PBX Provisioning endpoints (mock)
   app.post("/api/provision/tenant", async (req, res) => {
     try {
