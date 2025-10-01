@@ -13,14 +13,24 @@ export function log(message: string) {
 
 export function serveStatic(app: express.Express) {
   const distPath = path.resolve(process.cwd(), "dist/public");
-  
+
   if (!fs.existsSync(distPath)) {
     throw new Error(`Could not find dist folder at ${distPath}`);
   }
 
-  app.use(express.static(distPath));
-  
-  app.use("*", (_req, res) => {
+  // Solo servir archivos estáticos si NO es una ruta /api
+  app.use((req, res, next) => {
+    if (req.path.startsWith("/api")) {
+      return next();
+    }
+    express.static(distPath)(req, res, next);
+  });
+
+  // Catch-all para SPA (solo si no es /api)
+  app.use("*", (req, res) => {
+    if (req.path.startsWith("/api")) {
+      return res.status(404).json({ error: "API endpoint not found" });
+    }
     res.sendFile(path.resolve(distPath, "index.html"));
   });
 }
