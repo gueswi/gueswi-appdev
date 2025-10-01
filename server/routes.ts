@@ -830,37 +830,43 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       const { text, voice } = req.body;
       if (!text || typeof text !== "string" || text.trim().length < 10) {
-        return res.status(400).json({ message: "Text must be at least 10 characters" });
+        return res
+          .status(400)
+          .json({ message: "Text must be at least 10 characters" });
       }
       if (!voice || typeof voice !== "object") {
-        return res.status(400).json({ message: "Voice configuration is required" });
+        return res
+          .status(400)
+          .json({ message: "Voice configuration is required" });
       }
 
       // Generate unique audio ID
       const audioId = `ivr_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-      
+
       // Determine file extension based on TTS provider
-      const ttsProvider = process.env.TTS_PROVIDER || 'mock';
-      const fileExtension = ttsProvider === 'elevenlabs' ? 'mp3' : 'wav';
+      const ttsProvider = process.env.TTS_PROVIDER || "mock";
+      const fileExtension = ttsProvider === "elevenlabs" ? "mp3" : "wav";
       const fileName = `${audioId}.${fileExtension}`;
-      
+
       // Full path for TTS output
       const uploadsDir = path.resolve("uploads/ivr");
       const absPath = path.join(uploadsDir, fileName);
-      
+
       // Use the new TTS system
-      const { synthesizeTTS } = await import('./tts/index.js');
-      
+      const { synthesizeTTS } = await import("./tts/index.js");
+
       const result = await synthesizeTTS({
         text: text.trim(),
         voice: {
-          gender: voice.gender || 'mujer',
-          style: voice.style || 'amable'
+          gender: voice.gender || "mujer",
+          style: voice.style || "amable",
         },
-        outPath: absPath
+        outPath: absPath,
       });
 
-      console.log(`🔊 TTS synthesized: ${ttsProvider} → ${result.url} (${result.durationSec}s)`);
+      console.log(
+        `🔊 TTS synthesized: ${ttsProvider} → ${result.url} (${result.durationSec}s)`,
+      );
 
       return res.json({
         url: result.url,
@@ -868,12 +874,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
         voice,
         text,
         audioId,
-        provider: ttsProvider !== 'mock' ? ttsProvider : 'development'
+        provider: ttsProvider !== "mock" ? ttsProvider : "development",
       });
-      
     } catch (err: any) {
       console.error("❌ IVR TTS error:", err);
-      return res.status(500).json({ message: err?.message || "TTS synthesis failed" });
+      return res
+        .status(500)
+        .json({ message: err?.message || "TTS synthesis failed" });
     }
   });
 
@@ -1110,5 +1117,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Webhook Twilio - Recibe llamadas entrantes
+  app.post("/api/twilio/voice", (req, res) => {
+    const twiml = `<?xml version="1.0" encoding="UTF-8"?>
+  <Response>
+    <Say language="es-MX" voice="Polly.Lupe-Neural">
+      Hola, bienvenido a Gueswi. Esta es una prueba de integración.
+    </Say>
+    <Pause length="1"/>
+    <Say language="es-MX" voice="Polly.Lupe-Neural">
+      La llamada será grabada. Gracias por llamar. Hasta pronto.
+    </Say>
+  </Response>`;
+
+    res.type("text/xml");
+    res.send(twiml);
+  });
   return server;
 }
