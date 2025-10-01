@@ -1,0 +1,68 @@
+// server/routes/telephony.ts
+import twilio from 'twilio';
+
+export function registerTelephonyRoutes(app: Express) {
+  
+  // Recibir llamada entrante
+  app.post('/api/twilio/voice/inbound', async (req, res) => {
+    const twiml = new twilio.twiml.VoiceResponse();
+    
+    // Obtener config del tenant
+    const tenantConfig = await getTenantVoiceConfig(req.body.To);
+    
+    if (tenantConfig.ivrEnabled) {
+      // Menú IVR multiidioma
+      const gather = twiml.gather({
+        action: '/api/twilio/voice/handle-language',
+        numDigits: 1
+      });
+      gather.say({ language: 'es-MX' }, 'Presione 1 para español');
+      gather.say({ language: 'en-US' }, 'Press 2 for English');
+    } else {
+      // Detección automática + Voice AI
+      twiml.connect().ai({
+        language: 'auto',
+        voice: tenantConfig.voiceModel || 'es-ES-Neural2-A'
+      });
+    }
+    
+    res.type('text/xml');
+    res.send(twiml.toString());
+  });
+  
+  // Transcripción en tiempo real
+  app.post('/api/twilio/voice/stream', websocket, (ws, req) => {
+    let conversationId;
+    
+    ws.on('message', async (message) => {
+      const data = JSON.parse(message);
+      
+      if (data.event === 'start') {
+        // Crear conversación en inbox
+        conversationId = await createConversation({
+          channel: 'phone',
+          phoneNumber: data.start.customParameters.from,
+          tenantId: data.start.customParameters.tenantId
+        });
+      }
+      
+      if (data.event === 'media') {
+        // Audio chunk → Deepgram (opcional, Twilio ya transcribe)
+        const transcript = await transcribeAudio(data.media.payload);
+        
+        // Actualizar inbox en tiempo real
+        await appendToConversation(conversationId, {
+          speaker: 'customer',
+          text: transcript,
+          timestamp: new Date()
+        });
+        
+        // Broadcast via WebSocket a dashboard
+        io.to(`tenant-${tenantId}`).emit('transcript-update', {
+          conversationId,
+          transcript
+        });
+      }
+    });
+  });
+}
