@@ -11,6 +11,7 @@ import { featureFlags } from "@/lib/feature-flags";
 import { Redirect } from "@/components/Redirect";
 import HomePage from "@/pages/home-page";
 import MetricsHomePage from "@/pages/metrics-home-page";
+import MetricsDashboard from "@/pages/metrics-dashboard";
 import AuthPage from "@/pages/auth-page";
 import OnboardingPage from "@/pages/onboarding-page";
 import InboxPage from "@/pages/inbox-page";
@@ -44,7 +45,7 @@ function Router() {
       <ProtectedRoute path="/contacts" component={() => <div className="p-6"><h1 className="text-2xl font-bold">Contacts</h1><p>Contact management coming soon</p></div>} />
       <ProtectedRoute path="/conversations" component={() => <div className="p-6"><h1 className="text-2xl font-bold">Conversations</h1><p>Conversation history coming soon</p></div>} />
       <ProtectedRoute path="/calls" component={() => <div className="p-6"><h1 className="text-2xl font-bold">Calls</h1><p>Call history and management coming soon</p></div>} />
-      <ProtectedRoute path="/analytics" component={() => <div className="p-6"><h1 className="text-2xl font-bold">Analytics</h1><p>Analytics dashboard coming soon</p></div>} />
+      <ProtectedRoute path="/analytics" component={MetricsDashboard} />
       <ProtectedRoute path="/ai" component={() => <div className="p-6"><h1 className="text-2xl font-bold">Sona AI</h1><p>AI assistant functionality coming soon</p></div>} />
       <ProtectedRoute path="/settings" component={SettingsPage} />
       <ProtectedRoute path="/settings/telephony" component={TelephonySettingsPage} />
