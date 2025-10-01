@@ -1116,22 +1116,132 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.status(500).json({ message: error.message });
     }
   });
+  // Gateway OpenAI para Twilio Voice AI
+  app.post("/api/ai-gateway", async (req, res) => {
+    try {
+      const { messages, context } = req.body;
 
-  // Webhook Twilio - Recibe llamadas entrantes
+      const response = await fetch(
+        "https://api.openai.com/v1/chat/completions",
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
+          },
+          body: JSON.stringify({
+            model: "gpt-4o-mini",
+            messages: [
+              {
+                role: "system",
+                content:
+                  "Eres un asistente virtual de Gueswi. Responde de forma concisa (máximo 2-3 frases) y natural. Si el cliente quiere hablar con un humano, indica que vas a transferir la llamada.",
+              },
+              ...messages,
+            ],
+            max_tokens: 150,
+            temperature: 0.7,
+          }),
+        },
+      );
+
+      const data = await response.json();
+      const aiMessage = data.choices[0].message.content;
+
+      res.json({
+        response: aiMessage,
+        actions: aiMessage.toLowerCase().includes("transferir")
+          ? ["transfer"]
+          : [],
+      });
+    } catch (error: any) {
+      log(`AI Gateway error: ${error.message}`);
+      res.status(500).json({ error: "AI processing failed" });
+    }
+  });
+
   app.post("/webhook/twilio-voice", (req, res) => {
     const twiml = `<?xml version="1.0" encoding="UTF-8"?>
   <Response>
     <Say language="es-MX" voice="Polly.Lupe-Neural">
-      Hola, bienvenido a Gueswi. Esta es una prueba de integración.
+      Hola, soy el asistente virtual de Gueswi. ¿En qué puedo ayudarte?
     </Say>
-    <Pause length="1"/>
+    <Gather 
+      input="speech" 
+      language="es-ES"
+      speechTimeout="auto"
+      action="/webhook/twilio-process-speech"
+      method="POST">
+    </Gather>
     <Say language="es-MX" voice="Polly.Lupe-Neural">
-      La llamada será grabada. Gracias por llamar. Hasta pronto.
+      No te escuché. Por favor, llama de nuevo.
     </Say>
   </Response>`;
 
     res.type("text/xml");
     res.send(twiml);
+  });
+
+  // Procesar respuesta del usuario
+  app.post("/webhook/twilio-process-speech", async (req, res) => {
+    const userSpeech = req.body.SpeechResult || "";
+
+    try {
+      // Llamar a OpenAI
+      const response = await fetch(
+        "https://api.openai.com/v1/chat/completions",
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
+          },
+          body: JSON.stringify({
+            model: "gpt-4o-mini",
+            messages: [
+              {
+                role: "system",
+                content:
+                  "Eres un asistente de Gueswi. Responde en máximo 2 frases.",
+              },
+              {
+                role: "user",
+                content: userSpeech,
+              },
+            ],
+            max_tokens: 100,
+          }),
+        },
+      );
+
+      const data = await response.json();
+      const aiResponse = data.choices[0].message.content;
+
+      const twiml = `<?xml version="1.0" encoding="UTF-8"?>
+  <Response>
+    <Say language="es-MX" voice="Polly.Lupe-Neural">${aiResponse}</Say>
+    <Gather 
+      input="speech" 
+      language="es-ES"
+      speechTimeout="auto"
+      action="/webhook/twilio-process-speech"
+      method="POST">
+    </Gather>
+    <Say language="es-MX" voice="Polly.Lupe-Neural">Gracias por llamar. Hasta pronto.</Say>
+  </Response>`;
+
+      res.type("text/xml");
+      res.send(twiml);
+    } catch (error: any) {
+      const errorTwiml = `<?xml version="1.0" encoding="UTF-8"?>
+  <Response>
+    <Say language="es-MX" voice="Polly.Lupe-Neural">
+      Lo siento, tengo problemas técnicos. Por favor llama más tarde.
+    </Say>
+  </Response>`;
+      res.type("text/xml");
+      res.send(errorTwiml);
+    }
   });
   return server;
 }
