@@ -1118,7 +1118,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Webhook Twilio - Recibe llamadas entrantes
-  app.post("/api/twilio/voice", (req, res) => {
+  app.post("/webhook/twilio-voice", (req, res) => {
     const twiml = `<?xml version="1.0" encoding="UTF-8"?>
   <Response>
     <Say language="es-MX" voice="Polly.Lupe-Neural">
