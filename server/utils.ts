@@ -18,21 +18,23 @@ export function serveStatic(app: express.Express) {
     throw new Error(`Could not find dist folder at ${distPath}`);
   }
 
-  const staticMiddleware = express.static(distPath);
+  // SPA fallback - solo para rutas que no existen
+  app.use((req, res) => {
+    // Si ya respondió, skip
+    if (res.headersSent) return;
 
-  // Solo servir archivos estáticos si NO es una ruta /api
-  app.use((req, res, next) => {
-    if (req.path.startsWith("/api/")) {
-      return next();
+    // Intentar servir archivo estático primero
+    const filePath = path.join(distPath, req.path);
+    if (fs.existsSync(filePath) && fs.statSync(filePath).isFile()) {
+      return res.sendFile(filePath);
     }
-    staticMiddleware(req, res, next);
-  });
 
-  // Catch-all para SPA (solo si no es /api)
-  app.use("*", (req, res) => {
-    if (req.path.startsWith("/api/")) {
-      return res.status(404).json({ error: "API endpoint not found" });
+    // Si no es archivo y no empieza con /api o /webhook, servir index.html (SPA)
+    if (!req.path.startsWith("/api") && !req.path.startsWith("/webhook")) {
+      return res.sendFile(path.resolve(distPath, "index.html"));
     }
-    res.sendFile(path.resolve(distPath, "index.html"));
+
+    // Para /api y /webhook que no matchearon, 404
+    res.status(404).json({ error: "Not found" });
   });
 }
