@@ -354,7 +354,7 @@ export class DatabaseStorage implements IStorage {
         gte(callRecords.createdAt, last30Days)
       ));
 
-    // Get previous period for comparison
+    // Get previous period for comparison (30-60 days ago, exclusive boundary)
     const [previousPeriodAI] = await db
       .select({
         totalCalls: count(),
@@ -365,7 +365,7 @@ export class DatabaseStorage implements IStorage {
         eq(callRecords.tenantId, tenantId),
         eq(callRecords.aiProcessed, true),
         gte(callRecords.createdAt, last60Days),
-        lte(callRecords.createdAt, last30Days)
+        sql`${callRecords.createdAt} < ${last30Days}`
       ));
 
     // Calculate ROI metrics
@@ -386,10 +386,11 @@ export class DatabaseStorage implements IStorage {
       ? Math.round(((roiSavings - (hoursSavedPrevious * humanCostPerHour)) / (hoursSavedPrevious * humanCostPerHour)) * 100)
       : roiSavings > 0 ? 100 : 0;
 
-    // Calculate CSAT (simulated based on success rate)
-    const [aiMetricsData] = await db
+    // Calculate CSAT based on AI success rate
+    const [currentCSATData] = await db
       .select({
-        avgSuccessRate: sql<number>`AVG(CAST(${aiMetrics.success_rate} AS FLOAT))`
+        avgSuccessRate: sql<number>`AVG(CAST(${aiMetrics.success_rate} AS FLOAT))`,
+        count: sql<number>`COUNT(*)`
       })
       .from(aiMetrics)
       .where(and(
@@ -397,8 +398,27 @@ export class DatabaseStorage implements IStorage {
         gte(aiMetrics.date, last30Days)
       ));
 
-    const csat = Math.round(Number(aiMetricsData?.avgSuccessRate) || 85);
-    const csatChange = 3; // Mock change
+    const [previousCSATData] = await db
+      .select({
+        avgSuccessRate: sql<number>`AVG(CAST(${aiMetrics.success_rate} AS FLOAT))`,
+        count: sql<number>`COUNT(*)`
+      })
+      .from(aiMetrics)
+      .where(and(
+        eq(aiMetrics.tenantId, tenantId),
+        gte(aiMetrics.date, last60Days),
+        sql`${aiMetrics.date} < ${last30Days}`
+      ));
+
+    const currentCSAT = Number(currentCSATData?.avgSuccessRate);
+    const previousCSAT = Number(previousCSATData?.avgSuccessRate);
+    const currentDataCount = Number(currentCSATData?.count) || 0;
+    const previousDataCount = Number(previousCSATData?.count) || 0;
+    
+    const csat = currentDataCount > 0 && !isNaN(currentCSAT) ? Math.round(currentCSAT) : 85;
+    const csatChange = (currentDataCount > 0 && previousDataCount > 0 && !isNaN(currentCSAT) && !isNaN(previousCSAT) && previousCSAT > 0)
+      ? Math.round(((currentCSAT - previousCSAT) / previousCSAT) * 100)
+      : 0;
 
     // Detect intentions from conversations
     const recentConversations = await db
@@ -444,8 +464,35 @@ export class DatabaseStorage implements IStorage {
       .filter(i => i.count > 0)
       .sort((a, b) => b.count - a.count);
 
-    // Sentiment analysis (simulated)
-    const sentiment = {
+    // Sentiment analysis from conversations
+    let sentimentPositive = 0;
+    let sentimentNeutral = 0;
+    let sentimentNegative = 0;
+
+    // Calculate sentiment from conversations using simple keyword analysis
+    recentConversations.forEach(conv => {
+      const transcript = conv.transcript?.toLowerCase() || '';
+      const positiveKeywords = ['gracias', 'excelente', 'perfecto', 'bien', 'bueno', 'genial', 'estupendo'];
+      const negativeKeywords = ['problema', 'mal', 'error', 'no funciona', 'terrible', 'horrible', 'mala'];
+      
+      const hasPositive = positiveKeywords.some(kw => transcript.includes(kw));
+      const hasNegative = negativeKeywords.some(kw => transcript.includes(kw));
+      
+      if (hasPositive && !hasNegative) {
+        sentimentPositive++;
+      } else if (hasNegative && !hasPositive) {
+        sentimentNegative++;
+      } else {
+        sentimentNeutral++;
+      }
+    });
+
+    const totalSentiment = sentimentPositive + sentimentNeutral + sentimentNegative;
+    const sentiment = totalSentiment > 0 ? {
+      positive: Math.round((sentimentPositive / totalSentiment) * 100),
+      neutral: Math.round((sentimentNeutral / totalSentiment) * 100),
+      negative: Math.round((sentimentNegative / totalSentiment) * 100)
+    } : {
       positive: 65,
       neutral: 25,
       negative: 10
