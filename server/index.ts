@@ -3,7 +3,7 @@ import cookieParser from "cookie-parser";
 import path from "path";
 import fs from "fs";
 import { registerRoutes } from "./routes";
-import { serveStatic, log } from "./vite";
+import { serveStatic, log } from "./utils";
 
 const app = express();
 
