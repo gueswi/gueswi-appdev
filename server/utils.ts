@@ -18,17 +18,19 @@ export function serveStatic(app: express.Express) {
     throw new Error(`Could not find dist folder at ${distPath}`);
   }
 
+  const staticMiddleware = express.static(distPath);
+
   // Solo servir archivos estáticos si NO es una ruta /api
   app.use((req, res, next) => {
-    if (req.path.startsWith("/api")) {
+    if (req.path.startsWith("/api/")) {
       return next();
     }
-    express.static(distPath)(req, res, next);
+    staticMiddleware(req, res, next);
   });
 
   // Catch-all para SPA (solo si no es /api)
   app.use("*", (req, res) => {
-    if (req.path.startsWith("/api")) {
+    if (req.path.startsWith("/api/")) {
       return res.status(404).json({ error: "API endpoint not found" });
     }
     res.sendFile(path.resolve(distPath, "index.html"));
