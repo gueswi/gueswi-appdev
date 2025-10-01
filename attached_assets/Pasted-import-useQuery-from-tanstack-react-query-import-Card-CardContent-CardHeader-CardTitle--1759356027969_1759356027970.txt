@@ -1,0 +1,197 @@
+import { useQuery } from "@tanstack/react-query";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { TrendingUp, TrendingDown, DollarSign, Clock, Users, AlertTriangle } from "lucide-react";
+
+interface MetricCard {
+  title: string;
+  value: string | number;
+  change?: number;
+  icon: any;
+  description?: string;
+}
+
+export default function MetricsDashboard() {
+  const { data: metrics, isLoading } = useQuery({
+    queryKey: ['/api/metrics/dashboard'],
+  });
+
+  if (isLoading) {
+    return <div className="p-6">Cargando métricas...</div>;
+  }
+
+  return (
+    <div className="p-6 space-y-6">
+      <div className="flex justify-between items-center">
+        <h1 className="text-3xl font-bold">Panel de Métricas</h1>
+        <select className="border rounded px-3 py-2">
+          <option>Últimos 7 días</option>
+          <option>Últimos 30 días</option>
+          <option>Últimos 90 días</option>
+        </select>
+      </div>
+
+      {/* KPIs Principales */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+        <MetricCardComponent
+          title="ROI de Automatización"
+          value={`$${metrics?.roiSavings || 0}`}
+          change={metrics?.roiChange || 0}
+          icon={DollarSign}
+          description="Ahorro mensual estimado"
+        />
+        
+        <MetricCardComponent
+          title="Tiempo Ahorrado"
+          value={`${metrics?.hoursSaved || 0}h`}
+          change={metrics?.hoursChange || 0}
+          icon={Clock}
+          description="Horas humanas evitadas"
+        />
+        
+        <MetricCardComponent
+          title="Satisfacción Cliente"
+          value={`${metrics?.csat || 0}%`}
+          change={metrics?.csatChange || 0}
+          icon={Users}
+          description="CSAT promedio"
+        />
+        
+        <MetricCardComponent
+          title="Riesgo de Churn"
+          value={metrics?.churnRisk || 0}
+          icon={AlertTriangle}
+          description="Clientes en riesgo"
+        />
+      </div>
+
+      {/* Métricas Avanzadas */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <Card>
+          <CardHeader>
+            <CardTitle>Intenciones Detectadas</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <IntentionsChart data={metrics?.intentions} />
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Sentiment Analysis</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <SentimentChart data={metrics?.sentiment} />
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Oportunidades Perdidas */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Oportunidades de Mejora</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <OpportunitiesList data={metrics?.opportunities} />
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+function MetricCardComponent({ title, value, change, icon: Icon, description }: MetricCard) {
+  const isPositive = change && change > 0;
+  
+  return (
+    <Card>
+      <CardHeader className="flex flex-row items-center justify-between pb-2">
+        <CardTitle className="text-sm font-medium text-gray-600">
+          {title}
+        </CardTitle>
+        <Icon className="h-4 w-4 text-gray-400" />
+      </CardHeader>
+      <CardContent>
+        <div className="text-2xl font-bold">{value}</div>
+        {change !== undefined && (
+          <p className={`text-xs flex items-center gap-1 ${isPositive ? 'text-green-600' : 'text-red-600'}`}>
+            {isPositive ? <TrendingUp className="h-3 w-3" /> : <TrendingDown className="h-3 w-3" />}
+            {Math.abs(change)}% vs período anterior
+          </p>
+        )}
+        {description && (
+          <p className="text-xs text-gray-500 mt-1">{description}</p>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+function IntentionsChart({ data }: any) {
+  if (!data || data.length === 0) {
+    return <p className="text-gray-500">No hay datos disponibles</p>;
+  }
+
+  return (
+    <div className="space-y-3">
+      {data.map((item: any) => (
+        <div key={item.intent} className="flex items-center justify-between">
+          <span className="text-sm">{item.intent}</span>
+          <div className="flex items-center gap-2">
+            <div className="w-32 h-2 bg-gray-200 rounded-full overflow-hidden">
+              <div 
+                className="h-full bg-blue-600" 
+                style={{ width: `${item.percentage}%` }}
+              />
+            </div>
+            <span className="text-sm font-medium w-12 text-right">{item.count}</span>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function SentimentChart({ data }: any) {
+  if (!data) {
+    return <p className="text-gray-500">No hay datos disponibles</p>;
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="flex justify-between items-center">
+        <span className="text-sm">Positivo</span>
+        <span className="text-lg font-bold text-green-600">{data.positive}%</span>
+      </div>
+      <div className="flex justify-between items-center">
+        <span className="text-sm">Neutral</span>
+        <span className="text-lg font-bold text-gray-600">{data.neutral}%</span>
+      </div>
+      <div className="flex justify-between items-center">
+        <span className="text-sm">Negativo</span>
+        <span className="text-lg font-bold text-red-600">{data.negative}%</span>
+      </div>
+    </div>
+  );
+}
+
+function OpportunitiesList({ data }: any) {
+  if (!data || data.length === 0) {
+    return <p className="text-gray-500">No hay oportunidades detectadas</p>;
+  }
+
+  return (
+    <div className="space-y-3">
+      {data.map((opp: any, index: number) => (
+        <div key={index} className="flex items-start gap-3 p-3 bg-yellow-50 rounded-lg">
+          <AlertTriangle className="h-5 w-5 text-yellow-600 mt-0.5" />
+          <div className="flex-1">
+            <p className="font-medium">{opp.title}</p>
+            <p className="text-sm text-gray-600">{opp.description}</p>
+            <p className="text-xs text-gray-500 mt-1">
+              Impacto: {opp.impact} conversaciones afectadas
+            </p>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
