@@ -82,6 +82,42 @@ Preferred communication style: Simple, everyday language.
 ## Third-party Integrations (Prepared)
 - **AI Agent Infrastructure** - Prepared endpoints for STT/TTS/LLM integration
 - **File Storage** - Local file system storage for uploaded documents (bank transfer receipts)
-- **Analytics Platform** - Mock data structure prepared for call analytics and AI metrics
+- **Analytics Platform** - Production-ready advanced metrics dashboard with real-time calculations
+
+# Recent Changes
+
+## Advanced Metrics Dashboard (October 2025)
+Implemented production-ready advanced analytics dashboard accessible at `/analytics`:
+
+### Backend Implementation
+- **Endpoint**: `GET /api/metrics/dashboard` - Protected route requiring authentication
+- **Real-time Calculations**:
+  - ROI Savings: Calculated from AI-processed calls vs human cost ($15/hour baseline)
+  - Hours Saved: Derived from call duration and AI automation rates
+  - CSAT Score: Averaged from AI success rates in aiMetrics table
+  - CSAT Change: Period-over-period comparison (last 30 days vs previous 30 days)
+  - Churn Risk: Calculated from negative sentiment percentage
+  - Intent Detection: Keyword-based analysis of conversation transcripts
+  - Sentiment Analysis: Positive/neutral/negative distribution from conversations
+  - Optimization Opportunities: Automated detection based on queue wait times and AI usage
+
+### Data Sources
+- `callRecords` table: AI-processed calls, durations, timestamps
+- `aiMetrics` table: Success rates, AI performance data
+- `conversations` table: Transcripts for intent and sentiment analysis
+- `queues` table: Average wait times for opportunity detection
+
+### Key Features
+- **Production-ready**: All metrics calculated from real database queries
+- **Proper fallbacks**: Only uses default values when no data exists (e.g., new tenants)
+- **Time period isolation**: Non-overlapping boundaries for accurate period comparisons
+- **Consistent calculations**: CSAT display and change values use same underlying data
+- **NaN handling**: Proper null/undefined checks throughout
+
+### Frontend Component
+- Location: `client/src/pages/metrics-dashboard.tsx`
+- Route: `/analytics` in App.tsx
+- Features: Loading states, metric cards with trend indicators, sentiment charts, intentions breakdown, opportunities list
+- Styling: Consistent with Gueswi design system using Tailwind CSS
 
 The application follows a clean architecture pattern with proper separation of concerns, type safety throughout the stack, and scalable patterns for multi-tenant SaaS operations.
