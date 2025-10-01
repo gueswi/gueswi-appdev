@@ -13,7 +13,6 @@ import HomePage from "@/pages/home-page";
 import MetricsHomePage from "@/pages/metrics-home-page";
 import AuthPage from "@/pages/auth-page";
 import OnboardingPage from "@/pages/onboarding-page";
-import DashboardPage from "@/pages/dashboard-page";
 import InboxPage from "@/pages/inbox-page";
 import SettingsPage from "@/pages/settings-page";
 import TelephonySettingsPage from "@/pages/settings/telephony-settings-page";
@@ -36,7 +35,7 @@ function Router() {
       )}
       <Route path="/auth" component={AuthPage} />
       <ProtectedRoute path="/onboarding" component={OnboardingPage} />
-      <ProtectedRoute path="/dashboard" component={DashboardPage} />
+      <ProtectedRoute path="/dashboard" component={MetricsHomePage} />
       
       {/* New UI Routes - Chatwoot Layout */}
       <ProtectedRoute path="/inbox" component={InboxPage} />
