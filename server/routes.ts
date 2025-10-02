@@ -2688,7 +2688,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         .where(
           and(
             eq(schema.services.tenantId, tenantId),
-            eq(schema.services.isActive, true)
+            eq(schema.services.isActive, true),
+            eq(schema.services.isPublic, true)
           )
         );
 

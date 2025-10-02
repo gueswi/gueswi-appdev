@@ -442,6 +442,7 @@ export const services = pgTable("services", {
   allowRecurring: boolean("allow_recurring").default(false),
   customFields: jsonb("custom_fields"),
   isActive: boolean("is_active").default(true),
+  isPublic: boolean("is_public").default(false),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });

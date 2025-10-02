@@ -352,6 +352,28 @@ export function ServiceManagerDialog({
               )}
             />
 
+            <FormField
+              control={form.control}
+              name="isPublic"
+              render={({ field }) => (
+                <FormItem className="flex items-center justify-between rounded-lg border p-4">
+                  <div className="space-y-0.5">
+                    <FormLabel className="text-base">Visible Públicamente</FormLabel>
+                    <div className="text-sm text-muted-foreground">
+                      Permite que los clientes vean y reserven este servicio online
+                    </div>
+                  </div>
+                  <FormControl>
+                    <Switch
+                      checked={field.value}
+                      onCheckedChange={field.onChange}
+                      data-testid="switch-is-public"
+                    />
+                  </FormControl>
+                </FormItem>
+              )}
+            />
+
             <div className="flex justify-end gap-3 pt-4">
               <Button
                 type="button"
