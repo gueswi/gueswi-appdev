@@ -13,6 +13,7 @@ import HomePage from "@/pages/home-page";
 import MetricsHomePage from "@/pages/metrics-home-page";
 import MetricsDashboard from "@/pages/metrics-dashboard";
 import PipelinePage from "@/pages/pipeline-page";
+import BookingsPage from "@/pages/bookings-page";
 import AuthPage from "@/pages/auth-page";
 import OnboardingPage from "@/pages/onboarding-page";
 import InboxPage from "@/pages/inbox-page";
@@ -88,6 +89,7 @@ function Router() {
       />
       <ProtectedRoute path="/analytics" component={MetricsDashboard} />
       <ProtectedRoute path="/pipeline" component={PipelinePage} />
+      <ProtectedRoute path="/bookings" component={BookingsPage} />
       <ProtectedRoute
         path="/ai"
         component={() => (

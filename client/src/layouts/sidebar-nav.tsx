@@ -14,7 +14,8 @@ import {
   Settings,
   ChevronLeft,
   ChevronRight,
-  X
+  X,
+  Calendar
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
@@ -87,6 +88,7 @@ export function SidebarNav({ onMobileClose, isMobile = false }: SidebarNavProps)
       items: [
         { name: "Sona AI", href: "/ai", icon: Bot },
         { name: "Pipeline", href: "/pipeline", icon: "🎯" },
+        { name: "Reservas", href: "/bookings", icon: Calendar },
       ]
     },
     {
