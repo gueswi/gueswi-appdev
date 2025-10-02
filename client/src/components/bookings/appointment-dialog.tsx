@@ -96,6 +96,7 @@ export function AppointmentDialog({
         ...data,
         startTime: new Date(data.startTime).toISOString(),
         endTime: new Date(data.endTime).toISOString(),
+        timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
       };
       return await apiRequest("POST", "/api/appointments", payload);
     },
@@ -123,6 +124,7 @@ export function AppointmentDialog({
         ...data,
         startTime: new Date(data.startTime).toISOString(),
         endTime: new Date(data.endTime).toISOString(),
+        timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
       };
       return await apiRequest("PATCH", `/api/appointments/${appointment!.id}`, payload);
     },
@@ -328,48 +330,48 @@ export function AppointmentDialog({
               <FormField
                 control={form.control}
                 name="startTime"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Fecha y Hora de Inicio *</FormLabel>
-                    <FormControl>
-                      <Input
-                        type="datetime-local"
-                        value={
-                          field.value instanceof Date
-                            ? field.value.toISOString().slice(0, 16)
-                            : new Date(field.value).toISOString().slice(0, 16)
-                        }
-                        onChange={(e) => field.onChange(new Date(e.target.value))}
-                        data-testid="input-start-time"
-                      />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
+                render={({ field }) => {
+                  const dateValue = field.value instanceof Date ? field.value : new Date(field.value);
+                  const isValidDate = !isNaN(dateValue.getTime());
+                  return (
+                    <FormItem>
+                      <FormLabel>Fecha y Hora de Inicio *</FormLabel>
+                      <FormControl>
+                        <Input
+                          type="datetime-local"
+                          value={isValidDate ? dateValue.toISOString().slice(0, 16) : ""}
+                          onChange={(e) => field.onChange(new Date(e.target.value))}
+                          data-testid="input-start-time"
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  );
+                }}
               />
 
               {/* End Time */}
               <FormField
                 control={form.control}
                 name="endTime"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Fecha y Hora de Fin *</FormLabel>
-                    <FormControl>
-                      <Input
-                        type="datetime-local"
-                        value={
-                          field.value instanceof Date
-                            ? field.value.toISOString().slice(0, 16)
-                            : new Date(field.value).toISOString().slice(0, 16)
-                        }
-                        onChange={(e) => field.onChange(new Date(e.target.value))}
-                        data-testid="input-end-time"
-                      />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
+                render={({ field }) => {
+                  const dateValue = field.value instanceof Date ? field.value : new Date(field.value);
+                  const isValidDate = !isNaN(dateValue.getTime());
+                  return (
+                    <FormItem>
+                      <FormLabel>Fecha y Hora de Fin *</FormLabel>
+                      <FormControl>
+                        <Input
+                          type="datetime-local"
+                          value={isValidDate ? dateValue.toISOString().slice(0, 16) : ""}
+                          onChange={(e) => field.onChange(new Date(e.target.value))}
+                          data-testid="input-end-time"
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  );
+                }}
               />
             </div>
 
