@@ -347,7 +347,65 @@ export const insertMessageSchema = createInsertSchema(messages).pick({
   conversationId: true,
   from: true,
   content: true,
-});
+  });
+
+  // Pipeline CRM
+  export const pipelineStages = pgTable("pipeline_stages", {
+    id: uuid("id").defaultRandom().primaryKey(),
+    tenantId: uuid("tenant_id").notNull(),
+    name: text("name").notNull(),
+    order: integer("order").notNull(),
+    color: text("color").default("#3b82f6"),
+    isFixed: boolean("is_fixed").default(false), // para "Ganado" y "Perdido"
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  });
+
+  export const leads = pgTable("leads", {
+    id: uuid("id").defaultRandom().primaryKey(),
+    tenantId: uuid("tenant_id").notNull(),
+    stageId: uuid("stage_id").notNull(),
+
+    // Información del lead
+    name: text("name").notNull(),
+    email: text("email"),
+    phone: text("phone"),
+    company: text("company"),
+
+    // Valor del negocio
+    value: decimal("value", { precision: 10, scale: 2 }),
+    currency: text("currency").default("USD"),
+    probability: integer("probability").default(50), // %
+
+    // Origen
+    source: text("source"), // "phone", "whatsapp", "livechat", "manual"
+    sourceId: text("source_id"), // ID de la conversación original si aplica
+
+    // Asignación
+    assignedTo: uuid("assigned_to"),
+
+    // Fechas importantes
+    expectedCloseDate: timestamp("expected_close_date"),
+    closedAt: timestamp("closed_at"),
+
+    // Metadatos
+    notes: text("notes"),
+    tags: text("tags").array(),
+
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  });
+
+  export const leadActivities = pgTable("lead_activities", {
+    id: uuid("id").defaultRandom().primaryKey(),
+    leadId: uuid("lead_id").notNull(),
+    userId: uuid("user_id"),
+
+    type: text("type").notNull(), // "note", "call", "email", "stage_change", "value_change"
+    description: text("description").notNull(),
+    metadata: jsonb("metadata"),
+
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  });
 
 // Types
 export type User = typeof users.$inferSelect;

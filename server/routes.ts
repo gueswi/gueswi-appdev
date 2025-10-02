@@ -1174,6 +1174,68 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Pipeline CRM endpoints
+  app.get("/api/pipeline/stages", async (req, res) => {
+    if (!req.isAuthenticated() || !req.user.tenantId) {
+      return res.sendStatus(401);
+    }
+
+    try {
+      const stages = await db
+        .select()
+        .from(schema.pipelineStages)
+        .where(eq(schema.pipelineStages.tenantId, req.user.tenantId))
+        .orderBy(schema.pipelineStages.order);
+
+      res.json(stages);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.get("/api/pipeline/leads", async (req, res) => {
+    if (!req.isAuthenticated() || !req.user.tenantId) {
+      return res.sendStatus(401);
+    }
+
+    try {
+      const leads = await db
+        .select()
+        .from(schema.leads)
+        .where(eq(schema.leads.tenantId, req.user.tenantId))
+        .orderBy(desc(schema.leads.createdAt));
+
+      res.json(leads);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.patch("/api/pipeline/leads/:id/move", async (req, res) => {
+    if (!req.isAuthenticated() || !req.user.tenantId) {
+      return res.sendStatus(401);
+    }
+
+    try {
+      const { id } = req.params;
+      const { stageId } = req.body;
+
+      await db
+        .update(schema.leads)
+        .set({ stageId, updatedAt: new Date() })
+        .where(
+          and(
+            eq(schema.leads.id, id),
+            eq(schema.leads.tenantId, req.user.tenantId),
+          ),
+        );
+
+      res.json({ success: true });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
   app.post("/webhook/twilio-voice", (req, res) => {
     const twiml = `<?xml version="1.0" encoding="UTF-8"?>
   <Response>
