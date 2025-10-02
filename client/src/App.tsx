@@ -12,6 +12,7 @@ import { Redirect } from "@/components/Redirect";
 import HomePage from "@/pages/home-page";
 import MetricsHomePage from "@/pages/metrics-home-page";
 import MetricsDashboard from "@/pages/metrics-dashboard";
+import Pipeline from "@/pages/pipeline";
 import AuthPage from "@/pages/auth-page";
 import OnboardingPage from "@/pages/onboarding-page";
 import InboxPage from "@/pages/inbox-page";
@@ -37,29 +38,93 @@ function Router() {
       <Route path="/auth" component={AuthPage} />
       <ProtectedRoute path="/onboarding" component={OnboardingPage} />
       <ProtectedRoute path="/dashboard" component={MetricsHomePage} />
-      
+
       {/* New UI Routes - Chatwoot Layout */}
       <ProtectedRoute path="/inbox" component={InboxPage} />
-      <ProtectedRoute path="/search" component={() => <div className="p-6"><h1 className="text-2xl font-bold">Search</h1><p>Search functionality coming soon</p></div>} />
-      <ProtectedRoute path="/activity" component={() => <div className="p-6"><h1 className="text-2xl font-bold">Activity</h1><p>Activity feed coming soon</p></div>} />
-      <ProtectedRoute path="/contacts" component={() => <div className="p-6"><h1 className="text-2xl font-bold">Contacts</h1><p>Contact management coming soon</p></div>} />
-      <ProtectedRoute path="/conversations" component={() => <div className="p-6"><h1 className="text-2xl font-bold">Conversations</h1><p>Conversation history coming soon</p></div>} />
-      <ProtectedRoute path="/calls" component={() => <div className="p-6"><h1 className="text-2xl font-bold">Calls</h1><p>Call history and management coming soon</p></div>} />
+      <ProtectedRoute
+        path="/search"
+        component={() => (
+          <div className="p-6">
+            <h1 className="text-2xl font-bold">Search</h1>
+            <p>Search functionality coming soon</p>
+          </div>
+        )}
+      />
+      <ProtectedRoute
+        path="/activity"
+        component={() => (
+          <div className="p-6">
+            <h1 className="text-2xl font-bold">Activity</h1>
+            <p>Activity feed coming soon</p>
+          </div>
+        )}
+      />
+      <ProtectedRoute
+        path="/contacts"
+        component={() => (
+          <div className="p-6">
+            <h1 className="text-2xl font-bold">Contacts</h1>
+            <p>Contact management coming soon</p>
+          </div>
+        )}
+      />
+      <ProtectedRoute
+        path="/conversations"
+        component={() => (
+          <div className="p-6">
+            <h1 className="text-2xl font-bold">Conversations</h1>
+            <p>Conversation history coming soon</p>
+          </div>
+        )}
+      />
+      <ProtectedRoute
+        path="/calls"
+        component={() => (
+          <div className="p-6">
+            <h1 className="text-2xl font-bold">Calls</h1>
+            <p>Call history and management coming soon</p>
+          </div>
+        )}
+      />
       <ProtectedRoute path="/analytics" component={MetricsDashboard} />
-      <ProtectedRoute path="/ai" component={() => <div className="p-6"><h1 className="text-2xl font-bold">Sona AI</h1><p>AI assistant functionality coming soon</p></div>} />
+      <ProtectedRoute path="/pipeline" component={Pipeline} />
+      <ProtectedRoute
+        path="/ai"
+        component={() => (
+          <div className="p-6">
+            <h1 className="text-2xl font-bold">Sona AI</h1>
+            <p>AI assistant functionality coming soon</p>
+          </div>
+        )}
+      />
       <ProtectedRoute path="/settings" component={SettingsPage} />
-      <ProtectedRoute path="/settings/telephony" component={TelephonySettingsPage} />
+      <ProtectedRoute
+        path="/settings/telephony"
+        component={TelephonySettingsPage}
+      />
       <ProtectedRoute path="/settings/ai" component={AISettingsPage} />
-      <ProtectedRoute path="/settings/consumption" component={ConsumptionSettingsPage} />
-      <ProtectedRoute path="/settings/billing" component={BillingSettingsPage} />
-      
+      <ProtectedRoute
+        path="/settings/consumption"
+        component={ConsumptionSettingsPage}
+      />
+      <ProtectedRoute
+        path="/settings/billing"
+        component={BillingSettingsPage}
+      />
+
       {/* Legacy routes for backward compatibility */}
-      <ProtectedRoute path="/telephony" component={featureFlags.chatwootLayout ? 
-        (() => <Redirect to="/settings/telephony" />) : TelephonyPage} />
+      <ProtectedRoute
+        path="/telephony"
+        component={
+          featureFlags.chatwootLayout
+            ? () => <Redirect to="/settings/telephony" />
+            : TelephonyPage
+        }
+      />
       <ProtectedRoute path="/transfer-form" component={TransferFormPage} />
       <ProtectedRoute path="/admin/transfers" component={AdminTransfersPage} />
       <ProtectedRoute path="/checkout" component={CheckoutPage} />
-      
+
       <Route component={NotFound} />
     </Switch>
   );

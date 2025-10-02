@@ -26,7 +26,7 @@ import { useSoftphone } from "@/components/softphone/softphone-provider";
 interface NavItem {
   name: string;
   href: string;
-  icon: React.ComponentType<{ className?: string }>;
+  icon: React.ComponentType<{ className?: string }> | string;
   badge?: string;
 }
 
@@ -86,6 +86,7 @@ export function SidebarNav({ onMobileClose, isMobile = false }: SidebarNavProps)
       title: "Tools",
       items: [
         { name: "Sona AI", href: "/ai", icon: Bot },
+        { name: "Pipeline", href: "/pipeline", icon: "🎯" },
       ]
     },
     {
@@ -184,10 +185,19 @@ export function SidebarNav({ onMobileClose, isMobile = false }: SidebarNavProps)
                       }
                     }}
                   >
-                    <item.icon className={cn(
-                      "w-5 h-5 flex-shrink-0",
-                      isCollapsed ? "mx-auto" : "mr-3"
-                    )} />
+                    {typeof item.icon === 'string' ? (
+                      <span className={cn(
+                        "text-xl flex-shrink-0",
+                        isCollapsed ? "mx-auto" : "mr-3"
+                      )}>
+                        {item.icon}
+                      </span>
+                    ) : (
+                      <item.icon className={cn(
+                        "w-5 h-5 flex-shrink-0",
+                        isCollapsed ? "mx-auto" : "mr-3"
+                      )} />
+                    )}
                     {!isCollapsed && (
                       <span className="truncate">{item.name}</span>
                     )}
@@ -208,10 +218,19 @@ export function SidebarNav({ onMobileClose, isMobile = false }: SidebarNavProps)
                           : "text-gray-700 dark:text-gray-300"
                       )}
                     >
-                      <item.icon className={cn(
-                        "w-5 h-5 flex-shrink-0",
-                        isCollapsed ? "mx-auto" : "mr-3"
-                      )} />
+                      {typeof item.icon === 'string' ? (
+                        <span className={cn(
+                          "text-xl flex-shrink-0",
+                          isCollapsed ? "mx-auto" : "mr-3"
+                        )}>
+                          {item.icon}
+                        </span>
+                      ) : (
+                        <item.icon className={cn(
+                          "w-5 h-5 flex-shrink-0",
+                          isCollapsed ? "mx-auto" : "mr-3"
+                        )} />
+                      )}
                       {!isCollapsed && (
                         <span className="truncate">{item.name}</span>
                       )}
