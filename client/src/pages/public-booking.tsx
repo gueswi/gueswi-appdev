@@ -85,9 +85,9 @@ export default function PublicBookingPage() {
   const createBookingMutation = useMutation({
     mutationFn: async (data: BookingFormData) => {
       const service = services.find((s) => s.id === data.serviceId);
-      const [hours, minutes] = data.time.split(":").map(Number);
-      const selectedDateTime = new Date(data.date);
-      selectedDateTime.setHours(hours, minutes, 0, 0);
+      
+      // Construct date with explicit local timestamp to avoid timezone issues
+      const selectedDateTime = new Date(`${data.date}T${data.time}:00`);
 
       const endDateTime = new Date(selectedDateTime);
       if (service?.duration) {
