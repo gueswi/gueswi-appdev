@@ -40,6 +40,7 @@ import { LeadCard } from "@/components/pipeline/lead-card.tsx";
 import { NewLeadDialog } from "@/components/pipeline/new-lead-dialog.tsx";
 import { StagesEditorDialog } from "@/components/pipeline/stages-editor-dialog.tsx";
 import { LeadDetailsDialog } from "@/components/pipeline/lead-details-dialog.tsx";
+import { PipelinesManagerDialog } from "@/components/pipeline/pipelines-manager-dialog.tsx";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 
@@ -219,6 +220,7 @@ export default function PipelinePage() {
                 </SelectContent>
               </Select>
             )}
+            <PipelinesManagerDialog pipelines={pipelines} />
           </div>
           <div className="flex items-center gap-2">
             <StagesEditorDialog stages={sortedStages} leads={leads} pipelineId={selectedPipelineId} />
