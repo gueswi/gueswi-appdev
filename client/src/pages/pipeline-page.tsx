@@ -89,7 +89,7 @@ export default function PipelinePage() {
       await apiRequest("PATCH", `/api/pipeline/leads/${leadId}/move`, { stageId });
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/pipeline/leads"] });
+      // Solo invalidar métricas, no refetch de leads porque ya actualizamos optimistically
       queryClient.invalidateQueries({ queryKey: ["/api/pipeline/metrics"] });
       toast({
         title: "Lead movido",
@@ -97,6 +97,8 @@ export default function PipelinePage() {
       });
     },
     onError: () => {
+      // Rollback: invalidar leads para refetch del servidor
+      queryClient.invalidateQueries({ queryKey: ["/api/pipeline/leads"] });
       toast({
         title: "Error",
         description: "No se pudo mover el lead",
@@ -127,11 +129,20 @@ export default function PipelinePage() {
       const leadId = active.id as string;
       const stageId = over.id as string;
 
-      // Verificar si active.id es un lead (no un stage)
+      // Verificar si active.id es un lead y over.id es un stage
       const isLead = leads.some((l) => l.id === leadId);
       const isStage = stages.some((s) => s.id === stageId);
       
       if (isLead && isStage) {
+        // Actualizar optimísticamente el estado local ANTES de la mutation
+        queryClient.setQueryData(["/api/pipeline/leads"], (oldLeads: Lead[] | undefined) => {
+          if (!oldLeads) return oldLeads;
+          return oldLeads.map((lead) =>
+            lead.id === leadId ? { ...lead, stageId } : lead
+          );
+        });
+        
+        // Luego hacer la mutation
         moveLead.mutate({ leadId, stageId });
       }
     }
