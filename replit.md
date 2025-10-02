@@ -30,7 +30,12 @@ Preferred communication style: Simple, everyday language.
 ## Core Features
 -   **Multi-tenancy**: Isolated data access for each tenant.
 -   **Payment Processing**: Integration with Stripe and PayPal for subscriptions, and manual bank transfer processing with admin approval.
--   **Pipeline CRM**: Kanban board, lead management, stage reordering, activity tracking, and real-time metrics (Total Value, Conversion Rate, Avg Closing Days). Supports multiple independent pipelines per tenant.
+-   **Pipeline CRM**: Kanban board, lead management, stage reordering, activity tracking, and real-time metrics (Total Value, Conversion Rate, Avg Closing Days). Supports multiple independent pipelines per tenant with:
+    -   Auto-creation of default pipeline ("Pipeline Principal") if none exist
+    -   Automatic fallback to default pipeline when active pipeline is deleted
+    -   Complete data isolation between pipelines (stages, leads, metrics)
+    -   Mutation pipelineId snapshotting to prevent cache invalidation issues
+    -   Full CRUD operations for pipelines with inline editing
 -   **Advanced Analytics**: Dashboard with AI-driven metrics like ROI Savings, Hours Saved, CSAT Score, Churn Risk, Intent Detection, and Sentiment Analysis.
 -   **Development Practices**: Monorepo structure, path mapping, environment configurations, robust build processes, clean architecture.
 
