@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, varchar, timestamp, integer, boolean, decimal, uuid, jsonb, date, numeric, primaryKey } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, timestamp, integer, boolean, decimal, uuid, jsonb, date, numeric, primaryKey, unique } from "drizzle-orm/pg-core";
 import { relations } from "drizzle-orm";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
@@ -448,10 +448,13 @@ export const services = pgTable("services", {
 
 // 3. Relación many-to-many: servicio puede estar en múltiples locaciones
 export const serviceLocations = pgTable("service_locations", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  tenantId: uuid("tenant_id").notNull().references(() => tenants.id, { onDelete: "cascade" }),
   serviceId: uuid("service_id").notNull().references(() => services.id, { onDelete: "cascade" }),
   locationId: uuid("location_id").notNull().references(() => locations.id, { onDelete: "cascade" }),
+  createdAt: timestamp("created_at").defaultNow(),
 }, (table) => ({
-  pk: primaryKey({ columns: [table.serviceId, table.locationId] }),
+  uniqueServiceLocation: unique().on(table.serviceId, table.locationId),
 }));
 
 // 4. Personal/empleados que brindan servicios
@@ -472,15 +475,19 @@ export const staffMembers = pgTable("staff_members", {
 
 // 5. Relación many-to-many: staff member puede ofrecer múltiples servicios
 export const staffServices = pgTable("staff_services", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  tenantId: uuid("tenant_id").notNull().references(() => tenants.id, { onDelete: "cascade" }),
   staffId: uuid("staff_id").notNull().references(() => staffMembers.id, { onDelete: "cascade" }),
   serviceId: uuid("service_id").notNull().references(() => services.id, { onDelete: "cascade" }),
+  createdAt: timestamp("created_at").defaultNow(),
 }, (table) => ({
-  pk: primaryKey({ columns: [table.staffId, table.serviceId] }),
+  uniqueStaffService: unique().on(table.staffId, table.serviceId),
 }));
 
 // 6. Reglas de disponibilidad (horarios de trabajo)
 export const availabilityRules = pgTable("availability_rules", {
   id: uuid("id").primaryKey().defaultRandom(),
+  tenantId: uuid("tenant_id").notNull().references(() => tenants.id, { onDelete: "cascade" }),
   staffId: uuid("staff_id").notNull().references(() => staffMembers.id, { onDelete: "cascade" }),
   dayOfWeek: integer("day_of_week").notNull(),
   startTime: text("start_time").notNull(),
@@ -492,6 +499,7 @@ export const availabilityRules = pgTable("availability_rules", {
 // 7. Excepciones de disponibilidad (vacaciones, días festivos)
 export const availabilityExceptions = pgTable("availability_exceptions", {
   id: uuid("id").primaryKey().defaultRandom(),
+  tenantId: uuid("tenant_id").notNull().references(() => tenants.id, { onDelete: "cascade" }),
   staffId: uuid("staff_id").notNull().references(() => staffMembers.id, { onDelete: "cascade" }),
   date: date("date").notNull(),
   isAvailable: boolean("is_available").default(false),
@@ -518,7 +526,7 @@ export const appointments = pgTable("appointments", {
   status: text("status").notNull().default("pending"),
   isRecurring: boolean("is_recurring").default(false),
   recurrenceRule: text("recurrence_rule"),
-  parentAppointmentId: uuid("parent_appointment_id"),
+  parentAppointmentId: uuid("parent_appointment_id").references(() => appointments.id, { onDelete: "cascade" }),
   notes: text("notes"),
   cancelReason: text("cancel_reason"),
   videoMeetingUrl: text("video_meeting_url"),
