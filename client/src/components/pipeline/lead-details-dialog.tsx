@@ -61,10 +61,16 @@ export function LeadDetailsDialog({ lead, stages, onClose }: LeadDetailsDialogPr
   const { toast } = useToast();
   const [activeTab, setActiveTab] = useState("info");
 
-  // Fetch lead details with activities
-  const { data: leadDetails } = useQuery<Lead & { activities: LeadActivity[] }>({
+  // Fetch lead details
+  const { data: leadDetails } = useQuery<Lead>({
     queryKey: ["/api/pipeline/leads", lead.id],
-    initialData: { ...lead, activities: [] },
+    initialData: lead,
+  });
+
+  // Fetch lead activities
+  const { data: activities = [] } = useQuery<LeadActivity[]>({
+    queryKey: ["/api/pipeline/leads", lead.id, "activities"],
+    enabled: !!lead.id,
   });
 
   const form = useForm<EditLeadFormData>({
@@ -103,6 +109,7 @@ export function LeadDetailsDialog({ lead, stages, onClose }: LeadDetailsDialogPr
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/pipeline/leads"] });
       queryClient.invalidateQueries({ queryKey: ["/api/pipeline/metrics"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/pipeline/leads", lead.id, "activities"] });
       toast({
         title: "Lead actualizado",
         description: "Los cambios se guardaron exitosamente",
@@ -126,14 +133,19 @@ export function LeadDetailsDialog({ lead, stages, onClose }: LeadDetailsDialogPr
       if (!wonStage) {
         throw new Error("No se encontró la etapa 'Ganado'");
       }
-      return apiRequest("PATCH", `/api/pipeline/leads/${lead.id}`, {
+      // Use /move endpoint to create activity automatically
+      await apiRequest("PATCH", `/api/pipeline/leads/${lead.id}/move`, {
         stageId: wonStage.id,
+      });
+      // Then update closedAt separately
+      return apiRequest("PATCH", `/api/pipeline/leads/${lead.id}`, {
         closedAt: new Date(),
       });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/pipeline/leads"] });
       queryClient.invalidateQueries({ queryKey: ["/api/pipeline/metrics"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/pipeline/leads", lead.id, "activities"] });
       toast({
         title: "Lead ganado",
         description: "El lead se marcó como ganado",
@@ -150,14 +162,19 @@ export function LeadDetailsDialog({ lead, stages, onClose }: LeadDetailsDialogPr
       if (!lostStage) {
         throw new Error("No se encontró la etapa 'Perdido'");
       }
-      return apiRequest("PATCH", `/api/pipeline/leads/${lead.id}`, {
+      // Use /move endpoint to create activity automatically
+      await apiRequest("PATCH", `/api/pipeline/leads/${lead.id}/move`, {
         stageId: lostStage.id,
+      });
+      // Then update closedAt separately
+      return apiRequest("PATCH", `/api/pipeline/leads/${lead.id}`, {
         closedAt: new Date(),
       });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/pipeline/leads"] });
       queryClient.invalidateQueries({ queryKey: ["/api/pipeline/metrics"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/pipeline/leads", lead.id, "activities"] });
       toast({
         title: "Lead perdido",
         description: "El lead se marcó como perdido",
@@ -256,11 +273,12 @@ export function LeadDetailsDialog({ lead, stages, onClose }: LeadDetailsDialogPr
 
           <TabsContent value="activities" className="space-y-3">
             <div className="space-y-2">
-              {leadDetails.activities?.length > 0 ? (
-                leadDetails.activities.map((activity) => (
+              {activities.length > 0 ? (
+                activities.map((activity) => (
                   <div
                     key={activity.id}
                     className="flex gap-3 p-3 bg-gray-50 dark:bg-gray-800 rounded-lg"
+                    data-testid={`activity-${activity.id}`}
                   >
                     <Clock className="w-4 h-4 text-gray-400 mt-0.5" />
                     <div className="flex-1">

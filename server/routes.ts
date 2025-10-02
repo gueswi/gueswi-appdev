@@ -1621,6 +1621,43 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  app.get("/api/pipeline/leads/:id/activities", async (req, res) => {
+    if (!req.isAuthenticated() || !req.user.tenantId) {
+      return res.sendStatus(401);
+    }
+
+    try {
+      const { id } = req.params;
+
+      // Verificar que el lead pertenece al tenant del usuario
+      const lead = await db
+        .select()
+        .from(schema.leads)
+        .where(
+          and(
+            eq(schema.leads.id, id),
+            eq(schema.leads.tenantId, req.user.tenantId),
+          ),
+        )
+        .limit(1);
+
+      if (!lead.length) {
+        return res.status(404).json({ error: "Lead not found" });
+      }
+
+      // Obtener actividades del lead ordenadas por fecha de creación (más recientes primero)
+      const activities = await db
+        .select()
+        .from(schema.leadActivities)
+        .where(eq(schema.leadActivities.leadId, id))
+        .orderBy(desc(schema.leadActivities.createdAt));
+
+      res.json(activities);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
   app.post("/api/pipeline/leads/:id/activities", async (req, res) => {
     if (!req.isAuthenticated() || !req.user.tenantId) {
       return res.sendStatus(401);

@@ -68,9 +68,10 @@ export default function PipelinePage() {
     mutationFn: async ({ leadId, stageId }: { leadId: string; stageId: string }) => {
       return apiRequest("PATCH", `/api/pipeline/leads/${leadId}/move`, { stageId });
     },
-    onSuccess: () => {
+    onSuccess: (_, variables) => {
       queryClient.invalidateQueries({ queryKey: ["/api/pipeline/leads"] });
       queryClient.invalidateQueries({ queryKey: ["/api/pipeline/metrics"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/pipeline/leads", variables.leadId, "activities"] });
     },
     onError: () => {
       toast({
