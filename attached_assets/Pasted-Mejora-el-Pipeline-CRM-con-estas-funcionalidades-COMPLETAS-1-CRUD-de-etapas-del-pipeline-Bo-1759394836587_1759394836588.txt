@@ -1,0 +1,61 @@
+Mejora el Pipeline CRM con estas funcionalidades COMPLETAS:
+
+1. CRUD de etapas del pipeline:
+   - Botón "⚙️ Editar Etapas" en header que abre modal
+   - En modal: lista de etapas con drag-and-drop para reordenar (usar @dnd-kit)
+   - Cada etapa: input editable para nombre, color picker, botón eliminar
+   - Validar que etapas con is_fixed=true (Ganado/Perdido) no se eliminen
+   - Botón "+ Nueva Etapa" para agregar columnas personalizadas
+   - Al guardar, llamar endpoints de actualización
+
+2. Formulario completo para Nuevo Lead:
+   - Modal con form que incluya:
+     * Nombre* (required, text)
+     * Empresa (text)
+     * Email (email validation)
+     * Teléfono (tel format)
+     * Valor estimado (number, $)
+     * Moneda (select: USD, EUR, MXN)
+     * Probabilidad (slider 0-100%)
+     * Etapa inicial (select desde stages)
+     * Fecha cierre esperada (date picker)
+     * Notas (textarea)
+     * Tags (multi-select o chip input)
+     * Asignado a (select de users del tenant)
+   - Al submit: POST /api/pipeline/leads
+   - Validación frontend y backend
+
+3. Refactorizar layout y métricas:
+   - Mover métricas principales al header junto al título
+   - Layout: [Título "Pipeline de Ventas" | Valor Total: $X | Tasa conversión: Y% | Tiempo promedio: Z días | Botón "Nuevo Lead"]
+   - Calcular tasa conversión: (Ganados / Total) * 100
+   - Calcular tiempo promedio: promedio de días desde created_at hasta closed_at en leads ganados
+   - Eliminar las 3 cards de métricas de abajo, dejar solo el Kanban board
+
+4. Funcionalidades adicionales en el Kanban:
+   - Filtros arriba del board: por asignado, rango de fechas, búsqueda por nombre/empresa
+   - Click en lead card: abre modal con detalles completos
+   - En modal de detalles: tabs [Info | Actividades | Editar]
+   - Timeline de actividades mostrando cambios de etapa, ediciones, notas
+   - Botones rápidos: "✓ Marcar Ganado" y "✗ Marcar Perdido"
+   - En LeadCard: mostrar avatar del asignado, tags como chips, indicador de probabilidad
+
+5. Crear TODOS los endpoints faltantes en server/routes.ts:
+   - POST /api/pipeline/stages (crear etapa)
+   - PATCH /api/pipeline/stages/:id (editar nombre/color)
+   - DELETE /api/pipeline/stages/:id (eliminar, validar !is_fixed)
+   - PATCH /api/pipeline/stages/reorder (actualizar order de múltiples)
+   - POST /api/pipeline/leads (crear lead con validación)
+   - GET /api/pipeline/leads/:id (detalle con activities)
+   - PATCH /api/pipeline/leads/:id (editar cualquier campo)
+   - DELETE /api/pipeline/leads/:id (soft delete o hard)
+   - POST /api/pipeline/leads/:id/activities (agregar nota/actividad)
+
+6. Mejoras UX:
+   - Loading states en todas las operaciones
+   - Toasts de éxito/error
+   - Confirmación antes de eliminar
+   - Animaciones smooth en drag & drop
+   - Responsive: en móvil mostrar columnas en scroll horizontal
+
+Implementa TODO esto de forma completa y funcional.

@@ -347,65 +347,95 @@ export const insertMessageSchema = createInsertSchema(messages).pick({
   conversationId: true,
   from: true,
   content: true,
-  });
+});
 
-  // Pipeline CRM
-  export const pipelineStages = pgTable("pipeline_stages", {
-    id: uuid("id").defaultRandom().primaryKey(),
-    tenantId: uuid("tenant_id").notNull(),
-    name: text("name").notNull(),
-    order: integer("order").notNull(),
-    color: text("color").default("#3b82f6"),
-    isFixed: boolean("is_fixed").default(false), // para "Ganado" y "Perdido"
-    createdAt: timestamp("created_at").defaultNow().notNull(),
-  });
+// Pipeline CRM
+export const pipelineStages = pgTable("pipeline_stages", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  tenantId: uuid("tenant_id").notNull(),
+  name: text("name").notNull(),
+  order: integer("order").notNull(),
+  color: text("color").default("#3b82f6"),
+  isFixed: boolean("is_fixed").default(false),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
 
-  export const leads = pgTable("leads", {
-    id: uuid("id").defaultRandom().primaryKey(),
-    tenantId: uuid("tenant_id").notNull(),
-    stageId: uuid("stage_id").notNull(),
+export const leads = pgTable("leads", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  tenantId: uuid("tenant_id").notNull(),
+  stageId: uuid("stage_id").notNull(),
+  name: text("name").notNull(),
+  email: text("email"),
+  phone: text("phone"),
+  company: text("company"),
+  value: decimal("value", { precision: 10, scale: 2 }),
+  currency: text("currency").default("USD"),
+  probability: integer("probability").default(50),
+  source: text("source"),
+  sourceId: text("source_id"),
+  assignedTo: uuid("assigned_to"),
+  expectedCloseDate: timestamp("expected_close_date"),
+  closedAt: timestamp("closed_at"),
+  notes: text("notes"),
+  tags: text("tags").array(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
 
-    // Información del lead
-    name: text("name").notNull(),
-    email: text("email"),
-    phone: text("phone"),
-    company: text("company"),
+export const leadActivities = pgTable("lead_activities", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  leadId: uuid("lead_id").notNull(),
+  userId: uuid("user_id"),
+  type: text("type").notNull(),
+  description: text("description").notNull(),
+  metadata: jsonb("metadata"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
 
-    // Valor del negocio
-    value: decimal("value", { precision: 10, scale: 2 }),
-    currency: text("currency").default("USD"),
-    probability: integer("probability").default(50), // %
+export const insertPipelineStageSchema = createInsertSchema(pipelineStages).pick({
+  name: true,
+  order: true,
+  color: true,
+  isFixed: true,
+}).partial({ color: true, isFixed: true });
 
-    // Origen
-    source: text("source"), // "phone", "whatsapp", "livechat", "manual"
-    sourceId: text("source_id"), // ID de la conversación original si aplica
+export const insertLeadSchema = createInsertSchema(leads).pick({
+  stageId: true,
+  name: true,
+  email: true,
+  phone: true,
+  company: true,
+  value: true,
+  currency: true,
+  probability: true,
+  source: true,
+  sourceId: true,
+  assignedTo: true,
+  expectedCloseDate: true,
+  notes: true,
+  tags: true,
+}).partial({ 
+  email: true, 
+  phone: true, 
+  company: true, 
+  value: true, 
+  currency: true, 
+  probability: true, 
+  source: true, 
+  sourceId: true, 
+  assignedTo: true, 
+  expectedCloseDate: true, 
+  notes: true, 
+  tags: true 
+});
 
-    // Asignación
-    assignedTo: uuid("assigned_to"),
-
-    // Fechas importantes
-    expectedCloseDate: timestamp("expected_close_date"),
-    closedAt: timestamp("closed_at"),
-
-    // Metadatos
-    notes: text("notes"),
-    tags: text("tags").array(),
-
-    createdAt: timestamp("created_at").defaultNow().notNull(),
-    updatedAt: timestamp("updated_at").defaultNow().notNull(),
-  });
-
-  export const leadActivities = pgTable("lead_activities", {
-    id: uuid("id").defaultRandom().primaryKey(),
-    leadId: uuid("lead_id").notNull(),
-    userId: uuid("user_id"),
-
-    type: text("type").notNull(), // "note", "call", "email", "stage_change", "value_change"
-    description: text("description").notNull(),
-    metadata: jsonb("metadata"),
-
-    createdAt: timestamp("created_at").defaultNow().notNull(),
-  });
+export const insertLeadActivitySchema = createInsertSchema(leadActivities).pick({
+  leadId: true,
+  userId: true,
+  type: true,
+  description: true,
+  metadata: true,
+}).partial({ userId: true, metadata: true });
 
 // Types
 export type User = typeof users.$inferSelect;
@@ -428,3 +458,9 @@ export type Conversation = typeof conversations.$inferSelect;
 export type InsertConversation = z.infer<typeof insertConversationSchema>;
 export type Message = typeof messages.$inferSelect;
 export type InsertMessage = z.infer<typeof insertMessageSchema>;
+export type PipelineStage = typeof pipelineStages.$inferSelect;
+export type InsertPipelineStage = z.infer<typeof insertPipelineStageSchema>;
+export type Lead = typeof leads.$inferSelect;
+export type InsertLead = z.infer<typeof insertLeadSchema>;
+export type LeadActivity = typeof leadActivities.$inferSelect;
+export type InsertLeadActivity = z.infer<typeof insertLeadActivitySchema>;

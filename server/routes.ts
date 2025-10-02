@@ -26,7 +26,13 @@ import {
   insertIvrMenuSchema,
   insertQueueSchema,
   insertRecordingSchema,
+  insertPipelineStageSchema,
+  insertLeadSchema,
+  insertLeadActivitySchema,
 } from "@shared/schema";
+import * as schema from "@shared/schema";
+import { db } from "./db";
+import { eq, and, desc, sql } from "drizzle-orm";
 import multer from "multer";
 
 // Stripe setup with config loader
@@ -1169,7 +1175,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           : [],
       });
     } catch (error: any) {
-      log(`AI Gateway error: ${error.message}`);
+      console.log(`AI Gateway error: ${error.message}`);
       res.status(500).json({ error: "AI processing failed" });
     }
   });
@@ -1220,6 +1226,27 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const { id } = req.params;
       const { stageId } = req.body;
 
+      const oldLead = await db
+        .select()
+        .from(schema.leads)
+        .where(
+          and(
+            eq(schema.leads.id, id),
+            eq(schema.leads.tenantId, req.user.tenantId),
+          ),
+        )
+        .limit(1);
+
+      if (!oldLead.length) {
+        return res.status(404).json({ error: "Lead not found" });
+      }
+
+      const stage = await db
+        .select()
+        .from(schema.pipelineStages)
+        .where(eq(schema.pipelineStages.id, stageId))
+        .limit(1);
+
       await db
         .update(schema.leads)
         .set({ stageId, updatedAt: new Date() })
@@ -1230,7 +1257,380 @@ export async function registerRoutes(app: Express): Promise<Server> {
           ),
         );
 
+      // Crear actividad de cambio de etapa
+      await db.insert(schema.leadActivities).values({
+        leadId: id,
+        userId: req.user.id,
+        type: "stage_change",
+        description: `Lead movido a ${stage[0]?.name || stageId}`,
+        metadata: { oldStageId: oldLead[0].stageId, newStageId: stageId },
+      });
+
       res.json({ success: true });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // CRUD de stages
+  app.post("/api/pipeline/stages", async (req, res) => {
+    if (!req.isAuthenticated() || !req.user.tenantId) {
+      return res.sendStatus(401);
+    }
+
+    try {
+      const validatedData = schema.insertPipelineStageSchema.parse(req.body);
+      
+      const [stage] = await db
+        .insert(schema.pipelineStages)
+        .values({
+          ...validatedData,
+          tenantId: req.user.tenantId,
+        })
+        .returning();
+
+      res.json(stage);
+    } catch (error: any) {
+      res.status(400).json({ error: error.message });
+    }
+  });
+
+  app.patch("/api/pipeline/stages/:id", async (req, res) => {
+    if (!req.isAuthenticated() || !req.user.tenantId) {
+      return res.sendStatus(401);
+    }
+
+    try {
+      const { id } = req.params;
+      const { name, color } = req.body;
+
+      const [updated] = await db
+        .update(schema.pipelineStages)
+        .set({ name, color })
+        .where(
+          and(
+            eq(schema.pipelineStages.id, id),
+            eq(schema.pipelineStages.tenantId, req.user.tenantId),
+          ),
+        )
+        .returning();
+
+      if (!updated) {
+        return res.status(404).json({ error: "Stage not found" });
+      }
+
+      res.json(updated);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.delete("/api/pipeline/stages/:id", async (req, res) => {
+    if (!req.isAuthenticated() || !req.user.tenantId) {
+      return res.sendStatus(401);
+    }
+
+    try {
+      const { id } = req.params;
+
+      // Verificar que no sea una etapa fija
+      const [stage] = await db
+        .select()
+        .from(schema.pipelineStages)
+        .where(
+          and(
+            eq(schema.pipelineStages.id, id),
+            eq(schema.pipelineStages.tenantId, req.user.tenantId),
+          ),
+        )
+        .limit(1);
+
+      if (!stage) {
+        return res.status(404).json({ error: "Stage not found" });
+      }
+
+      if (stage.isFixed) {
+        return res.status(400).json({ error: "Cannot delete fixed stages (Won/Lost)" });
+      }
+
+      // Verificar si hay leads en esta etapa
+      const leadsCount = await db
+        .select({ count: sql<number>`count(*)` })
+        .from(schema.leads)
+        .where(eq(schema.leads.stageId, id));
+
+      if (Number(leadsCount[0]?.count) > 0) {
+        return res.status(400).json({ 
+          error: "Cannot delete stage with leads. Move or delete leads first." 
+        });
+      }
+
+      await db
+        .delete(schema.pipelineStages)
+        .where(
+          and(
+            eq(schema.pipelineStages.id, id),
+            eq(schema.pipelineStages.tenantId, req.user.tenantId),
+          ),
+        );
+
+      res.json({ success: true });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.patch("/api/pipeline/stages/reorder", async (req, res) => {
+    if (!req.isAuthenticated() || !req.user.tenantId) {
+      return res.sendStatus(401);
+    }
+
+    try {
+      const { stages } = req.body; // Array of { id, order }
+
+      for (const stage of stages) {
+        await db
+          .update(schema.pipelineStages)
+          .set({ order: stage.order })
+          .where(
+            and(
+              eq(schema.pipelineStages.id, stage.id),
+              eq(schema.pipelineStages.tenantId, req.user.tenantId),
+            ),
+          );
+      }
+
+      res.json({ success: true });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // CRUD de leads
+  app.post("/api/pipeline/leads", async (req, res) => {
+    if (!req.isAuthenticated() || !req.user.tenantId) {
+      return res.sendStatus(401);
+    }
+
+    try {
+      const validatedData = schema.insertLeadSchema.parse(req.body);
+
+      const [lead] = await db
+        .insert(schema.leads)
+        .values({
+          ...validatedData,
+          tenantId: req.user.tenantId,
+        })
+        .returning();
+
+      // Crear actividad de creación
+      await db.insert(schema.leadActivities).values({
+        leadId: lead.id,
+        userId: req.user.id,
+        type: "note",
+        description: "Lead creado",
+      });
+
+      res.json(lead);
+    } catch (error: any) {
+      res.status(400).json({ error: error.message });
+    }
+  });
+
+  app.get("/api/pipeline/leads/:id", async (req, res) => {
+    if (!req.isAuthenticated() || !req.user.tenantId) {
+      return res.sendStatus(401);
+    }
+
+    try {
+      const { id } = req.params;
+
+      const [lead] = await db
+        .select()
+        .from(schema.leads)
+        .where(
+          and(
+            eq(schema.leads.id, id),
+            eq(schema.leads.tenantId, req.user.tenantId),
+          ),
+        )
+        .limit(1);
+
+      if (!lead) {
+        return res.status(404).json({ error: "Lead not found" });
+      }
+
+      // Obtener actividades
+      const activities = await db
+        .select()
+        .from(schema.leadActivities)
+        .where(eq(schema.leadActivities.leadId, id))
+        .orderBy(desc(schema.leadActivities.createdAt));
+
+      res.json({ ...lead, activities });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.patch("/api/pipeline/leads/:id", async (req, res) => {
+    if (!req.isAuthenticated() || !req.user.tenantId) {
+      return res.sendStatus(401);
+    }
+
+    try {
+      const { id } = req.params;
+      const updateData = req.body;
+
+      const [updated] = await db
+        .update(schema.leads)
+        .set({ ...updateData, updatedAt: new Date() })
+        .where(
+          and(
+            eq(schema.leads.id, id),
+            eq(schema.leads.tenantId, req.user.tenantId),
+          ),
+        )
+        .returning();
+
+      if (!updated) {
+        return res.status(404).json({ error: "Lead not found" });
+      }
+
+      // Crear actividad de edición
+      await db.insert(schema.leadActivities).values({
+        leadId: id,
+        userId: req.user.id,
+        type: "note",
+        description: "Lead actualizado",
+        metadata: updateData,
+      });
+
+      res.json(updated);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.delete("/api/pipeline/leads/:id", async (req, res) => {
+    if (!req.isAuthenticated() || !req.user.tenantId) {
+      return res.sendStatus(401);
+    }
+
+    try {
+      const { id } = req.params;
+
+      // Eliminar actividades primero
+      await db
+        .delete(schema.leadActivities)
+        .where(eq(schema.leadActivities.leadId, id));
+
+      // Eliminar lead
+      await db
+        .delete(schema.leads)
+        .where(
+          and(
+            eq(schema.leads.id, id),
+            eq(schema.leads.tenantId, req.user.tenantId),
+          ),
+        );
+
+      res.json({ success: true });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.post("/api/pipeline/leads/:id/activities", async (req, res) => {
+    if (!req.isAuthenticated() || !req.user.tenantId) {
+      return res.sendStatus(401);
+    }
+
+    try {
+      const { id } = req.params;
+      const validatedData = schema.insertLeadActivitySchema.parse(req.body);
+
+      const [activity] = await db
+        .insert(schema.leadActivities)
+        .values({
+          ...validatedData,
+          leadId: id,
+          userId: req.user.id,
+        })
+        .returning();
+
+      res.json(activity);
+    } catch (error: any) {
+      res.status(400).json({ error: error.message });
+    }
+  });
+
+  // Métricas del pipeline
+  app.get("/api/pipeline/metrics", async (req, res) => {
+    if (!req.isAuthenticated() || !req.user.tenantId) {
+      return res.sendStatus(401);
+    }
+
+    try {
+      // Valor total del pipeline
+      const totalValue = await db
+        .select({ 
+          sum: sql<string>`COALESCE(SUM(${schema.leads.value}), 0)` 
+        })
+        .from(schema.leads)
+        .where(eq(schema.leads.tenantId, req.user.tenantId));
+
+      // Contar leads ganados y totales
+      const wonStage = await db
+        .select()
+        .from(schema.pipelineStages)
+        .where(
+          and(
+            eq(schema.pipelineStages.tenantId, req.user.tenantId),
+            eq(schema.pipelineStages.isFixed, true),
+            sql`${schema.pipelineStages.name} ILIKE '%ganado%'`
+          ),
+        )
+        .limit(1);
+
+      const wonCount = wonStage.length > 0 
+        ? await db
+            .select({ count: sql<number>`count(*)` })
+            .from(schema.leads)
+            .where(eq(schema.leads.stageId, wonStage[0].id))
+        : [{ count: 0 }];
+
+      const totalCount = await db
+        .select({ count: sql<number>`count(*)` })
+        .from(schema.leads)
+        .where(eq(schema.leads.tenantId, req.user.tenantId));
+
+      const conversionRate = Number(totalCount[0]?.count) > 0
+        ? (Number(wonCount[0]?.count) / Number(totalCount[0]?.count)) * 100
+        : 0;
+
+      // Tiempo promedio de cierre (en días)
+      const avgClosingTime = wonStage.length > 0
+        ? await db
+            .select({
+              avg: sql<number>`AVG(EXTRACT(EPOCH FROM (${schema.leads.closedAt} - ${schema.leads.createdAt})) / 86400)`,
+            })
+            .from(schema.leads)
+            .where(
+              and(
+                eq(schema.leads.stageId, wonStage[0].id),
+                sql`${schema.leads.closedAt} IS NOT NULL`,
+              ),
+            )
+        : [{ avg: 0 }];
+
+      res.json({
+        totalValue: Number(totalValue[0]?.sum || 0),
+        conversionRate: Math.round(conversionRate * 10) / 10,
+        avgClosingDays: Math.round(Number(avgClosingTime[0]?.avg || 0)),
+        wonCount: Number(wonCount[0]?.count || 0),
+        totalCount: Number(totalCount[0]?.count || 0),
+      });
     } catch (error: any) {
       res.status(500).json({ error: error.message });
     }
