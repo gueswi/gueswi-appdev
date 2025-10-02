@@ -55,6 +55,8 @@ export default function PipelinePage() {
     totalValue: number;
     conversionRate: number;
     avgClosingDays: number;
+    wonCount: number;
+    totalCount: number;
   }>({
     queryKey: ["/api/pipeline/metrics"],
   });
@@ -154,6 +156,18 @@ export default function PipelinePage() {
             <span className="text-gray-500 dark:text-gray-400">Tasa Conversión:</span>
             <span className="font-semibold text-gray-900 dark:text-white" data-testid="text-conversion-rate">
               {metrics?.conversionRate || 0}%
+            </span>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="text-gray-500 dark:text-gray-400">Ganados:</span>
+            <span className="font-semibold text-green-600 dark:text-green-400" data-testid="text-won-count">
+              {metrics?.wonCount || 0}
+            </span>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="text-gray-500 dark:text-gray-400">Total Leads:</span>
+            <span className="font-semibold text-gray-900 dark:text-white" data-testid="text-total-count">
+              {metrics?.totalCount || 0}
             </span>
           </div>
           <div className="flex items-center gap-2">
