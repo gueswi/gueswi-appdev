@@ -27,6 +27,7 @@ import { Label } from "@/components/ui/label";
 import { Calendar, MapPin, Users, Briefcase, Plus, Settings } from "lucide-react";
 import type { Location, Service, StaffMember, Appointment } from "@shared/schema";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { CalendarView } from "@/components/bookings/calendar-view";
 
 export default function BookingsPage() {
   const [selectedLocationId, setSelectedLocationId] = useState<string>("all");
@@ -173,74 +174,22 @@ export default function BookingsPage() {
 
           {/* Calendar View */}
           <TabsContent value="calendar" className="mt-0 p-6 h-full">
-            <Card>
-              <CardHeader>
-                <CardTitle>Vista de Calendario</CardTitle>
-                <CardDescription>
-                  Visualiza y gestiona todas las citas programadas
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                {appointmentsLoading ? (
-                  <div className="space-y-3">
-                    {[1, 2, 3, 4, 5].map((i) => (
-                      <div key={i} className="border border-border rounded-lg p-3 animate-pulse">
-                        <div className="h-5 bg-muted rounded w-1/3 mb-2"></div>
-                        <div className="h-4 bg-muted rounded w-1/2"></div>
-                      </div>
-                    ))}
-                  </div>
-                ) : (
-                  <div className="space-y-4">
-                    <div className="flex items-center gap-2 text-sm text-muted-foreground bg-blue-50 dark:bg-blue-950 p-3 rounded-lg">
-                      <Calendar className="h-4 w-4" />
-                      <span>
-                        Vista de calendario con drag & drop se mostrará en el siguiente paso
-                      </span>
-                    </div>
-                    <div className="grid gap-2">
-                      {filteredAppointments.slice(0, 5).map((apt) => (
-                        <div
-                          key={apt.id}
-                          className="border border-border rounded-lg p-3 hover:bg-muted/50 transition-colors"
-                          data-testid={`appointment-${apt.id}`}
-                        >
-                          <div className="flex justify-between items-start">
-                            <div>
-                              <p className="font-medium">{apt.customerName}</p>
-                              <p className="text-sm text-muted-foreground">
-                                {new Date(apt.startTime).toLocaleString()}
-                              </p>
-                            </div>
-                            <span className={`text-xs px-2 py-1 rounded-full ${
-                              apt.status === 'confirmed' ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200' :
-                              apt.status === 'pending' ? 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200' :
-                              apt.status === 'cancelled' ? 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200' :
-                              'bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-200'
-                            }`}>
-                              {apt.status}
-                            </span>
-                          </div>
-                        </div>
-                      ))}
-                      {filteredAppointments.length === 0 && (
-                        <div className="text-center py-12">
-                          <Calendar className="h-12 w-12 mx-auto text-muted-foreground mb-3" />
-                          <p className="text-muted-foreground">
-                            No hay citas programadas
-                          </p>
-                          <p className="text-sm text-muted-foreground mt-1">
-                            {selectedLocationId !== "all" 
-                              ? "Prueba con otra ubicación o crea una nueva cita"
-                              : "Crea una nueva cita para comenzar"}
-                          </p>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                )}
-              </CardContent>
-            </Card>
+            <CalendarView
+              appointments={filteredAppointments}
+              staff={staff}
+              services={services}
+              locations={locations}
+              isLoading={appointmentsLoading || staffLoading || servicesLoading}
+              selectedLocationId={selectedLocationId}
+              onAppointmentClick={(appointment) => {
+                // TODO: Open appointment details dialog
+                console.log("Appointment clicked:", appointment);
+              }}
+              onCreateAppointment={(dateInfo) => {
+                // TODO: Open create appointment dialog with pre-filled dates
+                console.log("Create appointment:", dateInfo);
+              }}
+            />
           </TabsContent>
 
           {/* Services View */}
