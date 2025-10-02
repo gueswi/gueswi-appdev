@@ -786,7 +786,9 @@ export const insertServiceSchema = createInsertSchema(services).pick({
   allowRecurring: true,
   customFields: true,
   isActive: true,
-}).partial({ description: true, price: true, currency: true, capacity: true, bufferTime: true, color: true, slotDuration: true, depositRequired: true, allowRecurring: true, customFields: true, isActive: true });
+}).partial({ description: true, price: true, currency: true, capacity: true, bufferTime: true, color: true, slotDuration: true, depositRequired: true, allowRecurring: true, customFields: true, isActive: true }).extend({
+  price: z.union([z.string(), z.number()]).transform(val => val === null || val === undefined ? null : String(val)).nullable().optional(),
+});
 
 export const insertServiceLocationSchema = createInsertSchema(serviceLocations).pick({
   serviceId: true,
@@ -844,7 +846,9 @@ export const insertAppointmentSchema = createInsertSchema(appointments).pick({
   notes: true,
   cancelReason: true,
   videoMeetingUrl: true,
-}).partial({ customerEmail: true, customFields: true, status: true, isRecurring: true, recurrenceRule: true, parentAppointmentId: true, notes: true, cancelReason: true, videoMeetingUrl: true });
+}).partial({ customerEmail: true, customFields: true, timezone: true, status: true, isRecurring: true, recurrenceRule: true, parentAppointmentId: true, notes: true, cancelReason: true, videoMeetingUrl: true }).extend({
+  timezone: z.string().default("Europe/Madrid"),
+});
 
 export const insertWaitlistSchema = createInsertSchema(waitlist).pick({
   serviceId: true,

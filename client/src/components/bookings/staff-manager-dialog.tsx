@@ -235,8 +235,8 @@ export function StaffManagerDialog({
                 <FormItem>
                   <FormLabel>Ubicación Predeterminada</FormLabel>
                   <Select
-                    onValueChange={field.onChange}
-                    value={field.value || ""}
+                    onValueChange={(value) => field.onChange(value === "none" ? null : value)}
+                    value={field.value || "none"}
                   >
                     <FormControl>
                       <SelectTrigger data-testid="select-location">
@@ -244,7 +244,7 @@ export function StaffManagerDialog({
                       </SelectTrigger>
                     </FormControl>
                     <SelectContent position="popper">
-                      <SelectItem value="">Sin ubicación</SelectItem>
+                      <SelectItem value="none">Sin ubicación</SelectItem>
                       {locations.map((location) => (
                         <SelectItem key={location.id} value={location.id}>
                           {location.name}
