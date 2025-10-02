@@ -12,7 +12,7 @@ import { Redirect } from "@/components/Redirect";
 import HomePage from "@/pages/home-page";
 import MetricsHomePage from "@/pages/metrics-home-page";
 import MetricsDashboard from "@/pages/metrics-dashboard";
-import Pipeline from "@/pages/pipeline";
+import PipelinePage from "@/pages/pipeline-page";
 import AuthPage from "@/pages/auth-page";
 import OnboardingPage from "@/pages/onboarding-page";
 import InboxPage from "@/pages/inbox-page";
@@ -87,7 +87,7 @@ function Router() {
         )}
       />
       <ProtectedRoute path="/analytics" component={MetricsDashboard} />
-      <ProtectedRoute path="/pipeline" component={Pipeline} />
+      <ProtectedRoute path="/pipeline" component={PipelinePage} />
       <ProtectedRoute
         path="/ai"
         component={() => (
