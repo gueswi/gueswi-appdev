@@ -56,6 +56,8 @@ export default function PipelinePage() {
     conversionRate: number;
     avgClosingDays: number;
     wonCount: number;
+    wonValue: number;
+    lostValue: number;
     totalCount: number;
   }>({
     queryKey: ["/api/pipeline/metrics"],
@@ -142,7 +144,7 @@ export default function PipelinePage() {
             Pipeline de Ventas
           </h1>
           <div className="flex items-center gap-2">
-            <StagesEditorDialog stages={sortedStages} />
+            <StagesEditorDialog stages={sortedStages} leads={leads} />
             <NewLeadDialog stages={sortedStages} />
           </div>
         </div>
@@ -165,6 +167,18 @@ export default function PipelinePage() {
             <span className="text-gray-500 dark:text-gray-400">Ganados:</span>
             <span className="font-semibold text-green-600 dark:text-green-400" data-testid="text-won-count">
               {metrics?.wonCount || 0}
+            </span>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="text-gray-500 dark:text-gray-400">Valor Ganado:</span>
+            <span className="font-semibold text-green-600 dark:text-green-400" data-testid="text-won-value">
+              ${metrics?.wonValue?.toLocaleString() || 0}
+            </span>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="text-gray-500 dark:text-gray-400">Valor Perdido:</span>
+            <span className="font-semibold text-red-600 dark:text-red-400" data-testid="text-lost-value">
+              ${metrics?.lostValue?.toLocaleString() || 0}
             </span>
           </div>
           <div className="flex items-center gap-2">

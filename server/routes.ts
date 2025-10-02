@@ -1411,15 +1411,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
 
     try {
+      console.log("🔧 Reorder request body:", JSON.stringify(req.body));
       const { stages } = req.body;
+      console.log("🔧 Stages array:", stages);
 
       if (!stages || !Array.isArray(stages) || stages.length === 0) {
+        console.log("❌ Invalid stages array");
         return res.status(400).json({ error: "Invalid stages array" });
       }
 
       // Update each stage's order
       for (const stage of stages) {
+        console.log("🔧 Processing stage:", stage);
         if (stage.id && typeof stage.order === 'number') {
+          console.log("🔧 Updating stage", stage.id, "to order", stage.order);
           await db
             .update(schema.pipelineStages)
             .set({ order: stage.order })
@@ -1429,12 +1434,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
                 eq(schema.pipelineStages.tenantId, req.user.tenantId),
               ),
             );
+          console.log("✅ Updated stage", stage.id);
         }
       }
 
+      console.log("✅ All stages reordered successfully");
       res.json({ success: true });
     } catch (error: any) {
-      console.error("Error reordering stages:", error);
+      console.error("❌ Error reordering stages:", error);
+      console.error("❌ Error stack:", error.stack);
       res.status(500).json({ error: error.message });
     }
   });
@@ -1696,11 +1704,45 @@ export async function registerRoutes(app: Express): Promise<Server> {
             )
         : [{ avg: 0 }];
 
+      // Valor ganado
+      const wonValue = wonStage.length > 0
+        ? await db
+            .select({ 
+              sum: sql<string>`COALESCE(SUM(${schema.leads.value}), 0)` 
+            })
+            .from(schema.leads)
+            .where(eq(schema.leads.stageId, wonStage[0].id))
+        : [{ sum: '0' }];
+
+      // Etapa "Perdido" y valor perdido
+      const lostStage = await db
+        .select()
+        .from(schema.pipelineStages)
+        .where(
+          and(
+            eq(schema.pipelineStages.tenantId, req.user.tenantId),
+            eq(schema.pipelineStages.isFixed, true),
+            sql`${schema.pipelineStages.name} ILIKE '%perdido%'`
+          ),
+        )
+        .limit(1);
+
+      const lostValue = lostStage.length > 0
+        ? await db
+            .select({ 
+              sum: sql<string>`COALESCE(SUM(${schema.leads.value}), 0)` 
+            })
+            .from(schema.leads)
+            .where(eq(schema.leads.stageId, lostStage[0].id))
+        : [{ sum: '0' }];
+
       res.json({
         totalValue: Number(totalValue[0]?.sum || 0),
         conversionRate: Math.round(conversionRate * 10) / 10,
         avgClosingDays: Math.round(Number(avgClosingTime[0]?.avg || 0)),
         wonCount: Number(wonCount[0]?.count || 0),
+        wonValue: Number(wonValue[0]?.sum || 0),
+        lostValue: Number(lostValue[0]?.sum || 0),
         totalCount: Number(totalCount[0]?.count || 0),
       });
     } catch (error: any) {

@@ -27,7 +27,7 @@ import {
   useSortable,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import type { PipelineStage } from "@shared/schema";
+import type { PipelineStage, Lead } from "@shared/schema";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import {
@@ -43,6 +43,7 @@ import {
 
 interface StagesEditorDialogProps {
   stages: PipelineStage[];
+  leads: Lead[];
 }
 
 function SortableStageItem({
@@ -106,11 +107,20 @@ function SortableStageItem({
   );
 }
 
-export function StagesEditorDialog({ stages }: StagesEditorDialogProps) {
+export function StagesEditorDialog({ stages, leads }: StagesEditorDialogProps) {
   const [open, setOpen] = useState(false);
   const [localStages, setLocalStages] = useState<PipelineStage[]>(stages);
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const { toast } = useToast();
+
+  // Count leads per stage (with safety check)
+  const leadsPerStage = (leads || []).reduce((acc, lead) => {
+    acc[lead.stageId] = (acc[lead.stageId] || 0) + 1;
+    return acc;
+  }, {} as Record<string, number>);
+
+  const getLeadCount = (stageId: string) => leadsPerStage[stageId] || 0;
+  const stageHasLeads = (stageId: string) => getLeadCount(stageId) > 0;
 
   // Sync local stages with prop changes
   useEffect(() => {
@@ -162,6 +172,14 @@ export function StagesEditorDialog({ stages }: StagesEditorDialogProps) {
       toast({
         title: "Orden actualizado",
         description: "Las etapas se reordenaron exitosamente",
+      });
+    },
+    onError: (error: any) => {
+      console.error("Error reordering stages:", error);
+      toast({
+        title: "Error",
+        description: error.message || "No se pudo reordenar las etapas",
+        variant: "destructive",
       });
     },
   });
@@ -298,13 +316,25 @@ export function StagesEditorDialog({ stages }: StagesEditorDialogProps) {
           <AlertDialogHeader>
             <AlertDialogTitle>¿Eliminar etapa?</AlertDialogTitle>
             <AlertDialogDescription>
-              Esta acción no se puede deshacer. Asegúrate de que no haya leads en esta
-              etapa antes de eliminarla.
+              Esta acción no se puede deshacer.
             </AlertDialogDescription>
           </AlertDialogHeader>
+          
+          {deleteId && stageHasLeads(deleteId) && (
+            <div className="bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-md p-3 text-sm text-yellow-800 dark:text-yellow-200">
+              <p className="font-medium mb-1">⚠️ Esta etapa contiene {getLeadCount(deleteId)} lead(s)</p>
+              <p>No puedes eliminar una etapa si hay leads en ella. Mueve los leads y deja esta etapa vacía para poder eliminarla.</p>
+            </div>
+          )}
+          
           <AlertDialogFooter>
             <AlertDialogCancel>Cancelar</AlertDialogCancel>
-            <AlertDialogAction onClick={confirmDelete} className="bg-red-600 hover:bg-red-700">
+            <AlertDialogAction 
+              onClick={confirmDelete} 
+              className="bg-red-600 hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed"
+              disabled={deleteId ? stageHasLeads(deleteId) : false}
+              data-testid="button-confirm-delete-stage"
+            >
               Eliminar
             </AlertDialogAction>
           </AlertDialogFooter>
