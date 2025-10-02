@@ -29,6 +29,16 @@ import {
   insertPipelineStageSchema,
   insertLeadSchema,
   insertLeadActivitySchema,
+  insertLocationSchema,
+  insertServiceSchema,
+  insertServiceLocationSchema,
+  insertStaffMemberSchema,
+  insertStaffServiceSchema,
+  insertAvailabilityRuleSchema,
+  insertAvailabilityExceptionSchema,
+  insertAppointmentSchema,
+  insertWaitlistSchema,
+  insertNotificationTemplateSchema,
 } from "@shared/schema";
 import * as schema from "@shared/schema";
 import { db } from "./db";
@@ -2052,5 +2062,970 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.send(errorTwiml);
     }
   });
+
+  // ==================== CALENDAR & BOOKINGS ====================
+
+  // Locations endpoints
+  app.get("/api/locations", async (req, res) => {
+    if (!req.isAuthenticated() || !req.user.tenantId) {
+      return res.sendStatus(401);
+    }
+
+    try {
+      const locations = await db
+        .select()
+        .from(schema.locations)
+        .where(eq(schema.locations.tenantId, req.user.tenantId))
+        .orderBy(schema.locations.name);
+
+      res.json(locations);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.post("/api/locations", async (req, res) => {
+    if (!req.isAuthenticated() || !req.user.tenantId) {
+      return res.sendStatus(401);
+    }
+
+    try {
+      const validatedData = insertLocationSchema.parse(req.body);
+      const [location] = await db
+        .insert(schema.locations)
+        .values({
+          ...validatedData,
+          tenantId: req.user.tenantId,
+        })
+        .returning();
+
+      res.json(location);
+    } catch (error: any) {
+      res.status(400).json({ error: error.message });
+    }
+  });
+
+  app.patch("/api/locations/:id", async (req, res) => {
+    if (!req.isAuthenticated() || !req.user.tenantId) {
+      return res.sendStatus(401);
+    }
+
+    try {
+      const { id } = req.params;
+      const validatedData = insertLocationSchema.partial().parse(req.body);
+      const [updated] = await db
+        .update(schema.locations)
+        .set({ ...validatedData, updatedAt: new Date() })
+        .where(
+          and(
+            eq(schema.locations.id, id),
+            eq(schema.locations.tenantId, req.user.tenantId)
+          )
+        )
+        .returning();
+
+      if (!updated) {
+        return res.status(404).json({ error: "Location not found" });
+      }
+
+      res.json(updated);
+    } catch (error: any) {
+      res.status(400).json({ error: error.message });
+    }
+  });
+
+  app.delete("/api/locations/:id", async (req, res) => {
+    if (!req.isAuthenticated() || !req.user.tenantId) {
+      return res.sendStatus(401);
+    }
+
+    try {
+      const { id } = req.params;
+      await db
+        .delete(schema.locations)
+        .where(
+          and(
+            eq(schema.locations.id, id),
+            eq(schema.locations.tenantId, req.user.tenantId)
+          )
+        );
+
+      res.json({ success: true });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Services endpoints
+  app.get("/api/services", async (req, res) => {
+    if (!req.isAuthenticated() || !req.user.tenantId) {
+      return res.sendStatus(401);
+    }
+
+    try {
+      const services = await db
+        .select()
+        .from(schema.services)
+        .where(eq(schema.services.tenantId, req.user.tenantId))
+        .orderBy(schema.services.name);
+
+      res.json(services);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.post("/api/services", async (req, res) => {
+    if (!req.isAuthenticated() || !req.user.tenantId) {
+      return res.sendStatus(401);
+    }
+
+    try {
+      const validatedData = insertServiceSchema.parse(req.body);
+      const [service] = await db
+        .insert(schema.services)
+        .values({
+          ...validatedData,
+          tenantId: req.user.tenantId,
+        })
+        .returning();
+
+      res.json(service);
+    } catch (error: any) {
+      res.status(400).json({ error: error.message });
+    }
+  });
+
+  app.patch("/api/services/:id", async (req, res) => {
+    if (!req.isAuthenticated() || !req.user.tenantId) {
+      return res.sendStatus(401);
+    }
+
+    try {
+      const { id } = req.params;
+      const validatedData = insertServiceSchema.partial().parse(req.body);
+      const [updated] = await db
+        .update(schema.services)
+        .set({ ...validatedData, updatedAt: new Date() })
+        .where(
+          and(
+            eq(schema.services.id, id),
+            eq(schema.services.tenantId, req.user.tenantId)
+          )
+        )
+        .returning();
+
+      if (!updated) {
+        return res.status(404).json({ error: "Service not found" });
+      }
+
+      res.json(updated);
+    } catch (error: any) {
+      res.status(400).json({ error: error.message });
+    }
+  });
+
+  app.delete("/api/services/:id", async (req, res) => {
+    if (!req.isAuthenticated() || !req.user.tenantId) {
+      return res.sendStatus(401);
+    }
+
+    try {
+      const { id } = req.params;
+      await db
+        .delete(schema.services)
+        .where(
+          and(
+            eq(schema.services.id, id),
+            eq(schema.services.tenantId, req.user.tenantId)
+          )
+        );
+
+      res.json({ success: true });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Service-Locations relationship endpoints
+  app.get("/api/service-locations", async (req, res) => {
+    if (!req.isAuthenticated() || !req.user.tenantId) {
+      return res.sendStatus(401);
+    }
+
+    try {
+      const { serviceId } = req.query;
+      const whereConditions = serviceId
+        ? and(
+            eq(schema.serviceLocations.tenantId, req.user.tenantId),
+            eq(schema.serviceLocations.serviceId, serviceId as string)
+          )
+        : eq(schema.serviceLocations.tenantId, req.user.tenantId);
+
+      const serviceLocations = await db
+        .select()
+        .from(schema.serviceLocations)
+        .where(whereConditions);
+
+      res.json(serviceLocations);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.post("/api/service-locations", async (req, res) => {
+    if (!req.isAuthenticated() || !req.user.tenantId) {
+      return res.sendStatus(401);
+    }
+
+    try {
+      const validatedData = insertServiceLocationSchema.parse(req.body);
+      const [serviceLocation] = await db
+        .insert(schema.serviceLocations)
+        .values({
+          ...validatedData,
+          tenantId: req.user.tenantId,
+        })
+        .returning();
+
+      res.json(serviceLocation);
+    } catch (error: any) {
+      res.status(400).json({ error: error.message });
+    }
+  });
+
+  app.delete("/api/service-locations/:id", async (req, res) => {
+    if (!req.isAuthenticated() || !req.user.tenantId) {
+      return res.sendStatus(401);
+    }
+
+    try {
+      const { id } = req.params;
+      await db
+        .delete(schema.serviceLocations)
+        .where(
+          and(
+            eq(schema.serviceLocations.id, id),
+            eq(schema.serviceLocations.tenantId, req.user.tenantId)
+          )
+        );
+
+      res.json({ success: true });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Staff endpoints
+  app.get("/api/staff", async (req, res) => {
+    if (!req.isAuthenticated() || !req.user.tenantId) {
+      return res.sendStatus(401);
+    }
+
+    try {
+      const staff = await db
+        .select()
+        .from(schema.staffMembers)
+        .where(eq(schema.staffMembers.tenantId, req.user.tenantId))
+        .orderBy(schema.staffMembers.name);
+
+      res.json(staff);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.post("/api/staff", async (req, res) => {
+    if (!req.isAuthenticated() || !req.user.tenantId) {
+      return res.sendStatus(401);
+    }
+
+    try {
+      const validatedData = insertStaffMemberSchema.parse(req.body);
+      const [staffMember] = await db
+        .insert(schema.staffMembers)
+        .values({
+          ...validatedData,
+          tenantId: req.user.tenantId,
+        })
+        .returning();
+
+      res.json(staffMember);
+    } catch (error: any) {
+      res.status(400).json({ error: error.message });
+    }
+  });
+
+  app.patch("/api/staff/:id", async (req, res) => {
+    if (!req.isAuthenticated() || !req.user.tenantId) {
+      return res.sendStatus(401);
+    }
+
+    try {
+      const { id } = req.params;
+      const validatedData = insertStaffMemberSchema.partial().parse(req.body);
+      const [updated] = await db
+        .update(schema.staffMembers)
+        .set({ ...validatedData, updatedAt: new Date() })
+        .where(
+          and(
+            eq(schema.staffMembers.id, id),
+            eq(schema.staffMembers.tenantId, req.user.tenantId)
+          )
+        )
+        .returning();
+
+      if (!updated) {
+        return res.status(404).json({ error: "Staff member not found" });
+      }
+
+      res.json(updated);
+    } catch (error: any) {
+      res.status(400).json({ error: error.message });
+    }
+  });
+
+  app.delete("/api/staff/:id", async (req, res) => {
+    if (!req.isAuthenticated() || !req.user.tenantId) {
+      return res.sendStatus(401);
+    }
+
+    try {
+      const { id } = req.params;
+      await db
+        .delete(schema.staffMembers)
+        .where(
+          and(
+            eq(schema.staffMembers.id, id),
+            eq(schema.staffMembers.tenantId, req.user.tenantId)
+          )
+        );
+
+      res.json({ success: true });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Staff-Services relationship endpoints
+  app.get("/api/staff-services", async (req, res) => {
+    if (!req.isAuthenticated() || !req.user.tenantId) {
+      return res.sendStatus(401);
+    }
+
+    try {
+      const { staffId } = req.query;
+      const whereConditions = staffId
+        ? and(
+            eq(schema.staffServices.tenantId, req.user.tenantId),
+            eq(schema.staffServices.staffId, staffId as string)
+          )
+        : eq(schema.staffServices.tenantId, req.user.tenantId);
+
+      const staffServices = await db
+        .select()
+        .from(schema.staffServices)
+        .where(whereConditions);
+
+      res.json(staffServices);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.post("/api/staff-services", async (req, res) => {
+    if (!req.isAuthenticated() || !req.user.tenantId) {
+      return res.sendStatus(401);
+    }
+
+    try {
+      const validatedData = insertStaffServiceSchema.parse(req.body);
+      const [staffService] = await db
+        .insert(schema.staffServices)
+        .values({
+          ...validatedData,
+          tenantId: req.user.tenantId,
+        })
+        .returning();
+
+      res.json(staffService);
+    } catch (error: any) {
+      res.status(400).json({ error: error.message });
+    }
+  });
+
+  app.delete("/api/staff-services/:id", async (req, res) => {
+    if (!req.isAuthenticated() || !req.user.tenantId) {
+      return res.sendStatus(401);
+    }
+
+    try {
+      const { id } = req.params;
+      await db
+        .delete(schema.staffServices)
+        .where(
+          and(
+            eq(schema.staffServices.id, id),
+            eq(schema.staffServices.tenantId, req.user.tenantId)
+          )
+        );
+
+      res.json({ success: true });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Availability Rules endpoints
+  app.get("/api/availability-rules", async (req, res) => {
+    if (!req.isAuthenticated() || !req.user.tenantId) {
+      return res.sendStatus(401);
+    }
+
+    try {
+      const { staffId } = req.query;
+      const whereConditions = staffId
+        ? and(
+            eq(schema.availabilityRules.tenantId, req.user.tenantId),
+            eq(schema.availabilityRules.staffId, staffId as string)
+          )
+        : eq(schema.availabilityRules.tenantId, req.user.tenantId);
+
+      const rules = await db
+        .select()
+        .from(schema.availabilityRules)
+        .where(whereConditions)
+        .orderBy(schema.availabilityRules.dayOfWeek);
+
+      res.json(rules);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.post("/api/availability-rules", async (req, res) => {
+    if (!req.isAuthenticated() || !req.user.tenantId) {
+      return res.sendStatus(401);
+    }
+
+    try {
+      const validatedData = insertAvailabilityRuleSchema.parse(req.body);
+      const [rule] = await db
+        .insert(schema.availabilityRules)
+        .values({
+          ...validatedData,
+          tenantId: req.user.tenantId,
+        })
+        .returning();
+
+      res.json(rule);
+    } catch (error: any) {
+      res.status(400).json({ error: error.message });
+    }
+  });
+
+  app.patch("/api/availability-rules/:id", async (req, res) => {
+    if (!req.isAuthenticated() || !req.user.tenantId) {
+      return res.sendStatus(401);
+    }
+
+    try {
+      const { id } = req.params;
+      const validatedData = insertAvailabilityRuleSchema.partial().parse(req.body);
+      const [updated] = await db
+        .update(schema.availabilityRules)
+        .set(validatedData)
+        .where(
+          and(
+            eq(schema.availabilityRules.id, id),
+            eq(schema.availabilityRules.tenantId, req.user.tenantId)
+          )
+        )
+        .returning();
+
+      if (!updated) {
+        return res.status(404).json({ error: "Availability rule not found" });
+      }
+
+      res.json(updated);
+    } catch (error: any) {
+      res.status(400).json({ error: error.message });
+    }
+  });
+
+  app.delete("/api/availability-rules/:id", async (req, res) => {
+    if (!req.isAuthenticated() || !req.user.tenantId) {
+      return res.sendStatus(401);
+    }
+
+    try {
+      const { id } = req.params;
+      await db
+        .delete(schema.availabilityRules)
+        .where(
+          and(
+            eq(schema.availabilityRules.id, id),
+            eq(schema.availabilityRules.tenantId, req.user.tenantId)
+          )
+        );
+
+      res.json({ success: true });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Availability Exceptions endpoints
+  app.get("/api/availability-exceptions", async (req, res) => {
+    if (!req.isAuthenticated() || !req.user.tenantId) {
+      return res.sendStatus(401);
+    }
+
+    try {
+      const { staffId } = req.query;
+      const whereConditions = staffId
+        ? and(
+            eq(schema.availabilityExceptions.tenantId, req.user.tenantId),
+            eq(schema.availabilityExceptions.staffId, staffId as string)
+          )
+        : eq(schema.availabilityExceptions.tenantId, req.user.tenantId);
+
+      const exceptions = await db
+        .select()
+        .from(schema.availabilityExceptions)
+        .where(whereConditions)
+        .orderBy(schema.availabilityExceptions.date);
+
+      res.json(exceptions);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.post("/api/availability-exceptions", async (req, res) => {
+    if (!req.isAuthenticated() || !req.user.tenantId) {
+      return res.sendStatus(401);
+    }
+
+    try {
+      const validatedData = insertAvailabilityExceptionSchema.parse(req.body);
+      const [exception] = await db
+        .insert(schema.availabilityExceptions)
+        .values({
+          ...validatedData,
+          tenantId: req.user.tenantId,
+        })
+        .returning();
+
+      res.json(exception);
+    } catch (error: any) {
+      res.status(400).json({ error: error.message });
+    }
+  });
+
+  app.patch("/api/availability-exceptions/:id", async (req, res) => {
+    if (!req.isAuthenticated() || !req.user.tenantId) {
+      return res.sendStatus(401);
+    }
+
+    try {
+      const { id } = req.params;
+      const validatedData = insertAvailabilityExceptionSchema.partial().parse(req.body);
+      const [updated] = await db
+        .update(schema.availabilityExceptions)
+        .set(validatedData)
+        .where(
+          and(
+            eq(schema.availabilityExceptions.id, id),
+            eq(schema.availabilityExceptions.tenantId, req.user.tenantId)
+          )
+        )
+        .returning();
+
+      if (!updated) {
+        return res.status(404).json({ error: "Availability exception not found" });
+      }
+
+      res.json(updated);
+    } catch (error: any) {
+      res.status(400).json({ error: error.message });
+    }
+  });
+
+  app.delete("/api/availability-exceptions/:id", async (req, res) => {
+    if (!req.isAuthenticated() || !req.user.tenantId) {
+      return res.sendStatus(401);
+    }
+
+    try {
+      const { id } = req.params;
+      await db
+        .delete(schema.availabilityExceptions)
+        .where(
+          and(
+            eq(schema.availabilityExceptions.id, id),
+            eq(schema.availabilityExceptions.tenantId, req.user.tenantId)
+          )
+        );
+
+      res.json({ success: true });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Appointments endpoints
+  app.get("/api/appointments", async (req, res) => {
+    if (!req.isAuthenticated() || !req.user.tenantId) {
+      return res.sendStatus(401);
+    }
+
+    try {
+      const { start, end, staffId, serviceId, status } = req.query;
+      
+      let whereConditions = eq(schema.appointments.tenantId, req.user.tenantId);
+      
+      // Build filter conditions
+      const conditions = [whereConditions];
+      if (staffId) {
+        conditions.push(eq(schema.appointments.staffId, staffId as string));
+      }
+      if (serviceId) {
+        conditions.push(eq(schema.appointments.serviceId, serviceId as string));
+      }
+      if (status) {
+        conditions.push(eq(schema.appointments.status, status as string));
+      }
+      if (start) {
+        conditions.push(sql`${schema.appointments.startTime} >= ${start}`);
+      }
+      if (end) {
+        conditions.push(sql`${schema.appointments.endTime} <= ${end}`);
+      }
+
+      const appointments = await db
+        .select()
+        .from(schema.appointments)
+        .where(and(...conditions))
+        .orderBy(schema.appointments.startTime);
+
+      res.json(appointments);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.post("/api/appointments", async (req, res) => {
+    if (!req.isAuthenticated() || !req.user.tenantId) {
+      return res.sendStatus(401);
+    }
+
+    try {
+      const validatedData = insertAppointmentSchema.parse(req.body);
+      const [appointment] = await db
+        .insert(schema.appointments)
+        .values({
+          ...validatedData,
+          tenantId: req.user.tenantId,
+        })
+        .returning();
+
+      res.json(appointment);
+    } catch (error: any) {
+      res.status(400).json({ error: error.message });
+    }
+  });
+
+  app.patch("/api/appointments/:id", async (req, res) => {
+    if (!req.isAuthenticated() || !req.user.tenantId) {
+      return res.sendStatus(401);
+    }
+
+    try {
+      const { id } = req.params;
+      const validatedData = insertAppointmentSchema.partial().parse(req.body);
+      const [updated] = await db
+        .update(schema.appointments)
+        .set({ ...validatedData, updatedAt: new Date() })
+        .where(
+          and(
+            eq(schema.appointments.id, id),
+            eq(schema.appointments.tenantId, req.user.tenantId)
+          )
+        )
+        .returning();
+
+      if (!updated) {
+        return res.status(404).json({ error: "Appointment not found" });
+      }
+
+      res.json(updated);
+    } catch (error: any) {
+      res.status(400).json({ error: error.message });
+    }
+  });
+
+  app.delete("/api/appointments/:id", async (req, res) => {
+    if (!req.isAuthenticated() || !req.user.tenantId) {
+      return res.sendStatus(401);
+    }
+
+    try {
+      const { id } = req.params;
+      await db
+        .delete(schema.appointments)
+        .where(
+          and(
+            eq(schema.appointments.id, id),
+            eq(schema.appointments.tenantId, req.user.tenantId)
+          )
+        );
+
+      res.json({ success: true });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Appointments stats endpoint
+  app.get("/api/appointments/stats", async (req, res) => {
+    if (!req.isAuthenticated() || !req.user.tenantId) {
+      return res.sendStatus(401);
+    }
+
+    try {
+      const { start, end } = req.query;
+      
+      let whereConditions = eq(schema.appointments.tenantId, req.user.tenantId);
+      const conditions = [whereConditions];
+      
+      if (start) {
+        conditions.push(sql`${schema.appointments.startTime} >= ${start}`);
+      }
+      if (end) {
+        conditions.push(sql`${schema.appointments.endTime} <= ${end}`);
+      }
+
+      const appointments = await db
+        .select()
+        .from(schema.appointments)
+        .where(and(...conditions));
+
+      const stats = {
+        total: appointments.length,
+        pending: appointments.filter(a => a.status === 'pending').length,
+        confirmed: appointments.filter(a => a.status === 'confirmed').length,
+        completed: appointments.filter(a => a.status === 'completed').length,
+        cancelled: appointments.filter(a => a.status === 'cancelled').length,
+        noShow: appointments.filter(a => a.status === 'no_show').length,
+      };
+
+      res.json(stats);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Waitlist endpoints
+  app.get("/api/waitlist", async (req, res) => {
+    if (!req.isAuthenticated() || !req.user.tenantId) {
+      return res.sendStatus(401);
+    }
+
+    try {
+      const { status } = req.query;
+      const whereConditions = status
+        ? and(
+            eq(schema.waitlist.tenantId, req.user.tenantId),
+            eq(schema.waitlist.status, status as string)
+          )
+        : eq(schema.waitlist.tenantId, req.user.tenantId);
+
+      const waitlistEntries = await db
+        .select()
+        .from(schema.waitlist)
+        .where(whereConditions)
+        .orderBy(desc(schema.waitlist.createdAt));
+
+      res.json(waitlistEntries);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.post("/api/waitlist", async (req, res) => {
+    if (!req.isAuthenticated() || !req.user.tenantId) {
+      return res.sendStatus(401);
+    }
+
+    try {
+      const validatedData = insertWaitlistSchema.parse(req.body);
+      const [waitlistEntry] = await db
+        .insert(schema.waitlist)
+        .values({
+          ...validatedData,
+          tenantId: req.user.tenantId,
+        })
+        .returning();
+
+      res.json(waitlistEntry);
+    } catch (error: any) {
+      res.status(400).json({ error: error.message });
+    }
+  });
+
+  app.patch("/api/waitlist/:id", async (req, res) => {
+    if (!req.isAuthenticated() || !req.user.tenantId) {
+      return res.sendStatus(401);
+    }
+
+    try {
+      const { id } = req.params;
+      const validatedData = insertWaitlistSchema.partial().parse(req.body);
+      const [updated] = await db
+        .update(schema.waitlist)
+        .set(validatedData)
+        .where(
+          and(
+            eq(schema.waitlist.id, id),
+            eq(schema.waitlist.tenantId, req.user.tenantId)
+          )
+        )
+        .returning();
+
+      if (!updated) {
+        return res.status(404).json({ error: "Waitlist entry not found" });
+      }
+
+      res.json(updated);
+    } catch (error: any) {
+      res.status(400).json({ error: error.message });
+    }
+  });
+
+  app.delete("/api/waitlist/:id", async (req, res) => {
+    if (!req.isAuthenticated() || !req.user.tenantId) {
+      return res.sendStatus(401);
+    }
+
+    try {
+      const { id } = req.params;
+      await db
+        .delete(schema.waitlist)
+        .where(
+          and(
+            eq(schema.waitlist.id, id),
+            eq(schema.waitlist.tenantId, req.user.tenantId)
+          )
+        );
+
+      res.json({ success: true });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Notification Templates endpoints
+  app.get("/api/notification-templates", async (req, res) => {
+    if (!req.isAuthenticated() || !req.user.tenantId) {
+      return res.sendStatus(401);
+    }
+
+    try {
+      const { type, channel } = req.query;
+      let whereConditions = eq(schema.notificationTemplates.tenantId, req.user.tenantId);
+      
+      const conditions = [whereConditions];
+      if (type) {
+        conditions.push(eq(schema.notificationTemplates.type, type as string));
+      }
+      if (channel) {
+        conditions.push(eq(schema.notificationTemplates.channel, channel as string));
+      }
+
+      const templates = await db
+        .select()
+        .from(schema.notificationTemplates)
+        .where(and(...conditions))
+        .orderBy(schema.notificationTemplates.type);
+
+      res.json(templates);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.post("/api/notification-templates", async (req, res) => {
+    if (!req.isAuthenticated() || !req.user.tenantId) {
+      return res.sendStatus(401);
+    }
+
+    try {
+      const validatedData = insertNotificationTemplateSchema.parse(req.body);
+      const [template] = await db
+        .insert(schema.notificationTemplates)
+        .values({
+          ...validatedData,
+          tenantId: req.user.tenantId,
+        })
+        .returning();
+
+      res.json(template);
+    } catch (error: any) {
+      res.status(400).json({ error: error.message });
+    }
+  });
+
+  app.patch("/api/notification-templates/:id", async (req, res) => {
+    if (!req.isAuthenticated() || !req.user.tenantId) {
+      return res.sendStatus(401);
+    }
+
+    try {
+      const { id } = req.params;
+      const validatedData = insertNotificationTemplateSchema.partial().parse(req.body);
+      const [updated] = await db
+        .update(schema.notificationTemplates)
+        .set({ ...validatedData, updatedAt: new Date() })
+        .where(
+          and(
+            eq(schema.notificationTemplates.id, id),
+            eq(schema.notificationTemplates.tenantId, req.user.tenantId)
+          )
+        )
+        .returning();
+
+      if (!updated) {
+        return res.status(404).json({ error: "Notification template not found" });
+      }
+
+      res.json(updated);
+    } catch (error: any) {
+      res.status(400).json({ error: error.message });
+    }
+  });
+
+  app.delete("/api/notification-templates/:id", async (req, res) => {
+    if (!req.isAuthenticated() || !req.user.tenantId) {
+      return res.sendStatus(401);
+    }
+
+    try {
+      const { id } = req.params;
+      await db
+        .delete(schema.notificationTemplates)
+        .where(
+          and(
+            eq(schema.notificationTemplates.id, id),
+            eq(schema.notificationTemplates.tenantId, req.user.tenantId)
+          )
+        );
+
+      res.json({ success: true });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
   return server;
 }

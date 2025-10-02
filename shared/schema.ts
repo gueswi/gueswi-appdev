@@ -757,6 +757,115 @@ export const insertLeadActivitySchema = createInsertSchema(leadActivities).pick(
   metadata: true,
 }).partial({ userId: true, metadata: true });
 
+// Calendar Insert Schemas
+export const insertLocationSchema = createInsertSchema(locations).pick({
+  name: true,
+  address: true,
+  city: true,
+  state: true,
+  country: true,
+  postalCode: true,
+  timezone: true,
+  phone: true,
+  email: true,
+  settings: true,
+  isActive: true,
+}).partial({ address: true, city: true, state: true, country: true, postalCode: true, phone: true, email: true, settings: true, isActive: true });
+
+export const insertServiceSchema = createInsertSchema(services).pick({
+  name: true,
+  description: true,
+  duration: true,
+  price: true,
+  currency: true,
+  capacity: true,
+  bufferTime: true,
+  color: true,
+  slotDuration: true,
+  depositRequired: true,
+  allowRecurring: true,
+  customFields: true,
+  isActive: true,
+}).partial({ description: true, price: true, currency: true, capacity: true, bufferTime: true, color: true, slotDuration: true, depositRequired: true, allowRecurring: true, customFields: true, isActive: true });
+
+export const insertServiceLocationSchema = createInsertSchema(serviceLocations).pick({
+  serviceId: true,
+  locationId: true,
+});
+
+export const insertStaffMemberSchema = createInsertSchema(staffMembers).pick({
+  userId: true,
+  name: true,
+  email: true,
+  phone: true,
+  role: true,
+  color: true,
+  locationId: true,
+  isActive: true,
+}).partial({ userId: true, email: true, phone: true, role: true, color: true, locationId: true, isActive: true });
+
+export const insertStaffServiceSchema = createInsertSchema(staffServices).pick({
+  staffId: true,
+  serviceId: true,
+});
+
+export const insertAvailabilityRuleSchema = createInsertSchema(availabilityRules).pick({
+  staffId: true,
+  dayOfWeek: true,
+  startTime: true,
+  endTime: true,
+  serviceId: true,
+}).partial({ serviceId: true });
+
+export const insertAvailabilityExceptionSchema = createInsertSchema(availabilityExceptions).pick({
+  staffId: true,
+  date: true,
+  isAvailable: true,
+  startTime: true,
+  endTime: true,
+  reason: true,
+}).partial({ isAvailable: true, startTime: true, endTime: true, reason: true });
+
+export const insertAppointmentSchema = createInsertSchema(appointments).pick({
+  serviceId: true,
+  staffId: true,
+  locationId: true,
+  customerName: true,
+  customerEmail: true,
+  customerPhone: true,
+  customFields: true,
+  startTime: true,
+  endTime: true,
+  timezone: true,
+  status: true,
+  isRecurring: true,
+  recurrenceRule: true,
+  parentAppointmentId: true,
+  notes: true,
+  cancelReason: true,
+  videoMeetingUrl: true,
+}).partial({ customerEmail: true, customFields: true, status: true, isRecurring: true, recurrenceRule: true, parentAppointmentId: true, notes: true, cancelReason: true, videoMeetingUrl: true });
+
+export const insertWaitlistSchema = createInsertSchema(waitlist).pick({
+  serviceId: true,
+  staffId: true,
+  locationId: true,
+  customerName: true,
+  customerEmail: true,
+  customerPhone: true,
+  preferredDate: true,
+  preferredTimeSlot: true,
+  status: true,
+}).partial({ staffId: true, customerEmail: true, preferredDate: true, preferredTimeSlot: true, status: true });
+
+export const insertNotificationTemplateSchema = createInsertSchema(notificationTemplates).pick({
+  type: true,
+  channel: true,
+  subject: true,
+  template: true,
+  isActive: true,
+}).partial({ subject: true, isActive: true });
+
 // Types
 export type User = typeof users.$inferSelect;
 export type InsertUser = z.infer<typeof insertUserSchema>;
@@ -787,10 +896,22 @@ export type InsertLead = z.infer<typeof insertLeadSchema>;
 export type LeadActivity = typeof leadActivities.$inferSelect;
 export type InsertLeadActivity = z.infer<typeof insertLeadActivitySchema>;
 export type Location = typeof locations.$inferSelect;
+export type InsertLocation = z.infer<typeof insertLocationSchema>;
 export type Service = typeof services.$inferSelect;
+export type InsertService = z.infer<typeof insertServiceSchema>;
+export type ServiceLocation = typeof serviceLocations.$inferSelect;
+export type InsertServiceLocation = z.infer<typeof insertServiceLocationSchema>;
 export type StaffMember = typeof staffMembers.$inferSelect;
+export type InsertStaffMember = z.infer<typeof insertStaffMemberSchema>;
+export type StaffService = typeof staffServices.$inferSelect;
+export type InsertStaffService = z.infer<typeof insertStaffServiceSchema>;
 export type AvailabilityRule = typeof availabilityRules.$inferSelect;
+export type InsertAvailabilityRule = z.infer<typeof insertAvailabilityRuleSchema>;
 export type AvailabilityException = typeof availabilityExceptions.$inferSelect;
+export type InsertAvailabilityException = z.infer<typeof insertAvailabilityExceptionSchema>;
 export type Appointment = typeof appointments.$inferSelect;
+export type InsertAppointment = z.infer<typeof insertAppointmentSchema>;
 export type Waitlist = typeof waitlist.$inferSelect;
+export type InsertWaitlist = z.infer<typeof insertWaitlistSchema>;
 export type NotificationTemplate = typeof notificationTemplates.$inferSelect;
+export type InsertNotificationTemplate = z.infer<typeof insertNotificationTemplateSchema>;
