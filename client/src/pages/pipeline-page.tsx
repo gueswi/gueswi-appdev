@@ -74,9 +74,19 @@ export default function PipelinePage() {
     queryKey: ["/api/pipelines"],
   });
 
-  // Auto-select default pipeline
+  // Auto-select default pipeline or handle deleted pipeline
   useEffect(() => {
-    if (pipelines.length > 0 && !selectedPipelineId) {
+    if (pipelines.length === 0) {
+      // No pipelines exist
+      setSelectedPipelineId(null);
+      return;
+    }
+
+    // Check if currently selected pipeline still exists
+    const selectedExists = selectedPipelineId && pipelines.some(p => p.id === selectedPipelineId);
+    
+    if (!selectedPipelineId || !selectedExists) {
+      // No pipeline selected OR selected pipeline was deleted - select default or first
       const defaultPipeline = pipelines.find(p => p.isDefault) || pipelines[0];
       setSelectedPipelineId(defaultPipeline.id);
     }
