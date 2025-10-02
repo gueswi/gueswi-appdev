@@ -1,0 +1,107 @@
+Aplica estos 4 fixes EXACTOS al Pipeline CRM para resolver los bugs reportados:
+
+FIX #1: Endpoint reordenar etapas (server/routes.ts línea 1408-1440)
+Reemplaza el endpoint app.patch("/api/pipeline/stages/reorder") completo con:
+
+app.patch("/api/pipeline/stages/reorder", async (req, res) => {
+  if (!req.isAuthenticated() || !req.user.tenantId) {
+    return res.sendStatus(401);
+  }
+
+  try {
+    console.log("🔧 Reorder request body:", JSON.stringify(req.body));
+    const { stages } = req.body;
+    
+    if (!stages || !Array.isArray(stages)) {
+      return res.status(400).json({ error: "Invalid stages array" });
+    }
+
+    // Update each stage's order
+    for (const stage of stages) {
+      await db
+        .update(schema.pipelineStages)
+        .set({ order: stage.order })
+        .where(
+          and(
+            eq(schema.pipelineStages.id, stage.id),
+            eq(schema.pipelineStages.tenantId, req.user.tenantId)
+          )
+        );
+    }
+
+    res.json({ success: true });
+  } catch (error: any) {
+    console.error("❌ Reorder error:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+FIX #2: Texto cortado al escribir (client/src/components/pipeline/stages-editor-dialog.tsx)
+En la función handleUpdate, línea 158, agrega validación al inicio:
+
+const handleUpdate = (id: string, data: { name?: string; color?: string }) => {
+  // Skip API call for temporary IDs
+  if (id.startsWith('temp-')) {
+    setLocalStages((prev) =>
+      prev.map((s) => (s.id === id ? { ...s, ...data } : s))
+    );
+    return;
+  }
+  
+  // Update local state immediately for smooth UX
+  setLocalStages((prev) =>
+    prev.map((s) => (s.id === id ? { ...s, ...data } : s))
+  );
+  
+  // Debounce API call to avoid cutting text while typing
+  if (debounceTimers.current[id]) {
+    clearTimeout(debounceTimers.current[id]);
+  }
+  
+  debounceTimers.current[id] = setTimeout(() => {
+    updateStage.mutate({ id, data });
+    delete debounceTimers.current[id];
+  }, 1500); // Aumentado de 800ms a 1500ms
+};
+
+FIX #3: Drag & Drop torpe (client/src/pages/pipeline-page.tsx línea 71)
+Reemplaza la configuración del sensor:
+
+const sensors = useSensors(
+  useSensor(PointerSensor, {
+    activationConstraint: {
+      distance: 10, // Cambiado de 3 a 10
+      delay: 100,
+      tolerance: 5,
+    },
+  })
+);
+
+FIX #4: Datos en N/A después de editar (client/src/components/pipeline/lead-details-dialog.tsx)
+
+A) Línea 50-55, reemplaza el useQuery:
+
+const { data: leadDetails, isLoading, refetch } = useQuery<Lead>({
+  queryKey: ["/api/pipeline/leads", lead.id],
+  refetchOnMount: 'always',
+  refetchOnWindowFocus: false,
+  staleTime: 0,
+  // REMOVER initialData: lead
+});
+
+B) Línea 92, en el mutation success de updateLead, cambia a:
+
+onSuccess: async () => {
+  await queryClient.invalidateQueries({ queryKey: ["/api/pipeline/leads"] });
+  await queryClient.invalidateQueries({ queryKey: ["/api/pipeline/leads", lead.id] });
+  await queryClient.invalidateQueries({ queryKey: ["/api/pipeline/metrics"] });
+  await queryClient.invalidateQueries({ queryKey: ["/api/pipeline/leads", lead.id, "activities"] });
+  await refetch(); // Agregar esta línea
+  toast({
+    title: "Lead actualizado",
+    description: "Los cambios se guardaron exitosamente",
+  });
+  onClose();
+},
+
+Aplica los 4 fixes EXACTAMENTE como están escritos. No hagas ningún otro cambio. Testea que cada uno funcione después de aplicarlo.

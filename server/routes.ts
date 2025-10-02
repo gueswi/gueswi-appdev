@@ -1295,6 +1295,39 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  app.patch("/api/pipeline/stages/reorder", async (req, res) => {
+    if (!req.isAuthenticated() || !req.user.tenantId) {
+      return res.sendStatus(401);
+    }
+
+    try {
+      console.log("🔧 Reorder request body:", JSON.stringify(req.body));
+      const { stages } = req.body;
+      
+      if (!stages || !Array.isArray(stages)) {
+        return res.status(400).json({ error: "Invalid stages array" });
+      }
+
+      // Update each stage's order
+      for (const stage of stages) {
+        await db
+          .update(schema.pipelineStages)
+          .set({ order: stage.order })
+          .where(
+            and(
+              eq(schema.pipelineStages.id, stage.id),
+              eq(schema.pipelineStages.tenantId, req.user.tenantId)
+            )
+          );
+      }
+
+      res.json({ success: true });
+    } catch (error: any) {
+      console.error("❌ Reorder error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
   app.patch("/api/pipeline/stages/:id", async (req, res) => {
     if (!req.isAuthenticated() || !req.user.tenantId) {
       return res.sendStatus(401);
@@ -1401,48 +1434,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       res.json({ success: true });
     } catch (error: any) {
-      res.status(500).json({ error: error.message });
-    }
-  });
-
-  app.patch("/api/pipeline/stages/reorder", async (req, res) => {
-    if (!req.isAuthenticated() || !req.user.tenantId) {
-      return res.sendStatus(401);
-    }
-
-    try {
-      console.log("🔧 Reorder request body:", JSON.stringify(req.body));
-      const { stages } = req.body;
-      console.log("🔧 Stages array:", stages);
-
-      if (!stages || !Array.isArray(stages) || stages.length === 0) {
-        console.log("❌ Invalid stages array");
-        return res.status(400).json({ error: "Invalid stages array" });
-      }
-
-      // Update each stage's order
-      for (const stage of stages) {
-        console.log("🔧 Processing stage:", stage);
-        if (stage.id && typeof stage.order === 'number') {
-          console.log("🔧 Updating stage", stage.id, "to order", stage.order);
-          await db
-            .update(schema.pipelineStages)
-            .set({ order: stage.order })
-            .where(
-              and(
-                eq(schema.pipelineStages.id, stage.id),
-                eq(schema.pipelineStages.tenantId, req.user.tenantId),
-              ),
-            );
-          console.log("✅ Updated stage", stage.id);
-        }
-      }
-
-      console.log("✅ All stages reordered successfully");
-      res.json({ success: true });
-    } catch (error: any) {
-      console.error("❌ Error reordering stages:", error);
-      console.error("❌ Error stack:", error.stack);
       res.status(500).json({ error: error.message });
     }
   });

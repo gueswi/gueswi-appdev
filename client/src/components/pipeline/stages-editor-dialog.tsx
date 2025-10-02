@@ -268,6 +268,14 @@ export function StagesEditorDialog({ stages, leads }: StagesEditorDialogProps) {
   };
 
   const handleUpdate = (id: string, data: { name?: string; color?: string }) => {
+    // Skip API call for temporary IDs
+    if (id.startsWith('temp-')) {
+      setLocalStages((prev) =>
+        prev.map((s) => (s.id === id ? { ...s, ...data } : s))
+      );
+      return;
+    }
+    
     // Update local state immediately for smooth UX
     setLocalStages((prev) =>
       prev.map((s) => (s.id === id ? { ...s, ...data } : s))
@@ -281,7 +289,7 @@ export function StagesEditorDialog({ stages, leads }: StagesEditorDialogProps) {
     debounceTimers.current[id] = setTimeout(() => {
       updateStage.mutate({ id, data });
       delete debounceTimers.current[id];
-    }, 800);
+    }, 1500); // Aumentado de 800ms a 1500ms
   };
 
   const handleDelete = (id: string) => {

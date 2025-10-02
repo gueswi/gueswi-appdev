@@ -61,35 +61,38 @@ export function LeadDetailsDialog({ lead, stages, onClose }: LeadDetailsDialogPr
   const { toast } = useToast();
   const [activeTab, setActiveTab] = useState("info");
 
-  // Fetch lead details - refetch on mount to ensure fresh data after edits
-  const { data: leadDetails, isLoading } = useQuery<Lead>({
-    queryKey: ["/api/pipeline/leads", lead.id],
-    initialData: lead,
+  const { data: leadDetails, isLoading, refetch } = useQuery<Lead>({
+    queryKey: [`/api/pipeline/leads/${lead.id}`],
     refetchOnMount: 'always',
+    refetchOnWindowFocus: false,
+    staleTime: 0,
   });
 
   // Fetch lead activities
   const { data: activities = [] } = useQuery<LeadActivity[]>({
-    queryKey: ["/api/pipeline/leads", lead.id, "activities"],
+    queryKey: [`/api/pipeline/leads/${lead.id}/activities`],
     enabled: !!lead.id,
   });
+
+  // Use lead prop as fallback if leadDetails is not loaded yet
+  const currentLead = leadDetails || lead;
 
   const form = useForm<EditLeadFormData>({
     resolver: zodResolver(editLeadSchema),
     values: {
-      name: leadDetails.name,
-      company: leadDetails.company || "",
-      email: leadDetails.email || "",
-      phone: leadDetails.phone || "",
-      value: leadDetails.value?.toString() || "",
-      currency: leadDetails.currency || "USD",
-      probability: leadDetails.probability || 50,
-      stageId: leadDetails.stageId,
-      expectedCloseDate: leadDetails.expectedCloseDate
-        ? format(new Date(leadDetails.expectedCloseDate), "yyyy-MM-dd")
+      name: currentLead.name,
+      company: currentLead.company || "",
+      email: currentLead.email || "",
+      phone: currentLead.phone || "",
+      value: currentLead.value?.toString() || "",
+      currency: currentLead.currency || "USD",
+      probability: currentLead.probability || 50,
+      stageId: currentLead.stageId,
+      expectedCloseDate: currentLead.expectedCloseDate
+        ? format(new Date(currentLead.expectedCloseDate), "yyyy-MM-dd")
         : "",
-      notes: leadDetails.notes || "",
-      tags: leadDetails.tags?.join(", ") || "",
+      notes: currentLead.notes || "",
+      tags: currentLead.tags?.join(", ") || "",
     },
   });
 
@@ -119,11 +122,12 @@ export function LeadDetailsDialog({ lead, stages, onClose }: LeadDetailsDialogPr
 
       return apiRequest("PATCH", `/api/pipeline/leads/${lead.id}`, payload);
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/pipeline/leads"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/pipeline/leads", lead.id] });
-      queryClient.invalidateQueries({ queryKey: ["/api/pipeline/metrics"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/pipeline/leads", lead.id, "activities"] });
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["/api/pipeline/leads"] });
+      await queryClient.invalidateQueries({ queryKey: [`/api/pipeline/leads/${lead.id}`] });
+      await queryClient.invalidateQueries({ queryKey: ["/api/pipeline/metrics"] });
+      await queryClient.invalidateQueries({ queryKey: [`/api/pipeline/leads/${lead.id}/activities`] });
+      await refetch();
       toast({
         title: "Lead actualizado",
         description: "Los cambios se guardaron exitosamente",
@@ -201,7 +205,7 @@ export function LeadDetailsDialog({ lead, stages, onClose }: LeadDetailsDialogPr
     updateLead.mutate(data);
   };
 
-  const currentStage = stages.find((s) => s.id === leadDetails.stageId);
+  const currentStage = stages.find((s) => s.id === currentLead.stageId);
   const isWonOrLost = currentStage?.isFixed;
 
   return (
@@ -209,7 +213,7 @@ export function LeadDetailsDialog({ lead, stages, onClose }: LeadDetailsDialogPr
       <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <div className="flex items-center justify-between">
-            <DialogTitle>{leadDetails.name}</DialogTitle>
+            <DialogTitle>{currentLead.name}</DialogTitle>
             <div className="flex gap-2">
               {!isWonOrLost && (
                 <>
@@ -250,36 +254,36 @@ export function LeadDetailsDialog({ lead, stages, onClose }: LeadDetailsDialogPr
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <div className="text-sm text-gray-500 dark:text-gray-400">Empresa</div>
-                <div className="font-medium">{leadDetails.company || "N/A"}</div>
+                <div className="font-medium">{currentLead.company || "N/A"}</div>
               </div>
               <div>
                 <div className="text-sm text-gray-500 dark:text-gray-400">Email</div>
-                <div className="font-medium">{leadDetails.email || "N/A"}</div>
+                <div className="font-medium">{currentLead.email || "N/A"}</div>
               </div>
               <div>
                 <div className="text-sm text-gray-500 dark:text-gray-400">Teléfono</div>
-                <div className="font-medium">{leadDetails.phone || "N/A"}</div>
+                <div className="font-medium">{currentLead.phone || "N/A"}</div>
               </div>
               <div>
                 <div className="text-sm text-gray-500 dark:text-gray-400">Valor</div>
                 <div className="font-medium">
-                  {leadDetails.value ? `$${Number(leadDetails.value).toLocaleString()} ${leadDetails.currency}` : "N/A"}
+                  {currentLead.value ? `$${Number(currentLead.value).toLocaleString()} ${currentLead.currency}` : "N/A"}
                 </div>
               </div>
               <div>
                 <div className="text-sm text-gray-500 dark:text-gray-400">Probabilidad</div>
-                <div className="font-medium">{leadDetails.probability}%</div>
+                <div className="font-medium">{currentLead.probability}%</div>
               </div>
               <div>
                 <div className="text-sm text-gray-500 dark:text-gray-400">Etapa</div>
                 <div className="font-medium">{currentStage?.name || "N/A"}</div>
               </div>
             </div>
-            {leadDetails.notes && (
+            {currentLead.notes && (
               <div>
                 <div className="text-sm text-gray-500 dark:text-gray-400 mb-1">Notas</div>
                 <div className="text-sm bg-gray-50 dark:bg-gray-800 p-3 rounded-lg">
-                  {leadDetails.notes}
+                  {currentLead.notes}
                 </div>
               </div>
             )}

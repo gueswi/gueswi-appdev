@@ -85,7 +85,9 @@ export default function PipelinePage() {
   const sensors = useSensors(
     useSensor(PointerSensor, {
       activationConstraint: {
-        distance: 3,
+        distance: 10,
+        delay: 100,
+        tolerance: 5,
       },
     })
   );
