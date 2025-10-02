@@ -178,4 +178,75 @@ Implemented production-ready advanced analytics dashboard accessible at `/analyt
 - Features: Loading states, metric cards with trend indicators, sentiment charts, intentions breakdown, opportunities list
 - Styling: Consistent with Gueswi design system using Tailwind CSS
 
+## Pipeline CRM Bug Fixes and Enhancements (October 2025)
+Resolved 4 critical bugs and implemented enhanced drag & drop UX for Pipeline CRM:
+
+### Fix #1: Stage Reorder Endpoint (500 Error Resolution)
+- **Problem**: PATCH `/api/pipeline/stages/reorder` returning 500 errors
+- **Root Cause**: Express route order - specific `/reorder` route placed after parametric `/:id` route
+- **Solution**: Moved `/api/pipeline/stages/reorder` BEFORE `/api/pipeline/stages/:id` in server/routes.ts
+- **Result**: Stage reordering works without errors
+
+### Fix #2: Text Truncation in Stage Editor
+- **Problem**: Stage names truncating while typing due to aggressive debouncing
+- **Root Cause**: 800ms debounce causing API calls mid-typing
+- **Solution**: Increased debounce to 1500ms and added temp ID validation in `StagesEditorDialog`
+- **Result**: Users can type long stage names without text cutting off
+
+### Fix #3: Drag Activation Refinement
+- **Problem**: Drag activating too easily (3px), causing accidental drags
+- **Solution**: Changed sensor config to `distance: 8` for more deliberate activation
+- **Result**: Smoother, more intentional drag operations
+
+### Fix #4: Lead Details Data Persistence
+- **Problem**: Lead details showing "N/A" after editing and saving
+- **Root Cause**: TanStack Query queryKey using array format `["/api/pipeline/leads", id]` which concatenated incorrectly as `/api/pipeline/leads?${id}`
+- **Solution**: Changed all queryKeys to use complete URL strings: `['/api/pipeline/leads/${id}']`
+- **Result**: Lead details properly refetch and display updated data after edits
+
+### FIX FINAL: Enhanced Drag & Drop UX
+Implemented production-ready drag & drop with custom collision detection and improved visual feedback:
+
+#### Drag & Drop Architecture Changes
+- **LeadCard**: Changed from `useSortable` to `useDraggable` (only draggable, not droppable)
+- **StageColumn**: Removed `SortableContext`, uses only `useDroppable`
+- **Result**: Prevents overId from incorrectly detecting other leads instead of stages
+
+#### Custom Collision Detection Chain
+```javascript
+customCollision = (args) => {
+  const pointerCollisions = pointerWithin(args);     // Priority 1: Pointer inside drop zone
+  if (pointerCollisions.length > 0) return pointerCollisions;
+  
+  const intersections = rectIntersection(args);       // Priority 2: Rectangle overlap
+  if (intersections.length > 0) return intersections;
+  
+  return closestCorners(args);                        // Priority 3: Fallback to closest
+};
+```
+
+#### Visual Enhancements
+- **Drop Zone Size**: Increased from min-h-[400px] to min-h-[500px] for larger target area
+- **Visual Feedback**: ring-4 (up from ring-2) for clearer highlighting
+- **Hover Effect**: scale-[1.02] subtle zoom when dragging over column
+- **Transitions**: transition-all duration-200 for smooth animations
+- **Drag Activation**: 8px distance (reduced from 10px) for balanced feel
+
+#### Files Modified
+- `client/src/pages/pipeline-page.tsx`: Custom collision detection, drag handlers
+- `client/src/components/pipeline/lead-card.tsx`: useDraggable implementation
+- `client/src/components/pipeline/stage-column.tsx`: Simplified droppable, enhanced visuals
+- `client/src/components/pipeline/lead-details-dialog.tsx`: Fixed queryKeys
+- `server/routes.ts`: Fixed route ordering for /reorder endpoint
+- `client/src/components/pipeline/stages-editor-dialog.tsx`: Debounce and validation
+
+#### Testing
+All fixes verified with end-to-end Playwright testing:
+- Stage reordering without 500 errors ✓
+- Long text entry without truncation ✓
+- Smooth drag activation and visual feedback ✓
+- Lead data persistence after editing ✓
+- Drag & drop with correct collision detection ✓
+- Toast notifications on successful operations ✓
+
 The application follows a clean architecture pattern with proper separation of concerns, type safety throughout the stack, and scalable patterns for multi-tenant SaaS operations.

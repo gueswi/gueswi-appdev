@@ -1,4 +1,4 @@
-import { useSortable } from "@dnd-kit/sortable";
+import { useDraggable } from "@dnd-kit/core";
 import { CSS } from "@dnd-kit/utilities";
 import type { Lead } from "@shared/schema";
 import { Building2, Mail, Phone, TrendingUp } from "lucide-react";
@@ -16,14 +16,12 @@ export function LeadCard({ lead, onClick, isDragging = false }: LeadCardProps) {
     listeners,
     setNodeRef,
     transform,
-    transition,
-    isDragging: isSortableDragging,
-  } = useSortable({ id: lead.id });
+    isDragging: isDraggableActive,
+  } = useDraggable({ id: lead.id });
 
   const style = {
-    transform: CSS.Transform.toString(transform),
-    transition,
-    opacity: isDragging || isSortableDragging ? 0.5 : 1,
+    transform: transform ? `translate3d(${transform.x}px, ${transform.y}px, 0)` : undefined,
+    opacity: isDragging || isDraggableActive ? 0.5 : 1,
   };
 
   return (

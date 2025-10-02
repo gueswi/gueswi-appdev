@@ -15,6 +15,8 @@ import {
   DragOverlay,
   DragStartEvent,
   closestCorners,
+  pointerWithin,
+  rectIntersection,
   PointerSensor,
   useSensor,
   useSensors,
@@ -33,6 +35,24 @@ import { StagesEditorDialog } from "@/components/pipeline/stages-editor-dialog.t
 import { LeadDetailsDialog } from "@/components/pipeline/lead-details-dialog.tsx";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
+
+// Custom collision para detectar drop zones fácilmente
+const customCollision = (args: any) => {
+  // Primero detecta donde está el pointer
+  const pointerCollisions = pointerWithin(args);
+  if (pointerCollisions.length > 0) {
+    return pointerCollisions;
+  }
+  
+  // Luego busca intersección con áreas grandes
+  const intersections = rectIntersection(args);
+  if (intersections.length > 0) {
+    return intersections;
+  }
+  
+  // Fallback
+  return closestCorners(args);
+};
 
 export default function PipelinePage() {
   const { toast } = useToast();
@@ -66,12 +86,15 @@ export default function PipelinePage() {
   // Move lead mutation
   const moveLead = useMutation({
     mutationFn: async ({ leadId, stageId }: { leadId: string; stageId: string }) => {
-      return apiRequest("PATCH", `/api/pipeline/leads/${leadId}/move`, { stageId });
+      await apiRequest("PATCH", `/api/pipeline/leads/${leadId}/move`, { stageId });
     },
-    onSuccess: (_, variables) => {
+    onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/pipeline/leads"] });
       queryClient.invalidateQueries({ queryKey: ["/api/pipeline/metrics"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/pipeline/leads", variables.leadId, "activities"] });
+      toast({
+        title: "Lead movido",
+        description: "El lead se movió exitosamente",
+      });
     },
     onError: () => {
       toast({
@@ -85,9 +108,7 @@ export default function PipelinePage() {
   const sensors = useSensors(
     useSensor(PointerSensor, {
       activationConstraint: {
-        distance: 10,
-        delay: 100,
-        tolerance: 5,
+        distance: 8,
       },
     })
   );
@@ -106,9 +127,11 @@ export default function PipelinePage() {
       const leadId = active.id as string;
       const stageId = over.id as string;
 
-      // Verificar si over.id es un stage
+      // Verificar si active.id es un lead (no un stage)
+      const isLead = leads.some((l) => l.id === leadId);
       const isStage = stages.some((s) => s.id === stageId);
-      if (isStage) {
+      
+      if (isLead && isStage) {
         moveLead.mutate({ leadId, stageId });
       }
     }
@@ -219,7 +242,7 @@ export default function PipelinePage() {
       <div className="flex-1 overflow-x-auto">
         <DndContext
           sensors={sensors}
-          collisionDetection={closestCorners}
+          collisionDetection={customCollision}
           onDragStart={handleDragStart}
           onDragEnd={handleDragEnd}
         >

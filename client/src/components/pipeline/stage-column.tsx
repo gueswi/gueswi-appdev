@@ -1,8 +1,4 @@
 import { useDroppable } from "@dnd-kit/core";
-import {
-  SortableContext,
-  verticalListSortingStrategy,
-} from "@dnd-kit/sortable";
 import type { PipelineStage, Lead } from "@shared/schema";
 import { LeadCard } from "./lead-card.tsx";
 
@@ -50,30 +46,26 @@ export function StageColumn({ stage, leads, onLeadClick }: StageColumnProps) {
         ref={setNodeRef}
         className={`
           flex-1 bg-gray-100 dark:bg-gray-800 rounded-lg p-3 pb-24
-          min-h-[400px] transition-colors
-          ${isOver ? "bg-blue-50 dark:bg-blue-900/20 ring-2 ring-blue-400" : ""}
+          min-h-[500px] transition-all duration-200
+          ${isOver ? "bg-blue-50 dark:bg-blue-900/20 ring-4 ring-blue-400 scale-[1.02]" : ""}
         `}
+        style={{ minWidth: '300px' }}
         data-testid={`droppable-stage-${stage.id}`}
       >
-        <SortableContext
-          items={leads.map((l) => l.id)}
-          strategy={verticalListSortingStrategy}
-        >
-          <div className="space-y-2">
-            {leads.map((lead) => (
-              <LeadCard
-                key={lead.id}
-                lead={lead}
-                onClick={() => onLeadClick(lead)}
-              />
-            ))}
-            {leads.length === 0 && (
-              <div className="text-center text-gray-400 dark:text-gray-500 text-sm py-8">
-                Sin leads
-              </div>
-            )}
-          </div>
-        </SortableContext>
+        <div className="space-y-2">
+          {leads.map((lead) => (
+            <LeadCard
+              key={lead.id}
+              lead={lead}
+              onClick={() => onLeadClick(lead)}
+            />
+          ))}
+          {leads.length === 0 && (
+            <div className="text-center text-gray-400 dark:text-gray-500 text-sm py-8">
+              Sin leads
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );
