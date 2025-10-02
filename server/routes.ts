@@ -2674,6 +2674,143 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // ============================================================================
+  // Public booking endpoints (no authentication required)
+  // ============================================================================
+  
+  app.get("/api/public/services/:tenantId", async (req, res) => {
+    try {
+      const { tenantId } = req.params;
+      
+      const services = await db
+        .select()
+        .from(schema.services)
+        .where(
+          and(
+            eq(schema.services.tenantId, tenantId),
+            eq(schema.services.isActive, true)
+          )
+        );
+
+      res.json(services);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.get("/api/public/staff/:tenantId", async (req, res) => {
+    try {
+      const { tenantId } = req.params;
+      
+      const staff = await db
+        .select()
+        .from(schema.staffMembers)
+        .where(
+          and(
+            eq(schema.staffMembers.tenantId, tenantId),
+            eq(schema.staffMembers.isActive, true)
+          )
+        );
+
+      res.json(staff);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.get("/api/public/locations/:tenantId", async (req, res) => {
+    try {
+      const { tenantId } = req.params;
+      
+      const locations = await db
+        .select()
+        .from(schema.locations)
+        .where(
+          and(
+            eq(schema.locations.tenantId, tenantId),
+            eq(schema.locations.isActive, true)
+          )
+        );
+
+      res.json(locations);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.post("/api/public/appointments", async (req, res) => {
+    try {
+      // Validate but override tenantId from request body
+      const { tenantId, serviceId, staffId, locationId, ...appointmentData } = req.body;
+      
+      if (!tenantId) {
+        return res.status(400).json({ error: "Tenant ID is required" });
+      }
+      if (!serviceId || !staffId || !locationId) {
+        return res.status(400).json({ error: "Service, staff, and location are required" });
+      }
+
+      // Security: Validate that service, staff, and location belong to this tenant and are active
+      const [service, staff, location] = await Promise.all([
+        db.select().from(schema.services)
+          .where(and(
+            eq(schema.services.id, serviceId),
+            eq(schema.services.tenantId, tenantId)
+          ))
+          .limit(1)
+          .then(rows => rows[0]),
+        db.select().from(schema.staffMembers)
+          .where(and(
+            eq(schema.staffMembers.id, staffId),
+            eq(schema.staffMembers.tenantId, tenantId)
+          ))
+          .limit(1)
+          .then(rows => rows[0]),
+        db.select().from(schema.locations)
+          .where(and(
+            eq(schema.locations.id, locationId),
+            eq(schema.locations.tenantId, tenantId)
+          ))
+          .limit(1)
+          .then(rows => rows[0]),
+      ]);
+
+      if (!service || !service.isActive) {
+        return res.status(400).json({ error: "Invalid or inactive service" });
+      }
+      if (!staff || !staff.isActive) {
+        return res.status(400).json({ error: "Invalid or inactive staff member" });
+      }
+      if (!location || !location.isActive) {
+        return res.status(400).json({ error: "Invalid or inactive location" });
+      }
+
+      // Now validate the complete appointment data
+      const validatedData = insertAppointmentSchema.parse({
+        serviceId,
+        staffId,
+        locationId,
+        ...appointmentData,
+      });
+
+      const result = await db
+        .insert(schema.appointments)
+        .values({
+          ...validatedData,
+          tenantId,
+        })
+        .returning();
+
+      res.status(201).json(result[0]);
+    } catch (error: any) {
+      res.status(400).json({ error: error.message });
+    }
+  });
+
+  // ============================================================================
+  // Authenticated appointments endpoints
+  // ============================================================================
+  
   // Appointments endpoints
   app.get("/api/appointments", async (req, res) => {
     if (!req.isAuthenticated() || !req.user.tenantId) {

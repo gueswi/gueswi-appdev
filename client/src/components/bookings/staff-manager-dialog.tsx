@@ -243,7 +243,7 @@ export function StaffManagerDialog({
                         <SelectValue placeholder="Sin ubicación asignada" />
                       </SelectTrigger>
                     </FormControl>
-                    <SelectContent>
+                    <SelectContent position="popper">
                       <SelectItem value="">Sin ubicación</SelectItem>
                       {locations.map((location) => (
                         <SelectItem key={location.id} value={location.id}>

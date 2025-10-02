@@ -197,7 +197,7 @@ export function AppointmentDialog({
                         <SelectValue placeholder="Seleccionar servicio" />
                       </SelectTrigger>
                     </FormControl>
-                    <SelectContent>
+                    <SelectContent position="popper">
                       {services.map((service) => (
                         <SelectItem key={service.id} value={service.id}>
                           {service.name} ({service.duration} min)
@@ -223,7 +223,7 @@ export function AppointmentDialog({
                         <SelectValue placeholder="Seleccionar personal" />
                       </SelectTrigger>
                     </FormControl>
-                    <SelectContent>
+                    <SelectContent position="popper">
                       {staff.map((member) => (
                         <SelectItem key={member.id} value={member.id}>
                           {member.name}
@@ -249,7 +249,7 @@ export function AppointmentDialog({
                         <SelectValue placeholder="Seleccionar ubicación" />
                       </SelectTrigger>
                     </FormControl>
-                    <SelectContent>
+                    <SelectContent position="popper">
                       {locations.map((location) => (
                         <SelectItem key={location.id} value={location.id}>
                           {location.name}
@@ -387,7 +387,7 @@ export function AppointmentDialog({
                           <SelectValue />
                         </SelectTrigger>
                       </FormControl>
-                      <SelectContent>
+                      <SelectContent position="popper">
                         <SelectItem value="pending">Pendiente</SelectItem>
                         <SelectItem value="confirmed">Confirmada</SelectItem>
                         <SelectItem value="cancelled">Cancelada</SelectItem>

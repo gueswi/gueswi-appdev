@@ -14,6 +14,7 @@ import MetricsHomePage from "@/pages/metrics-home-page";
 import MetricsDashboard from "@/pages/metrics-dashboard";
 import PipelinePage from "@/pages/pipeline-page";
 import BookingsPage from "@/pages/bookings-page";
+import PublicBookingPage from "@/pages/public-booking";
 import AuthPage from "@/pages/auth-page";
 import OnboardingPage from "@/pages/onboarding-page";
 import InboxPage from "@/pages/inbox-page";
@@ -37,6 +38,7 @@ function Router() {
         <Route path="/" component={HomePage} />
       )}
       <Route path="/auth" component={AuthPage} />
+      <Route path="/book/:tenantId" component={PublicBookingPage} />
       <ProtectedRoute path="/onboarding" component={OnboardingPage} />
       <ProtectedRoute path="/dashboard" component={MetricsHomePage} />
 
