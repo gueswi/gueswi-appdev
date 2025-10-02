@@ -234,8 +234,12 @@ export default function BookingsPage() {
                     {services.map((service) => (
                       <div
                         key={service.id}
-                        className="border border-border rounded-lg p-4"
+                        className="border border-border rounded-lg p-4 cursor-pointer hover:border-primary/50 transition-colors"
                         data-testid={`service-${service.id}`}
+                        onClick={() => {
+                          setSelectedService(service);
+                          setServiceDialogOpen(true);
+                        }}
                       >
                         <div className="flex items-start justify-between">
                           <div className="flex-1">
@@ -322,8 +326,12 @@ export default function BookingsPage() {
                     {filteredStaff.map((member) => (
                       <div
                         key={member.id}
-                        className="border border-border rounded-lg p-4"
+                        className="border border-border rounded-lg p-4 cursor-pointer hover:border-primary/50 transition-colors"
                         data-testid={`staff-${member.id}`}
+                        onClick={() => {
+                          setSelectedStaff(member);
+                          setStaffDialogOpen(true);
+                        }}
                       >
                         <div className="flex items-start gap-3">
                           <div
@@ -412,8 +420,12 @@ export default function BookingsPage() {
                     {locations.map((location) => (
                       <div
                         key={location.id}
-                        className="border border-border rounded-lg p-4"
+                        className="border border-border rounded-lg p-4 cursor-pointer hover:border-primary/50 transition-colors"
                         data-testid={`location-${location.id}`}
+                        onClick={() => {
+                          setSelectedLocation(location);
+                          setLocationDialogOpen(true);
+                        }}
                       >
                         <div className="flex items-start justify-between">
                           <div className="flex-1">

@@ -848,6 +848,8 @@ export const insertAppointmentSchema = createInsertSchema(appointments).pick({
   videoMeetingUrl: true,
 }).partial({ customerEmail: true, customFields: true, timezone: true, status: true, isRecurring: true, recurrenceRule: true, parentAppointmentId: true, notes: true, cancelReason: true, videoMeetingUrl: true }).extend({
   timezone: z.string().default("Europe/Madrid"),
+  startTime: z.union([z.date(), z.string()]).transform(val => typeof val === 'string' ? new Date(val) : val),
+  endTime: z.union([z.date(), z.string()]).transform(val => typeof val === 'string' ? new Date(val) : val),
 });
 
 export const insertWaitlistSchema = createInsertSchema(waitlist).pick({
