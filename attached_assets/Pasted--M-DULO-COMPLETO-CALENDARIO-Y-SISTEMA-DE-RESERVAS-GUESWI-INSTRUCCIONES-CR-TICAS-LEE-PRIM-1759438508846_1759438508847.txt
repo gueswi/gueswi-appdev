@@ -1,0 +1,2057 @@
+# MÓDULO COMPLETO: CALENDARIO Y SISTEMA DE RESERVAS - GUESWI
+
+## ⚠️ INSTRUCCIONES CRÍTICAS (LEE PRIMERO)
+
+Este módulo se integrará al proyecto existente Gueswi. DEBES seguir estas reglas:
+
+1. **Base de datos:**
+   - ✅ Agregar TODAS las tablas en `shared/schema.ts` (NO crear archivos nuevos)
+   - ✅ Usar SIEMPRE `uuid` para IDs (NUNCA `serial`)
+   - ✅ Seguir el patrón existente de las tablas (tenants, users, etc.)
+   - ✅ Incluir `tenantId` en TODAS las tablas (relación con `schema.tenants`)
+
+2. **Dependencias:**
+   - ✅ Instalar PRIMERO todas las dependencias necesarias en `package.json`
+   - ✅ Verificar que existan antes de usarlas en el código
+
+3. **TypeScript:**
+   - ✅ Validar sintaxis ANTES de marcar como completo
+   - ✅ No dejar imports sin usar
+   - ✅ Usar tipos explícitos de Drizzle (`InferSelectModel`)
+
+4. **Frontend:**
+   - ✅ Usar SOLO componentes de `@/components/ui` (shadcn/ui ya instalado)
+   - ✅ Tailwind CSS para estilos
+   - ✅ React Query para data fetching con invalidación de queries
+   - ✅ Usar `@fullcalendar/react` para el calendario visual
+
+5. **Backend:**
+   - ✅ Seguir patrón de rutas en `server/routes.ts`
+   - ✅ Validar permisos: `req.isAuthenticated()` y `req.user.tenantId`
+   - ✅ Logging con emoji para debugging: `console.log("📅 ...", data)`
+
+---
+
+## 📦 PARTE 1: DEPENDENCIAS
+
+Instala estas librerías en `package.json`:
+```json
+"dependencies": {
+  "@fullcalendar/react": "^6.1.10",
+  "@fullcalendar/daygrid": "^6.1.10",
+  "@fullcalendar/timegrid": "^6.1.10",
+  "@fullcalendar/interaction": "^6.1.10",
+  "date-fns": "^3.0.0",
+  "date-fns-tz": "^2.0.0"
+}
+
+🗄️ PARTE 2: ESQUEMA DE BASE DE DATOS
+Agrega estas 10 tablas en shared/schema.ts AL FINAL del archivo, después de las tablas existentes:
+
+
+typescript
+// ==================== CALENDARIO Y RESERVAS ====================
+
+// 1. Locaciones físicas del negocio
+export const locations = pgTable("locations", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  tenantId: uuid("tenant_id").notNull().references(() => tenants.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+  address: text("address"),
+  city: text("city"),
+  state: text("state"),
+  country: text("country"),
+  postalCode: text("postal_code"),
+  timezone: text("timezone").notNull().default("UTC"),
+  phone: text("phone"),
+  email: text("email"),
+  settings: jsonb("settings"), // config adicional
+  isActive: boolean("is_active").default(true),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+// 2. Servicios ofrecidos (ej: "Consulta 30min", "Masaje 60min")
+export const services = pgTable("services", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  tenantId: uuid("tenant_id").notNull().references(() => tenants.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+  description: text("description"),
+  duration: integer("duration").notNull(), // minutos
+  price: numeric("price", { precision: 10, scale: 2 }),
+  currency: text("currency").default("USD"),
+  capacity: integer("capacity").default(1), // para citas grupales
+  bufferTime: integer("buffer_time").default(0), // minutos después
+  color: text("color").default("#3b82f6"),
+  slotDuration: integer("slot_duration"), // override de slots (15/30/60min)
+  depositRequired: boolean("deposit_required").default(false),
+  allowRecurring: boolean("allow_recurring").default(false),
+  customFields: jsonb("custom_fields"), // campos custom para booking
+  isActive: boolean("is_active").default(true),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+// 3. Relación many-to-many: servicio puede estar en múltiples locaciones
+export const serviceLocations = pgTable("service_locations", {
+  serviceId: uuid("service_id").notNull().references(() => services.id, { onDelete: "cascade" }),
+  locationId: uuid("location_id").notNull().references(() => locations.id, { onDelete: "cascade" }),
+}, (table) => ({
+  pk: primaryKey({ columns: [table.serviceId, table.locationId] }),
+}));
+
+// 4. Personal/empleados que brindan servicios
+export const staffMembers = pgTable("staff_members", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  tenantId: uuid("tenant_id").notNull().references(() => tenants.id, { onDelete: "cascade" }),
+  userId: uuid("user_id").references(() => users.id), // si es usuario del sistema
+  name: text("name").notNull(),
+  email: text("email"),
+  phone: text("phone"),
+  role: text("role"), // ej: "Stylist", "Doctor"
+  color: text("color").default("#3b82f6"),
+  locationId: uuid("location_id").references(() => locations.id), // locación principal
+  isActive: boolean("is_active").default(true),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+// 5. Relación many-to-many: staff member puede ofrecer múltiples servicios
+export const staffServices = pgTable("staff_services", {
+  staffId: uuid("staff_id").notNull().references(() => staffMembers.id, { onDelete: "cascade" }),
+  serviceId: uuid("service_id").notNull().references(() => services.id, { onDelete: "cascade" }),
+}, (table) => ({
+  pk: primaryKey({ columns: [table.staffId, table.serviceId] }),
+}));
+
+// 6. Reglas de disponibilidad (horarios de trabajo)
+export const availabilityRules = pgTable("availability_rules", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  staffId: uuid("staff_id").notNull().references(() => staffMembers.id, { onDelete: "cascade" }),
+  dayOfWeek: integer("day_of_week").notNull(), // 0=domingo, 6=sábado
+  startTime: text("start_time").notNull(), // formato HH:mm (ej: "09:00")
+  endTime: text("end_time").notNull(), // formato HH:mm (ej: "17:00")
+  serviceId: uuid("service_id").references(() => services.id), // opcional: horario específico por servicio
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+// 7. Excepciones de disponibilidad (vacaciones, días festivos)
+export const availabilityExceptions = pgTable("availability_exceptions", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  staffId: uuid("staff_id").notNull().references(() => staffMembers.id, { onDelete: "cascade" }),
+  date: date("date").notNull(), // día específico
+  isAvailable: boolean("is_available").default(false), // false = bloqueado
+  startTime: text("start_time"), // si es disponible parcial
+  endTime: text("end_time"),
+  reason: text("reason"), // ej: "Vacaciones", "Día festivo"
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+// 8. Citas/appointments
+export const appointments = pgTable("appointments", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  tenantId: uuid("tenant_id").notNull().references(() => tenants.id, { onDelete: "cascade" }),
+  serviceId: uuid("service_id").notNull().references(() => services.id),
+  staffId: uuid("staff_id").notNull().references(() => staffMembers.id),
+  locationId: uuid("location_id").notNull().references(() => locations.id),
+  
+  // Datos del cliente
+  customerName: text("customer_name").notNull(),
+  customerEmail: text("customer_email"),
+  customerPhone: text("customer_phone").notNull(),
+  customFields: jsonb("custom_fields"), // respuestas a preguntas custom
+  
+  // Fecha y hora
+  startTime: timestamp("start_time", { withTimezone: true }).notNull(),
+  endTime: timestamp("end_time", { withTimezone: true }).notNull(),
+  timezone: text("timezone").notNull(),
+  
+  // Estado
+  status: text("status").notNull().default("pending"), // pending, confirmed, completed, cancelled, no_show
+  
+  // Citas recurrentes
+  isRecurring: boolean("is_recurring").default(false),
+  recurrenceRule: text("recurrence_rule"), // formato iCal RRULE
+  parentAppointmentId: uuid("parent_appointment_id").references(() => appointments.id),
+  
+  // Metadata
+  notes: text("notes"), // notas internas
+  cancelReason: text("cancel_reason"),
+  videoMeetingUrl: text("video_meeting_url"), // Zoom/Meet link
+  reminderSent24h: boolean("reminder_sent_24h").default(false),
+  reminderSent1h: boolean("reminder_sent_1h").default(false),
+  
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+// 9. Lista de espera
+export const waitlist = pgTable("waitlist", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  tenantId: uuid("tenant_id").notNull().references(() => tenants.id, { onDelete: "cascade" }),
+  serviceId: uuid("service_id").notNull().references(() => services.id),
+  staffId: uuid("staff_id").references(() => staffMembers.id),
+  locationId: uuid("location_id").notNull().references(() => locations.id),
+  
+  customerName: text("customer_name").notNull(),
+  customerEmail: text("customer_email"),
+  customerPhone: text("customer_phone").notNull(),
+  
+  preferredDate: date("preferred_date"),
+  preferredTimeSlot: text("preferred_time_slot"), // "morning", "afternoon", "evening"
+  
+  status: text("status").default("waiting"), // waiting, notified, booked, expired
+  notifiedAt: timestamp("notified_at"),
+  
+  createdAt: timestamp("created_at").defaultNow(),
+  expiresAt: timestamp("expires_at"), // auto-expirar después de X días
+});
+
+// 10. Configuración de notificaciones
+export const notificationTemplates = pgTable("notification_templates", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  tenantId: uuid("tenant_id").notNull().references(() => tenants.id, { onDelete: "cascade" }),
+  
+  type: text("type").notNull(), // "confirmation", "reminder_24h", "reminder_1h", "followup", "cancellation"
+  channel: text("channel").notNull(), // "email", "sms", "whatsapp"
+  
+  subject: text("subject"), // para emails
+  template: text("template").notNull(), // con variables: {{customerName}}, {{service}}, {{date}}, etc
+  
+  isActive: boolean("is_active").default(true),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+// Exports de tipos para TypeScript
+export type Location = typeof locations.$inferSelect;
+export type Service = typeof services.$inferSelect;
+export type StaffMember = typeof staffMembers.$inferSelect;
+export type AvailabilityRule = typeof availabilityRules.$inferSelect;
+export type AvailabilityException = typeof availabilityExceptions.$inferSelect;
+export type Appointment = typeof appointments.$inferSelect;
+export type Waitlist = typeof waitlist.$inferSelect;
+export type NotificationTemplate = typeof notificationTemplates.$inferSelect;
+
+🔌 PARTE 3: BACKEND - ENDPOINTS API
+Agrega estos endpoints en server/routes.ts AL FINAL del archivo, antes del export default function registerRoutes:
+
+
+typescript
+// ==================== CALENDARIO - LOCATIONS ====================
+
+app.get("/api/calendar/locations", async (req, res) => {
+  if (!req.isAuthenticated() || !req.user.tenantId) {
+    return res.sendStatus(401);
+  }
+
+  try {
+    const locs = await db.query.locations.findMany({
+      where: eq(schema.locations.tenantId, req.user.tenantId),
+      orderBy: [asc(schema.locations.name)],
+    });
+    res.json(locs);
+  } catch (error: any) {
+    console.error("❌ Error fetching locations:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post("/api/calendar/locations", async (req, res) => {
+  if (!req.isAuthenticated() || !req.user.tenantId) {
+    return res.sendStatus(401);
+  }
+
+  try {
+    const [location] = await db.insert(schema.locations).values({
+      ...req.body,
+      tenantId: req.user.tenantId,
+    }).returning();
+    
+    console.log("📍 Location created:", location.id);
+    res.json(location);
+  } catch (error: any) {
+    console.error("❌ Error creating location:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.patch("/api/calendar/locations/:id", async (req, res) => {
+  if (!req.isAuthenticated() || !req.user.tenantId) {
+    return res.sendStatus(401);
+  }
+
+  try {
+    const [updated] = await db.update(schema.locations)
+      .set({ ...req.body, updatedAt: new Date() })
+      .where(and(
+        eq(schema.locations.id, req.params.id),
+        eq(schema.locations.tenantId, req.user.tenantId)
+      ))
+      .returning();
+    
+    res.json(updated);
+  } catch (error: any) {
+    console.error("❌ Error updating location:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.delete("/api/calendar/locations/:id", async (req, res) => {
+  if (!req.isAuthenticated() || !req.user.tenantId) {
+    return res.sendStatus(401);
+  }
+
+  try {
+    await db.delete(schema.locations)
+      .where(and(
+        eq(schema.locations.id, req.params.id),
+        eq(schema.locations.tenantId, req.user.tenantId)
+      ));
+    
+    res.json({ success: true });
+  } catch (error: any) {
+    console.error("❌ Error deleting location:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ==================== CALENDARIO - SERVICES ====================
+
+app.get("/api/calendar/services", async (req, res) => {
+  if (!req.isAuthenticated() || !req.user.tenantId) {
+    return res.sendStatus(401);
+  }
+
+  try {
+    const services = await db.query.services.findMany({
+      where: eq(schema.services.tenantId, req.user.tenantId),
+      with: {
+        serviceLocations: {
+          with: { location: true }
+        }
+      },
+      orderBy: [asc(schema.services.name)],
+    });
+    res.json(services);
+  } catch (error: any) {
+    console.error("❌ Error fetching services:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post("/api/calendar/services", async (req, res) => {
+  if (!req.isAuthenticated() || !req.user.tenantId) {
+    return res.sendStatus(401);
+  }
+
+  try {
+    const { locationIds, ...serviceData } = req.body;
+    
+    const [service] = await db.insert(schema.services).values({
+      ...serviceData,
+      tenantId: req.user.tenantId,
+    }).returning();
+    
+    // Asociar con locations
+    if (locationIds && locationIds.length > 0) {
+      await db.insert(schema.serviceLocations).values(
+        locationIds.map((locId: string) => ({
+          serviceId: service.id,
+          locationId: locId,
+        }))
+      );
+    }
+    
+    console.log("🛎️ Service created:", service.id);
+    res.json(service);
+  } catch (error: any) {
+    console.error("❌ Error creating service:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.patch("/api/calendar/services/:id", async (req, res) => {
+  if (!req.isAuthenticated() || !req.user.tenantId) {
+    return res.sendStatus(401);
+  }
+
+  try {
+    const { locationIds, ...serviceData } = req.body;
+    
+    const [updated] = await db.update(schema.services)
+      .set({ ...serviceData, updatedAt: new Date() })
+      .where(and(
+        eq(schema.services.id, req.params.id),
+        eq(schema.services.tenantId, req.user.tenantId)
+      ))
+      .returning();
+    
+    // Actualizar locations
+    if (locationIds) {
+      await db.delete(schema.serviceLocations)
+        .where(eq(schema.serviceLocations.serviceId, req.params.id));
+      
+      if (locationIds.length > 0) {
+        await db.insert(schema.serviceLocations).values(
+          locationIds.map((locId: string) => ({
+            serviceId: req.params.id,
+            locationId: locId,
+          }))
+        );
+      }
+    }
+    
+    res.json(updated);
+  } catch (error: any) {
+    console.error("❌ Error updating service:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.delete("/api/calendar/services/:id", async (req, res) => {
+  if (!req.isAuthenticated() || !req.user.tenantId) {
+    return res.sendStatus(401);
+  }
+
+  try {
+    await db.delete(schema.services)
+      .where(and(
+        eq(schema.services.id, req.params.id),
+        eq(schema.services.tenantId, req.user.tenantId)
+      ));
+    
+    res.json({ success: true });
+  } catch (error: any) {
+    console.error("❌ Error deleting service:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ==================== CALENDARIO - STAFF ====================
+
+app.get("/api/calendar/staff", async (req, res) => {
+  if (!req.isAuthenticated() || !req.user.tenantId) {
+    return res.sendStatus(401);
+  }
+
+  try {
+    const staff = await db.query.staffMembers.findMany({
+      where: eq(schema.staffMembers.tenantId, req.user.tenantId),
+      with: {
+        staffServices: {
+          with: { service: true }
+        },
+        location: true,
+      },
+      orderBy: [asc(schema.staffMembers.name)],
+    });
+    res.json(staff);
+  } catch (error: any) {
+    console.error("❌ Error fetching staff:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post("/api/calendar/staff", async (req, res) => {
+  if (!req.isAuthenticated() || !req.user.tenantId) {
+    return res.sendStatus(401);
+  }
+
+  try {
+    const { serviceIds, ...staffData } = req.body;
+    
+    const [staff] = await db.insert(schema.staffMembers).values({
+      ...staffData,
+      tenantId: req.user.tenantId,
+    }).returning();
+    
+    // Asociar con servicios
+    if (serviceIds && serviceIds.length > 0) {
+      await db.insert(schema.staffServices).values(
+        serviceIds.map((svcId: string) => ({
+          staffId: staff.id,
+          serviceId: svcId,
+        }))
+      );
+    }
+    
+    console.log("👤 Staff member created:", staff.id);
+    res.json(staff);
+  } catch (error: any) {
+    console.error("❌ Error creating staff:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.patch("/api/calendar/staff/:id", async (req, res) => {
+  if (!req.isAuthenticated() || !req.user.tenantId) {
+    return res.sendStatus(401);
+  }
+
+  try {
+    const { serviceIds, ...staffData } = req.body;
+    
+    const [updated] = await db.update(schema.staffMembers)
+      .set({ ...staffData, updatedAt: new Date() })
+      .where(and(
+        eq(schema.staffMembers.id, req.params.id),
+        eq(schema.staffMembers.tenantId, req.user.tenantId)
+      ))
+      .returning();
+    
+    // Actualizar servicios
+    if (serviceIds) {
+      await db.delete(schema.staffServices)
+        .where(eq(schema.staffServices.staffId, req.params.id));
+      
+      if (serviceIds.length > 0) {
+        await db.insert(schema.staffServices).values(
+          serviceIds.map((svcId: string) => ({
+            staffId: req.params.id,
+            serviceId: svcId,
+          }))
+        );
+      }
+    }
+    
+    res.json(updated);
+  } catch (error: any) {
+    console.error("❌ Error updating staff:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.delete("/api/calendar/staff/:id", async (req, res) => {
+  if (!req.isAuthenticated() || !req.user.tenantId) {
+    return res.sendStatus(401);
+  }
+
+  try {
+    await db.delete(schema.staffMembers)
+      .where(and(
+        eq(schema.staffMembers.id, req.params.id),
+        eq(schema.staffMembers.tenantId, req.user.tenantId)
+      ));
+    
+    res.json({ success: true });
+  } catch (error: any) {
+    console.error("❌ Error deleting staff:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ==================== CALENDARIO - DISPONIBILIDAD ====================
+
+app.get("/api/calendar/availability/:staffId", async (req, res) => {
+  if (!req.isAuthenticated() || !req.user.tenantId) {
+    return res.sendStatus(401);
+  }
+
+  try {
+    const rules = await db.query.availabilityRules.findMany({
+      where: eq(schema.availabilityRules.staffId, req.params.staffId),
+      orderBy: [asc(schema.availabilityRules.dayOfWeek)],
+    });
+    
+    const exceptions = await db.query.availabilityExceptions.findMany({
+      where: eq(schema.availabilityExceptions.staffId, req.params.staffId),
+      orderBy: [asc(schema.availabilityExceptions.date)],
+    });
+    
+    res.json({ rules, exceptions });
+  } catch (error: any) {
+    console.error("❌ Error fetching availability:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post("/api/calendar/availability/rules", async (req, res) => {
+  if (!req.isAuthenticated()) {
+    return res.sendStatus(401);
+  }
+
+  try {
+    const [rule] = await db.insert(schema.availabilityRules)
+      .values(req.body)
+      .returning();
+    
+    console.log("⏰ Availability rule created:", rule.id);
+    res.json(rule);
+  } catch (error: any) {
+    console.error("❌ Error creating rule:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.delete("/api/calendar/availability/rules/:id", async (req, res) => {
+  if (!req.isAuthenticated()) {
+    return res.sendStatus(401);
+  }
+
+  try {
+    await db.delete(schema.availabilityRules)
+      .where(eq(schema.availabilityRules.id, req.params.id));
+    
+    res.json({ success: true });
+  } catch (error: any) {
+    console.error("❌ Error deleting rule:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post("/api/calendar/availability/exceptions", async (req, res) => {
+  if (!req.isAuthenticated()) {
+    return res.sendStatus(401);
+  }
+
+  try {
+    const [exception] = await db.insert(schema.availabilityExceptions)
+      .values(req.body)
+      .returning();
+    
+    console.log("🚫 Exception created:", exception.id);
+    res.json(exception);
+  } catch (error: any) {
+    console.error("❌ Error creating exception:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.delete("/api/calendar/availability/exceptions/:id", async (req, res) => {
+  if (!req.isAuthenticated()) {
+    return res.sendStatus(401);
+  }
+
+  try {
+    await db.delete(schema.availabilityExceptions)
+      .where(eq(schema.availabilityExceptions.id, req.params.id));
+    
+    res.json({ success: true });
+  } catch (error: any) {
+    console.error("❌ Error deleting exception:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ==================== CALENDARIO - SLOTS DISPONIBLES ====================
+
+app.get("/api/calendar/available-slots", async (req, res) => {
+  if (!req.isAuthenticated() && !req.query.public) {
+    return res.sendStatus(401);
+  }
+
+  try {
+    const { serviceId, staffId, date, locationId, tenantId } = req.query;
+    
+    if (!serviceId || !date || !locationId) {
+      return res.status(400).json({ error: "Missing required parameters" });
+    }
+
+    // Obtener servicio
+    const service = await db.query.services.findFirst({
+      where: eq(schema.services.id, serviceId as string),
+    });
+
+    if (!service) {
+      return res.status(404).json({ error: "Service not found" });
+    }
+
+    // Obtener staff (si no se especifica, buscar todos los disponibles)
+    let staffList;
+    if (staffId) {
+      const staff = await db.query.staffMembers.findFirst({
+        where: eq(schema.staffMembers.id, staffId as string),
+      });
+      staffList = staff ? [staff] : [];
+    } else {
+      const staffServices = await db.query.staffServices.findMany({
+        where: eq(schema.staffServices.serviceId, serviceId as string),
+        with: { staff: true },
+      });
+      staffList = staffServices.map(ss => ss.staff);
+    }
+
+    // Generar slots para cada staff member
+    const allSlots = [];
+    
+    for (const staff of staffList) {
+      // 1. Obtener reglas de disponibilidad
+      const dateObj = new Date(date as string);
+      const dayOfWeek = dateObj.getDay();
+      
+      const rules = await db.query.availabilityRules.findMany({
+        where: and(
+          eq(schema.availabilityRules.staffId, staff.id),
+          eq(schema.availabilityRules.dayOfWeek, dayOfWeek)
+        ),
+      });
+
+      if (rules.length === 0) continue; // No trabaja este día
+
+      // 2. Verificar excepciones
+      const exceptions = await db.query.availabilityExceptions.findMany({
+        where: and(
+          eq(schema.availabilityExceptions.staffId, staff.id),
+          eq(schema.availabilityExceptions.date, date as string)
+        ),
+      });
+
+      const hasException = exceptions.some(e => !e.isAvailable);
+      if (hasException) continue; // Bloqueado este día
+
+      // 3. Obtener citas existentes
+      const existingAppointments = await db.query.appointments.findMany({
+        where: and(
+          eq(schema.appointments.staffId, staff.id),
+          sql`DATE(${schema.appointments.startTime}) = ${date}`,
+          not(eq(schema.appointments.status, 'cancelled'))
+        ),
+      });
+
+      // 4. Generar slots disponibles
+      const slotDuration = service.slotDuration || 30; // minutos
+      const bufferTime = service.bufferTime || 0;
+
+      for (const rule of rules) {
+        const [startHour, startMin] = rule.startTime.split(':').map(Number);
+        const [endHour, endMin] = rule.endTime.split(':').map(Number);
+
+        let currentTime = startHour * 60 + startMin; // minutos desde medianoche
+        const endTime = endHour * 60 + endMin;
+
+        while (currentTime + service.duration <= endTime) {
+          const slotStart = new Date(date as string);
+          slotStart.setHours(Math.floor(currentTime / 60), currentTime % 60, 0, 0);
+
+          const slotEnd = new Date(slotStart);
+          slotEnd.setMinutes(slotEnd.getMinutes() + service.duration);
+
+          // Verificar si hay conflicto con citas existentes
+          const hasConflict = existingAppointments.some(apt => {
+            const aptStart = new Date(apt.startTime);
+            const aptEnd = new Date(apt.endTime);
+            return (slotStart < aptEnd && slotEnd > aptStart);
+          });
+
+          if (!hasConflict) {
+            allSlots.push({
+              staffId: staff.id,
+              staffName: staff.name,
+              startTime: slotStart.toISOString(),
+              endTime: slotEnd.toISOString(),
+              available: true,
+            });
+          }
+
+          currentTime += slotDuration;
+        }
+      }
+    }
+
+    res.json({ slots: allSlots });
+  } catch (error: any) {
+    console.error("❌ Error fetching slots:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ==================== CALENDARIO - APPOINTMENTS ====================
+
+app.get("/api/calendar/appointments", async (req, res) => {
+  if (!req.isAuthenticated() || !req.user.tenantId) {
+    return res.sendStatus(401);
+  }
+
+  try {
+    const { start, end, staffId, locationId } = req.query;
+    
+    let conditions = [eq(schema.appointments.tenantId, req.user.tenantId)];
+    
+    if (start && end) {
+      conditions.push(
+        sql`${schema.appointments.startTime} >= ${start}`,
+        sql`${schema.appointments.startTime} <= ${end}`
+      );
+    }
+    
+    if (staffId) {
+      conditions.push(eq(schema.appointments.staffId, staffId as string));
+    }
+    
+    if (locationId) {
+      conditions.push(eq(schema.appointments.locationId, locationId as string));
+    }
+
+    const appointments = await db.query.appointments.findMany({
+      where: and(...conditions),
+      with: {
+        service: true,
+        staff: true,
+        location: true,
+      },
+      orderBy: [asc(schema.appointments.startTime)],
+    });
+
+    res.json(appointments);
+  } catch (error: any) {
+    console.error("❌ Error fetching appointments:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post("/api/calendar/appointments", async (req, res) => {
+  // Permitir crear sin auth para widget público
+  const tenantId = req.user?.tenantId || req.body.tenantId;
+  
+  if (!tenantId) {
+    return res.status(400).json({ error: "Tenant ID required" });
+  }
+
+  try {
+    const { serviceId, staffId, locationId, startTime, ...appointmentData } = req.body;
+
+    // Verificar disponibilidad
+    const service = await db.query.services.findFirst({
+      where: eq(schema.services.id, serviceId),
+    });
+
+    if (!service) {
+      return res.status(404).json({ error: "Service not found" });
+    }
+
+    // Calcular endTime
+    const start = new Date(startTime);
+    const end = new Date(start);
+    end.setMinutes(end.getMinutes() + service.duration);
+
+    // Verificar conflictos
+    const conflicts = await db.query.appointments.findMany({
+      where: and(
+        eq(schema.appointments.staffId, staffId),
+        sql`${schema.appointments.startTime} < ${end.toISOString()}`,
+        sql`${schema.appointments.endTime} > ${startTime}`,
+        not(eq(schema.appointments.status, 'cancelled'))
+      ),
+    });
+
+    if (conflicts.length > 0) {
+      return res.status(409).json({ error: "Time slot not available" });
+    }
+
+    // Crear appointment
+    const [appointment] = await db.insert(schema.appointments).values({
+      tenantId,
+      serviceId,
+      staffId,
+      locationId,
+      startTime: start,
+      endTime: end,
+      timezone: appointmentData.timezone || 'UTC',
+      ...appointmentData,
+      status: 'pending',
+    }).returning();
+
+    console.log("📅 Appointment created:", appointment.id);
+
+    // TODO: Enviar email/SMS de confirmación
+
+    res.json(appointment);
+  } catch (error: any) {
+    console.error("❌ Error creating appointment:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.patch("/api/calendar/appointments/:id", async (req, res) => {
+  if (!req.isAuthenticated() || !req.user.tenantId) {
+    return res.sendStatus(401);
+  }
+
+  try {
+    const [updated] = await db.update(schema.appointments)
+      .set({ ...req.body, updatedAt: new Date() })
+      .where(and(
+        eq(schema.appointments.id, req.params.id),
+        eq(schema.appointments.tenantId, req.user.tenantId)
+      ))
+      .returning();
+
+    res.json(updated);
+  } catch (error: any) {
+    console.error("❌ Error updating appointment:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.delete("/api/calendar/appointments/:id", async (req, res) => {
+  if (!req.isAuthenticated() || !req.user.tenantId) {
+    return res.sendStatus(401);
+  }
+
+  try {
+    await db.update(schema.appointments)
+      .set({ status: 'cancelled', cancelReason: req.body.reason, updatedAt: new Date() })
+      .where(and(
+        eq(schema.appointments.id, req.params.id),
+        eq(schema.appointments.tenantId, req.user.tenantId)
+      ));
+
+    // TODO: Notificar al cliente de la cancelación
+
+    res.json({ success: true });
+  } catch (error: any) {
+    console.error("❌ Error cancelling appointment:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ==================== CALENDARIO - WAITLIST ====================
+
+app.get("/api/calendar/waitlist", async (req, res) => {
+  if (!req.isAuthenticated() || !req.user.tenantId) {
+    return res.sendStatus(401);
+  }
+
+  try {
+    const waitlist = await db.query.waitlist.findMany({
+      where: and(
+        eq(schema.waitlist.tenantId, req.user.tenantId),
+        eq(schema.waitlist.status, 'waiting')
+      ),
+      with: {
+        service: true,
+        staff: true,
+        location: true,
+      },
+      orderBy: [asc(schema.waitlist.createdAt)],
+    });
+
+    res.json(waitlist);
+  } catch (error: any) {
+    console.error("❌ Error fetching waitlist:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post("/api/calendar/waitlist", async (req, res) => {
+  const tenantId = req.user?.tenantId || req.body.tenantId;
+  
+  if (!tenantId) {
+    return res.status(400).json({ error: "Tenant ID required" });
+  }
+
+  try {
+    const [entry] = await db.insert(schema.waitlist).values({
+      tenantId,
+      ...req.body,
+    }).returning();
+
+    console.log("⏳ Waitlist entry created:", entry.id);
+    res.json(entry);
+  } catch (error: any) {
+    console.error("❌ Error creating waitlist entry:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.patch("/api/calendar/waitlist/:id/notify", async (req, res) => {
+  if (!req.isAuthenticated() || !req.user.tenantId) {
+    return res.sendStatus(401);
+  }
+
+  try {
+    const [updated] = await db.update(schema.waitlist)
+      .set({ status: 'notified', notifiedAt: new Date() })
+      .where(and(
+        eq(schema.waitlist.id, req.params.id),
+        eq(schema.waitlist.tenantId, req.user.tenantId)
+      ))
+      .returning();
+
+    // TODO: Enviar notificación al cliente
+
+    res.json(updated);
+  } catch (error: any) {
+    console.error("❌ Error notifying waitlist:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+🎨 PARTE 4: FRONTEND - RUTAS Y SIDEBAR
+4.1 Agregar relaciones en shared/schema.ts
+Después de las tablas, agrega estas relaciones:
+
+
+typescript
+export const locationsRelations = relations(locations, ({ one, many }) => ({
+  tenant: one(tenants, {
+    fields: [locations.tenantId],
+    references: [tenants.id],
+  }),
+  serviceLocations: many(serviceLocations),
+  appointments: many(appointments),
+  waitlist: many(waitlist),
+}));
+
+export const servicesRelations = relations(services, ({ one, many }) => ({
+  tenant: one(tenants, {
+    fields: [services.tenantId],
+    references: [tenants.id],
+  }),
+  serviceLocations: many(serviceLocations),
+  staffServices: many(staffServices),
+  appointments: many(appointments),
+  waitlist: many(waitlist),
+}));
+
+export const serviceLocationsRelations = relations(serviceLocations, ({ one }) => ({
+  service: one(services, {
+    fields: [serviceLocations.serviceId],
+    references: [services.id],
+  }),
+  location: one(locations, {
+    fields: [serviceLocations.locationId],
+    references: [locations.id],
+  }),
+}));
+
+export const staffMembersRelations = relations(staffMembers, ({ one, many }) => ({
+  tenant: one(tenants, {
+    fields: [staffMembers.tenantId],
+    references: [tenants.id],
+  }),
+  user: one(users, {
+    fields: [staffMembers.userId],
+    references: [users.id],
+  }),
+  location: one(locations, {
+    fields: [staffMembers.locationId],
+    references: [locations.id],
+  }),
+  staffServices: many(staffServices),
+  availabilityRules: many(availabilityRules),
+  availabilityExceptions: many(availabilityExceptions),
+  appointments: many(appointments),
+}));
+
+export const staffServicesRelations = relations(staffServices, ({ one }) => ({
+  staff: one(staffMembers, {
+    fields: [staffServices.staffId],
+    references: [staffMembers.id],
+  }),
+  service: one(services, {
+    fields: [staffServices.serviceId],
+    references: [services.id],
+  }),
+}));
+
+export const availabilityRulesRelations = relations(availabilityRules, ({ one }) => ({
+  staff: one(staffMembers, {
+    fields: [availabilityRules.staffId],
+    references: [staffMembers.id],
+  }),
+  service: one(services, {
+    fields: [availabilityRules.serviceId],
+    references: [services.id],
+  }),
+}));
+
+export const availabilityExceptionsRelations = relations(availabilityExceptions, ({ one }) => ({
+  staff: one(staffMembers, {
+    fields: [availabilityExceptions.staffId],
+    references: [staffMembers.id],
+  }),
+}));
+
+export const appointmentsRelations = relations(appointments, ({ one }) => ({
+  tenant: one(tenants, {
+    fields: [appointments.tenantId],
+    references: [tenants.id],
+  }),
+  service: one(services, {
+    fields: [appointments.serviceId],
+    references: [services.id],
+  }),
+  staff: one(staffMembers, {
+    fields: [appointments.staffId],
+    references: [staffMembers.id],
+  }),
+  location: one(locations, {
+    fields: [appointments.locationId],
+    references: [locations.id],
+  }),
+  parentAppointment: one(appointments, {
+    fields: [appointments.parentAppointmentId],
+    references: [appointments.id],
+  }),
+}));
+
+export const waitlistRelations = relations(waitlist, ({ one }) => ({
+  tenant: one(tenants, {
+    fields: [waitlist.tenantId],
+    references: [tenants.id],
+  }),
+  service: one(services, {
+    fields: [waitlist.serviceId],
+    references: [services.id],
+  }),
+  staff: one(staffMembers, {
+    fields: [waitlist.staffId],
+    references: [staffMembers.id],
+  }),
+  location: one(locations, {
+    fields: [waitlist.locationId],
+    references: [locations.id],
+  }),
+}));
+
+export const notificationTemplatesRelations = relations(notificationTemplates, ({ one }) => ({
+  tenant: one(tenants, {
+    fields: [notificationTemplates.tenantId],
+    references: [tenants.id],
+  }),
+}));
+4.2 Agregar ruta en client/src/App.tsx
+Después de la ruta del Pipeline, agrega:
+
+
+typescript
+{
+  path: "/bookings",
+  element: <BookingsPage />,
+},
+4.3 Actualizar Sidebar en client/src/components/sidebar.tsx
+Agrega este item en el array menuItems:
+
+
+typescript
+{
+  title: "Reservas",
+  icon: Calendar,
+  href: "/bookings",
+  roles: ["superadmin", "admin"],
+},
+
+🎨 PARTE 5: COMPONENTES DE UI
+5.1 Crear página principal client/src/pages/bookings.tsx:
+
+
+typescript
+import { useState } from "react";
+import { Calendar, Plus, Settings, Users, MapPin, Clock } from "lucide-react";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import CalendarView from "@/components/bookings/calendar-view";
+import LocationsManager from "@/components/bookings/locations-manager";
+import ServicesManager from "@/components/bookings/services-manager";
+import StaffManager from "@/components/bookings/staff-manager";
+import { useQuery } from "@tanstack/react-query";
+
+export default function BookingsPage() {
+  const [selectedTab, setSelectedTab] = useState("calendar");
+
+  // Fetch statistics
+  const { data: stats } = useQuery({
+    queryKey: ["/api/calendar/stats"],
+    queryFn: async () => {
+      const res = await fetch("/api/calendar/stats", {
+        credentials: "include",
+      });
+      if (!res.ok) throw new Error("Failed to fetch stats");
+      return res.json();
+    },
+  });
+
+  return (
+    <div className="p-6 space-y-6">
+      {/* Header */}
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-3xl font-bold flex items-center gap-2">
+            <Calendar className="h-8 w-8" />
+            Calendario y Reservas
+          </h1>
+          <p className="text-muted-foreground mt-1">
+            Gestiona tus servicios, personal y citas
+          </p>
+        </div>
+      </div>
+
+      {/* Stats Cards */}
+      <div className="grid gap-4 md:grid-cols-4">
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Citas Hoy</CardTitle>
+            <Calendar className="h-4 w-4 text-muted-foreground" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">{stats?.todayAppointments || 0}</div>
+            <p className="text-xs text-muted-foreground">
+              {stats?.upcomingAppointments || 0} próximas
+            </p>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Servicios Activos</CardTitle>
+            <Settings className="h-4 w-4 text-muted-foreground" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">{stats?.activeServices || 0}</div>
+            <p className="text-xs text-muted-foreground">
+              {stats?.totalRevenue || "$0"} ingresos
+            </p>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Personal</CardTitle>
+            <Users className="h-4 w-4 text-muted-foreground" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">{stats?.activeStaff || 0}</div>
+            <p className="text-xs text-muted-foreground">
+              {stats?.availableNow || 0} disponibles ahora
+            </p>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Locaciones</CardTitle>
+            <MapPin className="h-4 w-4 text-muted-foreground" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">{stats?.locations || 0}</div>
+            <p className="text-xs text-muted-foreground">
+              {stats?.busyLocations || 0} con actividad
+            </p>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Main Tabs */}
+      <Tabs value={selectedTab} onValueChange={setSelectedTab}>
+        <TabsList className="grid w-full grid-cols-4">
+          <TabsTrigger value="calendar">
+            <Calendar className="h-4 w-4 mr-2" />
+            Calendario
+          </TabsTrigger>
+          <TabsTrigger value="services">
+            <Settings className="h-4 w-4 mr-2" />
+            Servicios
+          </TabsTrigger>
+          <TabsTrigger value="staff">
+            <Users className="h-4 w-4 mr-2" />
+            Personal
+          </TabsTrigger>
+          <TabsTrigger value="locations">
+            <MapPin className="h-4 w-4 mr-2" />
+            Locaciones
+          </TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="calendar" className="mt-6">
+          <CalendarView />
+        </TabsContent>
+
+        <TabsContent value="services" className="mt-6">
+          <ServicesManager />
+        </TabsContent>
+
+        <TabsContent value="staff" className="mt-6">
+          <StaffManager />
+        </TabsContent>
+
+        <TabsContent value="locations" className="mt-6">
+          <LocationsManager />
+        </TabsContent>
+      </Tabs>
+    </div>
+  );
+}
+5.2 Crear client/src/components/bookings/calendar-view.tsx:
+
+
+typescript
+import { useRef, useState } from "react";
+import FullCalendar from "@fullcalendar/react";
+import dayGridPlugin from "@fullcalendar/daygrid";
+import timeGridPlugin from "@fullcalendar/timegrid";
+import interactionPlugin from "@fullcalendar/interaction";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { Card } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { useToast } from "@/hooks/use-toast";
+import AppointmentDialog from "./appointment-dialog";
+
+export default function CalendarView() {
+  const calendarRef = useRef<any>(null);
+  const [selectedDate, setSelectedDate] = useState<Date | null>(null);
+  const [selectedAppointment, setSelectedAppointment] = useState<any>(null);
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+
+  // Fetch appointments
+  const { data: appointments, isLoading } = useQuery({
+    queryKey: ["/api/calendar/appointments"],
+    queryFn: async () => {
+      const res = await fetch("/api/calendar/appointments", {
+        credentials: "include",
+      });
+      if (!res.ok) throw new Error("Failed to fetch appointments");
+      return res.json();
+    },
+  });
+
+  // Drag & drop to reschedule
+  const updateAppointmentMutation = useMutation({
+    mutationFn: async ({ id, data }: any) => {
+      const res = await fetch(`/api/calendar/appointments/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify(data),
+      });
+      if (!res.ok) throw new Error("Failed to update appointment");
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/calendar/appointments"] });
+      toast({ title: "Cita actualizada" });
+    },
+    onError: () => {
+      toast({ title: "Error al actualizar", variant: "destructive" });
+    },
+  });
+
+  // Transform appointments to FullCalendar events
+  const events = appointments?.map((apt: any) => ({
+    id: apt.id,
+    title: `${apt.customerName} - ${apt.service.name}`,
+    start: apt.startTime,
+    end: apt.endTime,
+    backgroundColor: apt.service.color,
+    extendedProps: apt,
+  })) || [];
+
+  const handleEventDrop = (info: any) => {
+    updateAppointmentMutation.mutate({
+      id: info.event.id,
+      data: {
+        startTime: info.event.start,
+        endTime: info.event.end,
+      },
+    });
+  };
+
+  const handleEventClick = (info: any) => {
+    setSelectedAppointment(info.event.extendedProps);
+    setDialogOpen(true);
+  };
+
+  const handleDateClick = (info: any) => {
+    setSelectedDate(info.date);
+    setSelectedAppointment(null);
+    setDialogOpen(true);
+  };
+
+  return (
+    <>
+      <Card className="p-6">
+        <FullCalendar
+          ref={calendarRef}
+          plugins={[dayGridPlugin, timeGridPlugin, interactionPlugin]}
+          initialView="timeGridWeek"
+          headerToolbar={{
+            left: "prev,next today",
+            center: "title",
+            right: "dayGridMonth,timeGridWeek,timeGridDay",
+          }}
+          events={events}
+          editable={true}
+          droppable={true}
+          eventDrop={handleEventDrop}
+          eventClick={handleEventClick}
+          dateClick={handleDateClick}
+          slotMinTime="06:00:00"
+          slotMaxTime="22:00:00"
+          height="auto"
+          locale="es"
+        />
+      </Card>
+
+      <AppointmentDialog
+        open={dialogOpen}
+        onOpenChange={setDialogOpen}
+        appointment={selectedAppointment}
+        defaultDate={selectedDate}
+      />
+    </>
+  );
+}
+5.3 Crear los managers (SOLO estructura básica, NO todo el código):
+Crea estos archivos con estructura CRUD básica:
+* client/src/components/bookings/locations-manager.tsx
+* client/src/components/bookings/services-manager.tsx
+* client/src/components/bookings/staff-manager.tsx
+* client/src/components/bookings/appointment-dialog.tsx
+Cada uno debe tener:
+* Lista con tabla
+* Botón "Crear Nuevo"
+* Dialog para CRUD
+* React Query hooks para fetch/mutate
+* Validación con Zod
+IMPORTANTE: Sigue el mismo patrón que usaste en el Pipeline CRM.
+
+🌐 PARTE 6: WIDGET PÚBLICO
+Crea client/src/pages/public-booking.tsx:
+
+
+typescript
+import { useState } from "react";
+import { useParams, useSearchParams } from "wouter";
+import { useQuery, useMutation } from "@tanstack/react-query";
+import { Card } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Calendar } from "@/components/ui/calendar";
+import { useToast } from "@/hooks/use-toast";
+
+export default function PublicBookingPage() {
+  const { tenantSlug } = useParams();
+  const [searchParams] = useSearchParams();
+  const [step, setStep] = useState(1);
+  const [selectedService, setSelectedService] = useState<any>(null);
+  const [selectedDate, setSelectedDate] = useState<Date | undefined>(undefined);
+  const [selectedSlot, setSelectedSlot] = useState<any>(null);
+  const { toast } = useToast();
+
+  // Fetch tenant info
+  const { data: tenant } = useQuery({
+    queryKey: [`/api/tenants/${tenantSlug}`],
+    queryFn: async () => {
+      const res = await fetch(`/api/tenants/${tenantSlug}`);
+      if (!res.ok) throw new Error("Tenant not found");
+      return res.json();
+    },
+  });
+
+  // Fetch services
+  const { data: services } = useQuery({
+    queryKey: [`/api/calendar/services`, tenant?.id],
+    enabled: !!tenant,
+    queryFn: async () => {
+      const res = await fetch(`/api/calendar/services?tenantId=${tenant.id}&public=true`);
+      if (!res.ok) throw new Error("Failed to fetch services");
+      return res.json();
+    },
+  });
+
+  // Fetch available slots
+  const { data: slotsData } = useQuery({
+    queryKey: ["/api/calendar/available-slots", selectedService?.id, selectedDate],
+    enabled: !!selectedService && !!selectedDate,
+    queryFn: async () => {
+      const dateStr = selectedDate!.toISOString().split("T")[0];
+      const res = await fetch(
+        `/api/calendar/available-slots?serviceId=${selectedService.id}&date=${dateStr}&locationId=${selectedService.locationIds[0]}&tenantId=${tenant.id}&public=true`
+      );
+      if (!res.ok) throw new Error("Failed to fetch slots");
+      return res.json();
+    },
+  });
+
+  // Create appointment
+  const createAppointmentMutation = useMutation({
+    mutationFn: async (data: any) => {
+      const res = await fetch("/api/calendar/appointments", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ...data, tenantId: tenant.id }),
+      });
+      if (!res.ok) throw new Error("Failed to create appointment");
+      return res.json();
+    },
+    onSuccess: () => {
+      toast({ title: "¡Reserva confirmada!" });
+      setStep(4); // Success screen
+    },
+    onError: () => {
+      toast({ title: "Error al reservar", variant: "destructive" });
+    },
+  });
+
+  const handleBooking = (formData: any) => {
+    createAppointmentMutation.mutate({
+      serviceId: selectedService.id,
+      staffId: selectedSlot.staffId,
+      locationId: selectedService.locationIds[0],
+      startTime: selectedSlot.startTime,
+      ...formData,
+    });
+  };
+
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 p-4">
+      <div className="max-w-4xl mx-auto">
+        {/* Header */}
+        <Card className="p-8 mb-6 text-center">
+          <h1 className="text-4xl font-bold text-gray-900 mb-2">
+            {tenant?.name || "Reserva tu cita"}
+          </h1>
+          <p className="text-gray-600">
+            Selecciona tu servicio y encuentra el horario perfecto
+          </p>
+        </Card>
+
+        {/* Step Indicators */}
+        <div className="flex items-center justify-center mb-8">
+          {[1, 2, 3].map((s) => (
+            <div key={s} className="flex items-center">
+              <div
+                className={`w-10 h-10 rounded-full flex items-center justify-center ${
+                  step >= s ? "bg-blue-600 text-white" : "bg-gray-300 text-gray-600"
+                }`}
+              >
+                {s}
+              </div>
+              {s < 3 && (
+                <div
+                  className={`w-24 h-1 ${
+                    step > s ? "bg-blue-600" : "bg-gray-300"
+                  }`}
+                />
+
+  )}
+            </div>
+          ))}
+        </div>
+
+        {/* Step 1: Select Service */}
+        {step === 1 && (
+          <Card className="p-6">
+            <h2 className="text-2xl font-bold mb-6">Selecciona un servicio</h2>
+            <div className="grid gap-4 md:grid-cols-2">
+              {services?.map((service: any) => (
+                <Card
+                  key={service.id}
+                  className={`p-6 cursor-pointer hover:shadow-lg transition-shadow ${
+                    selectedService?.id === service.id ? "ring-2 ring-blue-600" : ""
+                  }`}
+                  onClick={() => {
+                    setSelectedService(service);
+                    setStep(2);
+                  }}
+                >
+                  <div className="flex items-start justify-between mb-4">
+                    <div>
+                      <h3 className="text-xl font-semibold">{service.name}</h3>
+                      <p className="text-gray-600 text-sm mt-1">{service.description}</p>
+                    </div>
+                    <div
+                      className="w-4 h-4 rounded-full"
+                      style={{ backgroundColor: service.color }}
+                    />
+                  </div>
+                  <div className="flex items-center justify-between text-sm text-gray-600">
+                    <span className="flex items-center gap-1">
+                      <Clock className="h-4 w-4" />
+                      {service.duration} min
+                    </span>
+                    {service.price && (
+                      <span className="text-lg font-bold text-blue-600">
+                        ${service.price}
+                      </span>
+                    )}
+                  </div>
+                </Card>
+              ))}
+            </div>
+          </Card>
+        )}
+
+        {/* Step 2: Select Date & Time */}
+        {step === 2 && (
+          <Card className="p-6">
+            <Button
+              variant="ghost"
+              onClick={() => setStep(1)}
+              className="mb-4"
+            >
+              ← Cambiar servicio
+            </Button>
+            
+            <h2 className="text-2xl font-bold mb-6">
+              Selecciona fecha y hora
+            </h2>
+
+            <div className="grid md:grid-cols-2 gap-6">
+              {/* Calendar */}
+              <div>
+                <Calendar
+                  mode="single"
+                  selected={selectedDate}
+                  onSelect={setSelectedDate}
+                  disabled={(date) => date < new Date()}
+                  className="rounded-md border"
+                />
+              </div>
+
+              {/* Available Slots */}
+              <div>
+                {selectedDate ? (
+                  <>
+                    <h3 className="font-semibold mb-4">
+                      Horarios disponibles para {selectedDate.toLocaleDateString()}
+                    </h3>
+                    {slotsData?.slots?.length > 0 ? (
+                      <div className="grid grid-cols-2 gap-2 max-h-96 overflow-y-auto">
+                        {slotsData.slots.map((slot: any, idx: number) => (
+                          <Button
+                            key={idx}
+                            variant={selectedSlot === slot ? "default" : "outline"}
+                            onClick={() => {
+                              setSelectedSlot(slot);
+                              setStep(3);
+                            }}
+                            className="justify-start"
+                          >
+                            {new Date(slot.startTime).toLocaleTimeString("es", {
+                              hour: "2-digit",
+                              minute: "2-digit",
+                            })}
+                          </Button>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="text-gray-500 text-center py-8">
+                        No hay horarios disponibles para esta fecha
+                      </p>
+                    )}
+                  </>
+                ) : (
+                  <p className="text-gray-500 text-center py-8">
+                    Selecciona una fecha en el calendario
+                  </p>
+                )}
+              </div>
+            </div>
+          </Card>
+        )}
+
+        {/* Step 3: Customer Info */}
+        {step === 3 && (
+          <Card className="p-6">
+            <Button
+              variant="ghost"
+              onClick={() => setStep(2)}
+              className="mb-4"
+            >
+              ← Cambiar horario
+            </Button>
+
+            <h2 className="text-2xl font-bold mb-6">Tus datos</h2>
+
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                const formData = new FormData(e.currentTarget);
+                handleBooking({
+                  customerName: formData.get("name"),
+                  customerEmail: formData.get("email"),
+                  customerPhone: formData.get("phone"),
+                  timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+                });
+              }}
+              className="space-y-4"
+            >
+              <div>
+                <label className="block text-sm font-medium mb-2">
+                  Nombre completo *
+                </label>
+                <input
+                  type="text"
+                  name="name"
+                  required
+                  className="w-full px-4 py-2 border rounded-lg"
+                  placeholder="Juan Pérez"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium mb-2">
+                  Correo electrónico
+                </label>
+                <input
+                  type="email"
+                  name="email"
+                  className="w-full px-4 py-2 border rounded-lg"
+                  placeholder="juan@ejemplo.com"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium mb-2">
+                  Teléfono *
+                </label>
+                <input
+                  type="tel"
+                  name="phone"
+                  required
+                  className="w-full px-4 py-2 border rounded-lg"
+                  placeholder="+58 424 1234567"
+                />
+              </div>
+
+              {/* Summary */}
+              <Card className="bg-blue-50 p-4 mt-6">
+                <h3 className="font-semibold mb-2">Resumen de tu reserva</h3>
+                <div className="space-y-1 text-sm text-gray-700">
+                  <p><strong>Servicio:</strong> {selectedService?.name}</p>
+                  <p><strong>Fecha:</strong> {selectedDate?.toLocaleDateString()}</p>
+                  <p>
+                    <strong>Hora:</strong>{" "}
+                    {new Date(selectedSlot?.startTime).toLocaleTimeString("es", {
+                      hour: "2-digit",
+                      minute: "2-digit",
+                    })}
+                  </p>
+                  <p><strong>Duración:</strong> {selectedService?.duration} minutos</p>
+                  {selectedService?.price && (
+                    <p className="text-lg font-bold text-blue-600 mt-2">
+                      Total: ${selectedService.price}
+                    </p>
+                  )}
+                </div>
+              </Card>
+
+              <Button
+                type="submit"
+                className="w-full"
+                disabled={createAppointmentMutation.isPending}
+              >
+                {createAppointmentMutation.isPending ? "Procesando..." : "Confirmar Reserva"}
+              </Button>
+            </form>
+          </Card>
+        )}
+
+        {/* Step 4: Success */}
+        {step === 4 && (
+          <Card className="p-8 text-center">
+            <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
+              <svg
+                className="w-8 h-8 text-green-600"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M5 13l4 4L19 7"
+                />
+              </svg>
+            </div>
+            <h2 className="text-3xl font-bold text-gray-900 mb-2">
+              ¡Reserva Confirmada!
+            </h2>
+            <p className="text-gray-600 mb-6">
+              Recibirás un correo de confirmación con todos los detalles.
+              Te enviaremos recordatorios 24 horas y 1 hora antes de tu cita.
+            </p>
+            <Button
+              onClick={() => {
+                setStep(1);
+                setSelectedService(null);
+                setSelectedDate(undefined);
+                setSelectedSlot(null);
+              }}
+            >
+              Hacer otra reserva
+            </Button>
+          </Card>
+        )}
+      </div>
+    </div>
+  );
+}
+Agrega la ruta pública en client/src/App.tsx:
+
+
+typescript
+{
+  path: "/book/:tenantSlug",
+  element: <PublicBookingPage />,
+},
+
+🔗 PARTE 7: INTEGRACIONES (Estructura básica)
+7.1 Google Calendar Sync
+Crea endpoint en server/routes.ts:
+
+
+typescript
+// ==================== GOOGLE CALENDAR INTEGRATION ====================
+
+app.post("/api/calendar/integrations/google/connect", async (req, res) => {
+  if (!req.isAuthenticated() || !req.user.tenantId) {
+    return res.sendStatus(401);
+  }
+
+  try {
+    // TODO: Implementar OAuth 2.0 flow con Google
+    // 1. Generar authorization URL
+    // 2. Redirigir a Google consent screen
+    // 3. Recibir callback con code
+    // 4. Intercambiar code por tokens
+    // 5. Guardar refresh_token en staffMembers.settings
+
+    res.json({ message: "Google Calendar integration - TODO" });
+  } catch (error: any) {
+    console.error("❌ Error connecting Google Calendar:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post("/api/calendar/integrations/google/sync", async (req, res) => {
+  if (!req.isAuthenticated()) {
+    return res.sendStatus(401);
+  }
+
+  try {
+    // TODO: Sync appointments to Google Calendar
+    // 1. Get staff member's Google tokens
+    // 2. For each appointment, create/update/delete Google Calendar event
+    // 3. Use Google Calendar API v3
+
+    res.json({ message: "Sync initiated - TODO" });
+  } catch (error: any) {
+    console.error("❌ Error syncing:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
+7.2 Zoom/Meet Auto-Links
+
+
+typescript
+// ==================== VIDEO MEETINGS ====================
+
+app.post("/api/calendar/appointments/:id/create-meeting", async (req, res) => {
+  if (!req.isAuthenticated() || !req.user.tenantId) {
+    return res.sendStatus(401);
+  }
+
+  try {
+    const appointment = await db.query.appointments.findFirst({
+      where: and(
+        eq(schema.appointments.id, req.params.id),
+        eq(schema.appointments.tenantId, req.user.tenantId)
+      ),
+      with: { service: true, staff: true },
+    });
+
+    if (!appointment) {
+      return res.status(404).json({ error: "Appointment not found" });
+    }
+
+    // TODO: Create Zoom or Google Meet link
+    // Option 1: Zoom API - crear meeting con JWT/OAuth
+    // Option 2: Google Meet - generar link con Calendar API
+
+    const meetingUrl = `https://meet.google.com/xxx-yyyy-zzz`; // Placeholder
+
+    await db.update(schema.appointments)
+      .set({ videoMeetingUrl: meetingUrl, updatedAt: new Date() })
+      .where(eq(schema.appointments.id, req.params.id));
+
+    res.json({ meetingUrl });
+  } catch (error: any) {
+    console.error("❌ Error creating meeting:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
+7.3 Notificaciones (Email/SMS/WhatsApp)
+
+
+typescript
+// ==================== NOTIFICATIONS ====================
+
+app.post("/api/calendar/notifications/send", async (req, res) => {
+  if (!req.isAuthenticated() || !req.user.tenantId) {
+    return res.sendStatus(401);
+  }
+
+  try {
+    const { appointmentId, type } = req.body; // type: confirmation, reminder_24h, reminder_1h
+
+    const appointment = await db.query.appointments.findFirst({
+      where: eq(schema.appointments.id, appointmentId),
+      with: { service: true, staff: true, location: true },
+    });
+
+    if (!appointment) {
+      return res.status(404).json({ error: "Appointment not found" });
+    }
+
+    // Get template
+    const template = await db.query.notificationTemplates.findFirst({
+      where: and(
+        eq(schema.notificationTemplates.tenantId, req.user.tenantId),
+        eq(schema.notificationTemplates.type, type),
+        eq(schema.notificationTemplates.isActive, true)
+      ),
+    });
+
+    if (!template) {
+      return res.status(404).json({ error: "Template not found" });
+    }
+
+    // Replace variables
+    const message = template.template
+      .replace("{{customerName}}", appointment.customerName)
+      .replace("{{service}}", appointment.service.name)
+      .replace("{{date}}", new Date(appointment.startTime).toLocaleDateString())
+      .replace("{{time}}", new Date(appointment.startTime).toLocaleTimeString())
+      .replace("{{location}}", appointment.location.name)
+      .replace("{{staff}}", appointment.staff.name);
+
+    // TODO: Send via channel
+    if (template.channel === "email") {
+      // Use Resend/SendGrid
+    } else if (template.channel === "sms") {
+      // Use Twilio SMS
+    } else if (template.channel === "whatsapp") {
+      // Use Evolution API
+    }
+
+    console.log(`📧 Notification sent: ${type} to ${appointment.customerEmail || appointment.customerPhone}`);
+
+    // Update reminder flags
+    if (type === "reminder_24h") {
+      await db.update(schema.appointments)
+        .set({ reminderSent24h: true })
+        .where(eq(schema.appointments.id, appointmentId));
+    } else if (type === "reminder_1h") {
+      await db.update(schema.appointments)
+        .set({ reminderSent1h: true })
+        .where(eq(schema.appointments.id, appointmentId));
+    }
+
+    res.json({ success: true });
+  } catch (error: any) {
+    console.error("❌ Error sending notification:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Cron job para enviar recordatorios automáticos
+// TODO: Implementar con node-cron o similar
+7.4 Integración con IA de Llamadas
+
+
+typescript
+// ==================== AI INTEGRATION ====================
+
+app.post("/api/ai/calendar-actions", async (req, res) => {
+  try {
+    const { intent, tenantId, customerId, data } = req.body;
+
+    if (intent === "check_availability") {
+      // IA pregunta disponibilidad
+      const { serviceId, date, locationId } = data;
+      
+      const slots = await fetch(
+        `/api/calendar/available-slots?serviceId=${serviceId}&date=${date}&locationId=${locationId}&tenantId=${tenantId}&public=true`
+      ).then(r => r.json());
+
+      return res.json({
+        available: slots.slots.length > 0,
+        slots: slots.slots.slice(0, 3), // Top 3 opciones
+        message: slots.slots.length > 0
+          ? `Tengo disponible a las ${slots.slots.map((s: any) => 
+              new Date(s.startTime).toLocaleTimeString("es", { hour: "2-digit", minute: "2-digit" })
+            ).join(", ")}`
+          : "Lo siento, no tengo disponibilidad para esa fecha."
+      });
+    }
+
+    if (intent === "book_appointment") {
+      // IA agenda la cita
+      const appointment = await db.insert(schema.appointments).values({
+        tenantId,
+        ...data,
+        status: "confirmed",
+      }).returning();
+
+      return res.json({
+        success: true,
+        appointmentId: appointment[0].id,
+        message: `Perfecto, tu cita está confirmada para el ${new Date(data.startTime).toLocaleString("es")}`
+      });
+    }
+
+    if (intent === "reschedule") {
+      // IA reprograma
+      const { appointmentId, newStartTime } = data;
+      
+      await db.update(schema.appointments)
+        .set({ 
+          startTime: newStartTime,
+          endTime: new Date(new Date(newStartTime).getTime() + data.duration * 60000),
+          updatedAt: new Date()
+        })
+        .where(eq(schema.appointments.id, appointmentId));
+
+      return res.json({
+        success: true,
+        message: "He reprogramado tu cita exitosamente"
+      });
+    }
+
+    res.status(400).json({ error: "Unknown intent" });
+  } catch (error: any) {
+    console.error("❌ AI calendar action error:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+✅ PARTE 8: VALIDACIONES FINALES
+Antes de marcar como completo, verifica:
+1. ✅ Todas las dependencias instaladas (@fullcalendar/*, date-fns, etc.)
+2. ✅ Schema en shared/schema.ts sin errores de sintaxis
+3. ✅ Todas las relaciones de Drizzle agregadas
+4. ✅ Endpoints en server/routes.ts funcionando
+5. ✅ Ruta /bookings agregada en App.tsx
+6. ✅ Ruta /book/:tenantSlug para widget público
+7. ✅ Item "Reservas" en sidebar.tsx
+8. ✅ Página bookings.tsx creada
+9. ✅ Componentes básicos creados (calendar-view, managers, dialog)
+10. ✅ Widget público public-booking.tsx creado
+11. ✅ Imports correctos (sin circular dependencies)
+12. ✅ TypeScript compila sin errores
+13. ✅ React Query con invalidación de queries
+
+🚀 TESTING SUGERIDO
+Después de implementar, prueba:
+1. Crear una locación
+2. Crear un servicio y asignarlo a la locación
+3. Crear un staff member y asignarlo al servicio
+4. Configurar horarios de disponibilidad
+5. Ver el calendario con slots disponibles
+6. Crear una cita manualmente desde el calendario
+7. Hacer drag & drop para reprogramar
+8. Abrir /book/{tu-tenant-slug} y hacer una reserva pública
+9. Verificar que las citas aparezcan en el calendario
+
+📝 NOTAS IMPORTANTES
+* Las integraciones de Google Calendar, Zoom y notificaciones están como TODOs
+* Implementarlas requiere configurar OAuth y APIs externas
+* El widget público necesita que tengas un slug en la tabla tenants
+* Los recordatorios automáticos requieren un cron job (usar node-cron)
+* Las citas recurrentes usan formato iCal RRULE (librería rrule recomendada)

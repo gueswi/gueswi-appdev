@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, varchar, timestamp, integer, boolean, decimal, uuid, jsonb } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, timestamp, integer, boolean, decimal, uuid, jsonb, date, numeric, primaryKey } from "drizzle-orm/pg-core";
 import { relations } from "drizzle-orm";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
@@ -404,6 +404,291 @@ export const leadActivities = pgTable("lead_activities", {
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
+// ==================== CALENDARIO Y RESERVAS ====================
+
+// 1. Locaciones físicas del negocio
+export const locations = pgTable("locations", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  tenantId: uuid("tenant_id").notNull().references(() => tenants.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+  address: text("address"),
+  city: text("city"),
+  state: text("state"),
+  country: text("country"),
+  postalCode: text("postal_code"),
+  timezone: text("timezone").notNull().default("UTC"),
+  phone: text("phone"),
+  email: text("email"),
+  settings: jsonb("settings"),
+  isActive: boolean("is_active").default(true),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+// 2. Servicios ofrecidos
+export const services = pgTable("services", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  tenantId: uuid("tenant_id").notNull().references(() => tenants.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+  description: text("description"),
+  duration: integer("duration").notNull(),
+  price: numeric("price", { precision: 10, scale: 2 }),
+  currency: text("currency").default("USD"),
+  capacity: integer("capacity").default(1),
+  bufferTime: integer("buffer_time").default(0),
+  color: text("color").default("#3b82f6"),
+  slotDuration: integer("slot_duration"),
+  depositRequired: boolean("deposit_required").default(false),
+  allowRecurring: boolean("allow_recurring").default(false),
+  customFields: jsonb("custom_fields"),
+  isActive: boolean("is_active").default(true),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+// 3. Relación many-to-many: servicio puede estar en múltiples locaciones
+export const serviceLocations = pgTable("service_locations", {
+  serviceId: uuid("service_id").notNull().references(() => services.id, { onDelete: "cascade" }),
+  locationId: uuid("location_id").notNull().references(() => locations.id, { onDelete: "cascade" }),
+}, (table) => ({
+  pk: primaryKey({ columns: [table.serviceId, table.locationId] }),
+}));
+
+// 4. Personal/empleados que brindan servicios
+export const staffMembers = pgTable("staff_members", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  tenantId: uuid("tenant_id").notNull().references(() => tenants.id, { onDelete: "cascade" }),
+  userId: uuid("user_id").references(() => users.id),
+  name: text("name").notNull(),
+  email: text("email"),
+  phone: text("phone"),
+  role: text("role"),
+  color: text("color").default("#3b82f6"),
+  locationId: uuid("location_id").references(() => locations.id),
+  isActive: boolean("is_active").default(true),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+// 5. Relación many-to-many: staff member puede ofrecer múltiples servicios
+export const staffServices = pgTable("staff_services", {
+  staffId: uuid("staff_id").notNull().references(() => staffMembers.id, { onDelete: "cascade" }),
+  serviceId: uuid("service_id").notNull().references(() => services.id, { onDelete: "cascade" }),
+}, (table) => ({
+  pk: primaryKey({ columns: [table.staffId, table.serviceId] }),
+}));
+
+// 6. Reglas de disponibilidad (horarios de trabajo)
+export const availabilityRules = pgTable("availability_rules", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  staffId: uuid("staff_id").notNull().references(() => staffMembers.id, { onDelete: "cascade" }),
+  dayOfWeek: integer("day_of_week").notNull(),
+  startTime: text("start_time").notNull(),
+  endTime: text("end_time").notNull(),
+  serviceId: uuid("service_id").references(() => services.id),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+// 7. Excepciones de disponibilidad (vacaciones, días festivos)
+export const availabilityExceptions = pgTable("availability_exceptions", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  staffId: uuid("staff_id").notNull().references(() => staffMembers.id, { onDelete: "cascade" }),
+  date: date("date").notNull(),
+  isAvailable: boolean("is_available").default(false),
+  startTime: text("start_time"),
+  endTime: text("end_time"),
+  reason: text("reason"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+// 8. Citas/appointments
+export const appointments = pgTable("appointments", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  tenantId: uuid("tenant_id").notNull().references(() => tenants.id, { onDelete: "cascade" }),
+  serviceId: uuid("service_id").notNull().references(() => services.id),
+  staffId: uuid("staff_id").notNull().references(() => staffMembers.id),
+  locationId: uuid("location_id").notNull().references(() => locations.id),
+  customerName: text("customer_name").notNull(),
+  customerEmail: text("customer_email"),
+  customerPhone: text("customer_phone").notNull(),
+  customFields: jsonb("custom_fields"),
+  startTime: timestamp("start_time", { withTimezone: true }).notNull(),
+  endTime: timestamp("end_time", { withTimezone: true }).notNull(),
+  timezone: text("timezone").notNull(),
+  status: text("status").notNull().default("pending"),
+  isRecurring: boolean("is_recurring").default(false),
+  recurrenceRule: text("recurrence_rule"),
+  parentAppointmentId: uuid("parent_appointment_id"),
+  notes: text("notes"),
+  cancelReason: text("cancel_reason"),
+  videoMeetingUrl: text("video_meeting_url"),
+  reminderSent24h: boolean("reminder_sent_24h").default(false),
+  reminderSent1h: boolean("reminder_sent_1h").default(false),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+// 9. Lista de espera
+export const waitlist = pgTable("waitlist", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  tenantId: uuid("tenant_id").notNull().references(() => tenants.id, { onDelete: "cascade" }),
+  serviceId: uuid("service_id").notNull().references(() => services.id),
+  staffId: uuid("staff_id").references(() => staffMembers.id),
+  locationId: uuid("location_id").notNull().references(() => locations.id),
+  customerName: text("customer_name").notNull(),
+  customerEmail: text("customer_email"),
+  customerPhone: text("customer_phone").notNull(),
+  preferredDate: date("preferred_date"),
+  preferredTimeSlot: text("preferred_time_slot"),
+  status: text("status").default("waiting"),
+  notifiedAt: timestamp("notified_at"),
+  createdAt: timestamp("created_at").defaultNow(),
+  expiresAt: timestamp("expires_at"),
+});
+
+// 10. Configuración de notificaciones
+export const notificationTemplates = pgTable("notification_templates", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  tenantId: uuid("tenant_id").notNull().references(() => tenants.id, { onDelete: "cascade" }),
+  type: text("type").notNull(),
+  channel: text("channel").notNull(),
+  subject: text("subject"),
+  template: text("template").notNull(),
+  isActive: boolean("is_active").default(true),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+// Calendar Relations
+export const locationsRelations = relations(locations, ({ one, many }) => ({
+  tenant: one(tenants, {
+    fields: [locations.tenantId],
+    references: [tenants.id],
+  }),
+  serviceLocations: many(serviceLocations),
+  appointments: many(appointments),
+  waitlist: many(waitlist),
+}));
+
+export const servicesRelations = relations(services, ({ one, many }) => ({
+  tenant: one(tenants, {
+    fields: [services.tenantId],
+    references: [tenants.id],
+  }),
+  serviceLocations: many(serviceLocations),
+  staffServices: many(staffServices),
+  appointments: many(appointments),
+  waitlist: many(waitlist),
+}));
+
+export const serviceLocationsRelations = relations(serviceLocations, ({ one }) => ({
+  service: one(services, {
+    fields: [serviceLocations.serviceId],
+    references: [services.id],
+  }),
+  location: one(locations, {
+    fields: [serviceLocations.locationId],
+    references: [locations.id],
+  }),
+}));
+
+export const staffMembersRelations = relations(staffMembers, ({ one, many }) => ({
+  tenant: one(tenants, {
+    fields: [staffMembers.tenantId],
+    references: [tenants.id],
+  }),
+  user: one(users, {
+    fields: [staffMembers.userId],
+    references: [users.id],
+  }),
+  location: one(locations, {
+    fields: [staffMembers.locationId],
+    references: [locations.id],
+  }),
+  staffServices: many(staffServices),
+  availabilityRules: many(availabilityRules),
+  availabilityExceptions: many(availabilityExceptions),
+  appointments: many(appointments),
+}));
+
+export const staffServicesRelations = relations(staffServices, ({ one }) => ({
+  staff: one(staffMembers, {
+    fields: [staffServices.staffId],
+    references: [staffMembers.id],
+  }),
+  service: one(services, {
+    fields: [staffServices.serviceId],
+    references: [services.id],
+  }),
+}));
+
+export const availabilityRulesRelations = relations(availabilityRules, ({ one }) => ({
+  staff: one(staffMembers, {
+    fields: [availabilityRules.staffId],
+    references: [staffMembers.id],
+  }),
+  service: one(services, {
+    fields: [availabilityRules.serviceId],
+    references: [services.id],
+  }),
+}));
+
+export const availabilityExceptionsRelations = relations(availabilityExceptions, ({ one }) => ({
+  staff: one(staffMembers, {
+    fields: [availabilityExceptions.staffId],
+    references: [staffMembers.id],
+  }),
+}));
+
+export const appointmentsRelations = relations(appointments, ({ one }) => ({
+  tenant: one(tenants, {
+    fields: [appointments.tenantId],
+    references: [tenants.id],
+  }),
+  service: one(services, {
+    fields: [appointments.serviceId],
+    references: [services.id],
+  }),
+  staff: one(staffMembers, {
+    fields: [appointments.staffId],
+    references: [staffMembers.id],
+  }),
+  location: one(locations, {
+    fields: [appointments.locationId],
+    references: [locations.id],
+  }),
+  parentAppointment: one(appointments, {
+    fields: [appointments.parentAppointmentId],
+    references: [appointments.id],
+  }),
+}));
+
+export const waitlistRelations = relations(waitlist, ({ one }) => ({
+  tenant: one(tenants, {
+    fields: [waitlist.tenantId],
+    references: [tenants.id],
+  }),
+  service: one(services, {
+    fields: [waitlist.serviceId],
+    references: [services.id],
+  }),
+  staff: one(staffMembers, {
+    fields: [waitlist.staffId],
+    references: [staffMembers.id],
+  }),
+  location: one(locations, {
+    fields: [waitlist.locationId],
+    references: [locations.id],
+  }),
+}));
+
+export const notificationTemplatesRelations = relations(notificationTemplates, ({ one }) => ({
+  tenant: one(tenants, {
+    fields: [notificationTemplates.tenantId],
+    references: [tenants.id],
+  }),
+}));
+
 export const insertPipelineSchema = createInsertSchema(pipelines).pick({
   name: true,
   description: true,
@@ -493,3 +778,11 @@ export type Lead = typeof leads.$inferSelect;
 export type InsertLead = z.infer<typeof insertLeadSchema>;
 export type LeadActivity = typeof leadActivities.$inferSelect;
 export type InsertLeadActivity = z.infer<typeof insertLeadActivitySchema>;
+export type Location = typeof locations.$inferSelect;
+export type Service = typeof services.$inferSelect;
+export type StaffMember = typeof staffMembers.$inferSelect;
+export type AvailabilityRule = typeof availabilityRules.$inferSelect;
+export type AvailabilityException = typeof availabilityExceptions.$inferSelect;
+export type Appointment = typeof appointments.$inferSelect;
+export type Waitlist = typeof waitlist.$inferSelect;
+export type NotificationTemplate = typeof notificationTemplates.$inferSelect;
