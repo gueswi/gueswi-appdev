@@ -94,20 +94,33 @@ export function LeadDetailsDialog({ lead, stages, onClose }: LeadDetailsDialogPr
 
   const updateLead = useMutation({
     mutationFn: async (data: EditLeadFormData) => {
-      const payload = {
-        ...data,
-        value: data.value ? parseFloat(data.value) : undefined,
-        tags: data.tags
+      const parsedValue = data.value ? parseFloat(data.value) : null;
+      
+      // For UPDATE, send all fields (use null for empty values to allow clearing)
+      // Guard required fields to prevent invalid submissions
+      const payload: any = {
+        name: data.name,
+        stageId: data.stageId || lead.stageId, // Never allow empty stageId
+        currency: data.currency || "USD",
+        probability: typeof data.probability === 'number' ? data.probability : 50,
+        company: data.company || null,
+        email: data.email || null,
+        phone: data.phone || null,
+        value: parsedValue !== null && !isNaN(parsedValue) ? parsedValue : null,
+        notes: data.notes || null,
+        tags: data.tags 
           ? data.tags.split(",").map((t) => t.trim()).filter(Boolean)
-          : undefined,
+          : null,
         expectedCloseDate: data.expectedCloseDate
           ? new Date(data.expectedCloseDate).toISOString()
-          : undefined,
+          : null,
       };
+
       return apiRequest("PATCH", `/api/pipeline/leads/${lead.id}`, payload);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/pipeline/leads"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/pipeline/leads", lead.id] });
       queryClient.invalidateQueries({ queryKey: ["/api/pipeline/metrics"] });
       queryClient.invalidateQueries({ queryKey: ["/api/pipeline/leads", lead.id, "activities"] });
       toast({

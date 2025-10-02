@@ -78,16 +78,29 @@ export function NewLeadDialog({ stages }: NewLeadDialogProps) {
   const createLead = useMutation({
     mutationFn: async (data: NewLeadFormData) => {
       const parsedValue = data.value ? parseFloat(data.value) : null;
-      const payload = {
-        ...data,
-        value: parsedValue !== null && !isNaN(parsedValue) ? parsedValue : undefined,
-        tags: data.tags
-          ? data.tags.split(",").map((t) => t.trim()).filter(Boolean)
-          : undefined,
-        expectedCloseDate: data.expectedCloseDate
-          ? new Date(data.expectedCloseDate).toISOString()
-          : undefined,
+      
+      // Build payload, only including fields that have values
+      const payload: any = {
+        name: data.name,
+        stageId: data.stageId,
+        currency: data.currency || "USD",
+        probability: data.probability ?? 50,
       };
+
+      // Add optional fields only if they have values
+      if (data.company) payload.company = data.company;
+      if (data.email) payload.email = data.email;
+      if (data.phone) payload.phone = data.phone;
+      if (parsedValue !== null && !isNaN(parsedValue)) payload.value = parsedValue;
+      if (data.notes) payload.notes = data.notes;
+      if (data.tags) {
+        const tagsArray = data.tags.split(",").map((t) => t.trim()).filter(Boolean);
+        if (tagsArray.length > 0) payload.tags = tagsArray;
+      }
+      if (data.expectedCloseDate) {
+        payload.expectedCloseDate = new Date(data.expectedCloseDate).toISOString();
+      }
+
       return apiRequest("POST", "/api/pipeline/leads", payload);
     },
     onSuccess: () => {
