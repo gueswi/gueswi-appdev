@@ -128,7 +128,7 @@ export function LeadDetailsDialog({ lead, stages, onClose }: LeadDetailsDialogPr
       }
       return apiRequest("PATCH", `/api/pipeline/leads/${lead.id}`, {
         stageId: wonStage.id,
-        closedAt: new Date().toISOString(),
+        closedAt: new Date(),
       });
     },
     onSuccess: () => {
@@ -152,7 +152,7 @@ export function LeadDetailsDialog({ lead, stages, onClose }: LeadDetailsDialogPr
       }
       return apiRequest("PATCH", `/api/pipeline/leads/${lead.id}`, {
         stageId: lostStage.id,
-        closedAt: new Date().toISOString(),
+        closedAt: new Date(),
       });
     },
     onSuccess: () => {

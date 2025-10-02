@@ -414,6 +414,8 @@ export const insertLeadSchema = createInsertSchema(leads).pick({
   expectedCloseDate: true,
   notes: true,
   tags: true,
+}).extend({
+  value: z.union([z.string(), z.number()]).optional(),
 }).partial({ 
   email: true, 
   phone: true, 

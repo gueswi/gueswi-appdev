@@ -77,9 +77,10 @@ export function NewLeadDialog({ stages }: NewLeadDialogProps) {
 
   const createLead = useMutation({
     mutationFn: async (data: NewLeadFormData) => {
+      const parsedValue = data.value ? parseFloat(data.value) : null;
       const payload = {
         ...data,
-        value: data.value ? parseFloat(data.value) : undefined,
+        value: parsedValue !== null && !isNaN(parsedValue) ? parsedValue : undefined,
         tags: data.tags
           ? data.tags.split(",").map((t) => t.trim()).filter(Boolean)
           : undefined,

@@ -1413,12 +1413,36 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
 
     try {
-      const validatedData = schema.insertLeadSchema.parse(req.body);
+      const validationResult = schema.insertLeadSchema.safeParse(req.body);
+      
+      if (!validationResult.success) {
+        console.error("Lead validation error:", validationResult.error.format());
+        return res.status(400).json({ 
+          error: validationResult.error.errors.map(e => `${e.path.join('.')}: ${e.message}`).join(", ")
+        });
+      }
+
+      // Convertir strings de fecha a objetos Date
+      const processedData = { ...validationResult.data };
+      if (processedData.expectedCloseDate && typeof processedData.expectedCloseDate === 'string') {
+        const date = new Date(processedData.expectedCloseDate);
+        if (isNaN(date.getTime())) {
+          return res.status(400).json({ error: "Invalid expectedCloseDate format" });
+        }
+        processedData.expectedCloseDate = date;
+      }
+      if (processedData.closedAt && typeof processedData.closedAt === 'string') {
+        const date = new Date(processedData.closedAt);
+        if (isNaN(date.getTime())) {
+          return res.status(400).json({ error: "Invalid closedAt format" });
+        }
+        processedData.closedAt = date;
+      }
 
       const [lead] = await db
         .insert(schema.leads)
         .values({
-          ...validatedData,
+          ...processedData,
           tenantId: req.user.tenantId,
         })
         .returning();
@@ -1482,9 +1506,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const { id } = req.params;
       const updateData = req.body;
 
+      // Validar que hay datos para actualizar
+      if (!updateData || Object.keys(updateData).length === 0) {
+        return res.status(400).json({ error: "No data provided for update" });
+      }
+
+      // Convertir strings de fecha a objetos Date
+      const processedData = { ...updateData };
+      if (processedData.closedAt && typeof processedData.closedAt === 'string') {
+        processedData.closedAt = new Date(processedData.closedAt);
+      }
+      if (processedData.expectedCloseDate && typeof processedData.expectedCloseDate === 'string') {
+        processedData.expectedCloseDate = new Date(processedData.expectedCloseDate);
+      }
+
       const [updated] = await db
         .update(schema.leads)
-        .set({ ...updateData, updatedAt: new Date() })
+        .set({ ...processedData, updatedAt: new Date() })
         .where(
           and(
             eq(schema.leads.id, id),
@@ -1508,6 +1546,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       res.json(updated);
     } catch (error: any) {
+      console.error("Error updating lead:", error);
       res.status(500).json({ error: error.message });
     }
   });

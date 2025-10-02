@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useMutation } from "@tanstack/react-query";
 import { Settings, Plus, Trash2, GripVertical } from "lucide-react";
 import {
@@ -111,6 +111,11 @@ export function StagesEditorDialog({ stages }: StagesEditorDialogProps) {
   const [localStages, setLocalStages] = useState<PipelineStage[]>(stages);
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const { toast } = useToast();
+
+  // Sync local stages with prop changes
+  useEffect(() => {
+    setLocalStages(stages);
+  }, [stages]);
 
   const sensors = useSensors(
     useSensor(PointerSensor),
