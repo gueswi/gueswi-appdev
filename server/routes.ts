@@ -1181,16 +1181,163 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Pipeline CRM endpoints
+  
+  // Pipelines CRUD
+  app.get("/api/pipelines", async (req, res) => {
+    if (!req.isAuthenticated() || !req.user.tenantId) {
+      return res.sendStatus(401);
+    }
+
+    try {
+      const pipelines = await db
+        .select()
+        .from(schema.pipelines)
+        .where(eq(schema.pipelines.tenantId, req.user.tenantId))
+        .orderBy(desc(schema.pipelines.isDefault), schema.pipelines.createdAt);
+      
+      res.json(pipelines);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.post("/api/pipelines", async (req, res) => {
+    if (!req.isAuthenticated() || !req.user.tenantId) {
+      return res.sendStatus(401);
+    }
+
+    try {
+      const { name, description } = req.body;
+      
+      const [newPipeline] = await db
+        .insert(schema.pipelines)
+        .values({
+          tenantId: req.user.tenantId,
+          name,
+          description,
+          isDefault: false,
+        })
+        .returning();
+
+      // Crear etapas base para el nuevo pipeline
+      const defaultStages = [
+        { name: "Nuevo", order: 0, color: "#10b981", isFixed: false },
+        { name: "Contactado", order: 1, color: "#3b82f6", isFixed: false },
+        { name: "Calificado", order: 2, color: "#8b5cf6", isFixed: false },
+        { name: "Propuesta", order: 3, color: "#f59e0b", isFixed: false },
+        { name: "Negociación", order: 4, color: "#ef4444", isFixed: false },
+        { name: "Ganado", order: 5, color: "#22c55e", isFixed: true },
+        { name: "Perdido", order: 6, color: "#6b7280", isFixed: true },
+      ];
+
+      for (const stage of defaultStages) {
+        await db.insert(schema.pipelineStages).values({
+          tenantId: req.user.tenantId,
+          pipelineId: newPipeline.id,
+          ...stage,
+        });
+      }
+
+      res.json(newPipeline);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.patch("/api/pipelines/:id", async (req, res) => {
+    if (!req.isAuthenticated() || !req.user.tenantId) {
+      return res.sendStatus(401);
+    }
+
+    try {
+      const { id } = req.params;
+      const { name, description } = req.body;
+
+      await db
+        .update(schema.pipelines)
+        .set({ name, description, updatedAt: new Date() })
+        .where(
+          and(
+            eq(schema.pipelines.id, id),
+            eq(schema.pipelines.tenantId, req.user.tenantId)
+          )
+        );
+
+      res.json({ success: true });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.delete("/api/pipelines/:id", async (req, res) => {
+    if (!req.isAuthenticated() || !req.user.tenantId) {
+      return res.sendStatus(401);
+    }
+
+    try {
+      const { id } = req.params;
+
+      // Verificar que no es default
+      const pipeline = await db.query.pipelines.findFirst({
+        where: and(
+          eq(schema.pipelines.id, id),
+          eq(schema.pipelines.tenantId, req.user.tenantId)
+        ),
+      });
+
+      if (pipeline?.isDefault) {
+        return res.status(400).json({ error: "No puedes eliminar el pipeline principal" });
+      }
+
+      // Verificar que no tiene leads
+      const leadsCount = await db
+        .select({ count: sql<number>`cast(count(*) as integer)` })
+        .from(schema.leads)
+        .where(eq(schema.leads.pipelineId, id));
+
+      if (leadsCount[0]?.count > 0) {
+        return res.status(400).json({ 
+          error: `Este pipeline tiene ${leadsCount[0].count} leads. Muévelos o elimínalos primero.` 
+        });
+      }
+
+      // Eliminar stages
+      await db
+        .delete(schema.pipelineStages)
+        .where(eq(schema.pipelineStages.pipelineId, id));
+
+      // Eliminar pipeline
+      await db
+        .delete(schema.pipelines)
+        .where(eq(schema.pipelines.id, id));
+
+      res.json({ success: true });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
   app.get("/api/pipeline/stages", async (req, res) => {
     if (!req.isAuthenticated() || !req.user.tenantId) {
       return res.sendStatus(401);
     }
 
     try {
+      const { pipelineId } = req.query;
+      
+      if (!pipelineId) {
+        return res.status(400).json({ error: "pipelineId query param required" });
+      }
+
       const stages = await db
         .select()
         .from(schema.pipelineStages)
-        .where(eq(schema.pipelineStages.tenantId, req.user.tenantId))
+        .where(
+          and(
+            eq(schema.pipelineStages.tenantId, req.user.tenantId),
+            eq(schema.pipelineStages.pipelineId, pipelineId as string)
+          )
+        )
         .orderBy(schema.pipelineStages.order);
 
       res.json(stages);
@@ -1205,10 +1352,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
 
     try {
+      const { pipelineId } = req.query;
+      
+      if (!pipelineId) {
+        return res.status(400).json({ error: "pipelineId query param required" });
+      }
+
       const leads = await db
         .select()
         .from(schema.leads)
-        .where(eq(schema.leads.tenantId, req.user.tenantId))
+        .where(
+          and(
+            eq(schema.leads.tenantId, req.user.tenantId),
+            eq(schema.leads.pipelineId, pipelineId as string)
+          )
+        )
         .orderBy(desc(schema.leads.createdAt));
 
       res.json(leads);
@@ -1680,13 +1838,24 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
 
     try {
+      const { pipelineId } = req.query;
+      
+      if (!pipelineId) {
+        return res.status(400).json({ error: "pipelineId query param required" });
+      }
+
       // Valor total del pipeline
       const totalValue = await db
         .select({ 
           sum: sql<string>`COALESCE(SUM(${schema.leads.value}), 0)` 
         })
         .from(schema.leads)
-        .where(eq(schema.leads.tenantId, req.user.tenantId));
+        .where(
+          and(
+            eq(schema.leads.tenantId, req.user.tenantId),
+            eq(schema.leads.pipelineId, pipelineId as string)
+          )
+        );
 
       // Contar leads ganados y totales
       const wonStage = await db
@@ -1695,6 +1864,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         .where(
           and(
             eq(schema.pipelineStages.tenantId, req.user.tenantId),
+            eq(schema.pipelineStages.pipelineId, pipelineId as string),
             eq(schema.pipelineStages.isFixed, true),
             sql`${schema.pipelineStages.name} ILIKE '%ganado%'`
           ),
@@ -1711,7 +1881,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const totalCount = await db
         .select({ count: sql<number>`count(*)` })
         .from(schema.leads)
-        .where(eq(schema.leads.tenantId, req.user.tenantId));
+        .where(
+          and(
+            eq(schema.leads.tenantId, req.user.tenantId),
+            eq(schema.leads.pipelineId, pipelineId as string)
+          )
+        );
 
       const conversionRate = Number(totalCount[0]?.count) > 0
         ? (Number(wonCount[0]?.count) / Number(totalCount[0]?.count)) * 100
@@ -1749,6 +1924,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         .where(
           and(
             eq(schema.pipelineStages.tenantId, req.user.tenantId),
+            eq(schema.pipelineStages.pipelineId, pipelineId as string),
             eq(schema.pipelineStages.isFixed, true),
             sql`${schema.pipelineStages.name} ILIKE '%perdido%'`
           ),
