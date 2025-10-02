@@ -350,9 +350,20 @@ export const insertMessageSchema = createInsertSchema(messages).pick({
 });
 
 // Pipeline CRM
+export const pipelines = pgTable("pipelines", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  tenantId: uuid("tenant_id").notNull(),
+  name: text("name").notNull(),
+  description: text("description"),
+  isDefault: boolean("is_default").default(false),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
 export const pipelineStages = pgTable("pipeline_stages", {
   id: uuid("id").defaultRandom().primaryKey(),
   tenantId: uuid("tenant_id").notNull(),
+  pipelineId: uuid("pipeline_id").notNull(),
   name: text("name").notNull(),
   order: integer("order").notNull(),
   color: text("color").default("#3b82f6"),
@@ -363,6 +374,7 @@ export const pipelineStages = pgTable("pipeline_stages", {
 export const leads = pgTable("leads", {
   id: uuid("id").defaultRandom().primaryKey(),
   tenantId: uuid("tenant_id").notNull(),
+  pipelineId: uuid("pipeline_id").notNull(),
   stageId: uuid("stage_id").notNull(),
   name: text("name").notNull(),
   email: text("email"),
@@ -392,7 +404,13 @@ export const leadActivities = pgTable("lead_activities", {
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
+export const insertPipelineSchema = createInsertSchema(pipelines).pick({
+  name: true,
+  description: true,
+}).partial({ description: true });
+
 export const insertPipelineStageSchema = createInsertSchema(pipelineStages).pick({
+  pipelineId: true,
   name: true,
   order: true,
   color: true,
@@ -400,6 +418,7 @@ export const insertPipelineStageSchema = createInsertSchema(pipelineStages).pick
 }).partial({ color: true, isFixed: true });
 
 export const insertLeadSchema = createInsertSchema(leads).pick({
+  pipelineId: true,
   stageId: true,
   name: true,
   email: true,
@@ -466,6 +485,8 @@ export type Conversation = typeof conversations.$inferSelect;
 export type InsertConversation = z.infer<typeof insertConversationSchema>;
 export type Message = typeof messages.$inferSelect;
 export type InsertMessage = z.infer<typeof insertMessageSchema>;
+export type Pipeline = typeof pipelines.$inferSelect;
+export type InsertPipeline = z.infer<typeof insertPipelineSchema>;
 export type PipelineStage = typeof pipelineStages.$inferSelect;
 export type InsertPipelineStage = z.infer<typeof insertPipelineStageSchema>;
 export type Lead = typeof leads.$inferSelect;
