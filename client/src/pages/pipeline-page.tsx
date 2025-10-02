@@ -120,20 +120,23 @@ export default function PipelinePage() {
 
   // Move lead mutation
   const moveLead = useMutation({
-    mutationFn: async ({ leadId, stageId }: { leadId: string; stageId: string }) => {
+    mutationFn: async ({ leadId, stageId, pipelineId }: { leadId: string; stageId: string; pipelineId: string }) => {
       await apiRequest("PATCH", `/api/pipeline/leads/${leadId}/move`, { stageId });
+      return { pipelineId }; // Return pipelineId to use in callbacks
     },
-    onSuccess: () => {
+    onSuccess: (data) => {
       // Solo invalidar métricas, no refetch de leads porque ya actualizamos optimistically
-      queryClient.invalidateQueries({ queryKey: [`/api/pipeline/metrics?pipelineId=${selectedPipelineId}`] });
+      // Use the snapshotted pipelineId from mutation variables
+      queryClient.invalidateQueries({ queryKey: [`/api/pipeline/metrics?pipelineId=${data.pipelineId}`] });
       toast({
         title: "Lead movido",
         description: "El lead se movió exitosamente",
       });
     },
-    onError: () => {
+    onError: (_error, variables) => {
       // Rollback: invalidar leads para refetch del servidor
-      queryClient.invalidateQueries({ queryKey: [`/api/pipeline/leads?pipelineId=${selectedPipelineId}`] });
+      // Use the snapshotted pipelineId from mutation variables
+      queryClient.invalidateQueries({ queryKey: [`/api/pipeline/leads?pipelineId=${variables.pipelineId}`] });
       toast({
         title: "Error",
         description: "No se pudo mover el lead",
@@ -168,17 +171,20 @@ export default function PipelinePage() {
       const isLead = leads.some((l) => l.id === leadId);
       const isStage = stages.some((s) => s.id === stageId);
       
-      if (isLead && isStage) {
+      if (isLead && isStage && selectedPipelineId) {
+        // Snapshot the pipelineId at mutation time
+        const pipelineIdSnapshot = selectedPipelineId;
+        
         // Actualizar optimísticamente el estado local ANTES de la mutation
-        queryClient.setQueryData([`/api/pipeline/leads?pipelineId=${selectedPipelineId}`], (oldLeads: Lead[] | undefined) => {
+        queryClient.setQueryData([`/api/pipeline/leads?pipelineId=${pipelineIdSnapshot}`], (oldLeads: Lead[] | undefined) => {
           if (!oldLeads) return oldLeads;
           return oldLeads.map((lead) =>
             lead.id === leadId ? { ...lead, stageId } : lead
           );
         });
         
-        // Luego hacer la mutation
-        moveLead.mutate({ leadId, stageId });
+        // Luego hacer la mutation with snapshotted pipelineId
+        moveLead.mutate({ leadId, stageId, pipelineId: pipelineIdSnapshot });
       }
     }
 
