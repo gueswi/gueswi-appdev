@@ -1,5 +1,5 @@
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -9,6 +9,13 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import {
   DndContext,
   DragEndEvent,
@@ -27,7 +34,7 @@ import {
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
 import { Plus, Settings, Search } from "lucide-react";
-import type { PipelineStage, Lead } from "@shared/schema";
+import type { PipelineStage, Lead, Pipeline } from "@shared/schema";
 import { StageColumn } from "@/components/pipeline/stage-column.tsx";
 import { LeadCard } from "@/components/pipeline/lead-card.tsx";
 import { NewLeadDialog } from "@/components/pipeline/new-lead-dialog.tsx";
@@ -59,15 +66,31 @@ export default function PipelinePage() {
   const [activeLead, setActiveLead] = useState<Lead | null>(null);
   const [selectedLead, setSelectedLead] = useState<Lead | null>(null);
   const [searchTerm, setSearchTerm] = useState("");
+  const [selectedPipelineId, setSelectedPipelineId] = useState<string | null>(null);
+
+  // Fetch pipelines
+  const { data: pipelines = [] } = useQuery<Pipeline[]>({
+    queryKey: ["/api/pipelines"],
+  });
+
+  // Auto-select default pipeline
+  useEffect(() => {
+    if (pipelines.length > 0 && !selectedPipelineId) {
+      const defaultPipeline = pipelines.find(p => p.isDefault) || pipelines[0];
+      setSelectedPipelineId(defaultPipeline.id);
+    }
+  }, [pipelines, selectedPipelineId]);
 
   // Fetch stages
   const { data: stages = [], isLoading: stagesLoading } = useQuery<PipelineStage[]>({
-    queryKey: ["/api/pipeline/stages"],
+    queryKey: ["/api/pipeline/stages", selectedPipelineId],
+    enabled: !!selectedPipelineId,
   });
 
   // Fetch leads
   const { data: leads = [], isLoading: leadsLoading } = useQuery<Lead[]>({
-    queryKey: ["/api/pipeline/leads"],
+    queryKey: ["/api/pipeline/leads", selectedPipelineId],
+    enabled: !!selectedPipelineId,
   });
 
   // Fetch metrics
@@ -80,7 +103,8 @@ export default function PipelinePage() {
     lostValue: number;
     totalCount: number;
   }>({
-    queryKey: ["/api/pipeline/metrics"],
+    queryKey: ["/api/pipeline/metrics", selectedPipelineId],
+    enabled: !!selectedPipelineId,
   });
 
   // Move lead mutation
@@ -90,7 +114,7 @@ export default function PipelinePage() {
     },
     onSuccess: () => {
       // Solo invalidar métricas, no refetch de leads porque ya actualizamos optimistically
-      queryClient.invalidateQueries({ queryKey: ["/api/pipeline/metrics"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/pipeline/metrics", selectedPipelineId] });
       toast({
         title: "Lead movido",
         description: "El lead se movió exitosamente",
@@ -98,7 +122,7 @@ export default function PipelinePage() {
     },
     onError: () => {
       // Rollback: invalidar leads para refetch del servidor
-      queryClient.invalidateQueries({ queryKey: ["/api/pipeline/leads"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/pipeline/leads", selectedPipelineId] });
       toast({
         title: "Error",
         description: "No se pudo mover el lead",
@@ -135,7 +159,7 @@ export default function PipelinePage() {
       
       if (isLead && isStage) {
         // Actualizar optimísticamente el estado local ANTES de la mutation
-        queryClient.setQueryData(["/api/pipeline/leads"], (oldLeads: Lead[] | undefined) => {
+        queryClient.setQueryData(["/api/pipeline/leads", selectedPipelineId], (oldLeads: Lead[] | undefined) => {
           if (!oldLeads) return oldLeads;
           return oldLeads.map((lead) =>
             lead.id === leadId ? { ...lead, stageId } : lead
@@ -177,12 +201,28 @@ export default function PipelinePage() {
       {/* Header with metrics */}
       <div className="bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-6 py-4">
         <div className="flex items-center justify-between mb-4">
-          <h1 className="text-2xl font-bold text-gray-900 dark:text-white" data-testid="text-pipeline-title">
-            Pipeline de Ventas
-          </h1>
+          <div className="flex items-center gap-4">
+            <h1 className="text-2xl font-bold text-gray-900 dark:text-white" data-testid="text-pipeline-title">
+              Pipeline de Ventas
+            </h1>
+            {selectedPipelineId && (
+              <Select value={selectedPipelineId} onValueChange={setSelectedPipelineId}>
+                <SelectTrigger className="w-64" data-testid="select-pipeline">
+                  <SelectValue placeholder="Selecciona pipeline" />
+                </SelectTrigger>
+                <SelectContent>
+                  {pipelines.map((pipeline) => (
+                    <SelectItem key={pipeline.id} value={pipeline.id} data-testid={`select-pipeline-${pipeline.id}`}>
+                      {pipeline.name} {pipeline.isDefault && "(Principal)"}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
+          </div>
           <div className="flex items-center gap-2">
-            <StagesEditorDialog stages={sortedStages} leads={leads} />
-            <NewLeadDialog stages={sortedStages} />
+            <StagesEditorDialog stages={sortedStages} leads={leads} pipelineId={selectedPipelineId} />
+            <NewLeadDialog stages={sortedStages} pipelineId={selectedPipelineId} />
           </div>
         </div>
 
