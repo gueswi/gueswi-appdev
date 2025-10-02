@@ -83,13 +83,13 @@ export default function PipelinePage() {
 
   // Fetch stages
   const { data: stages = [], isLoading: stagesLoading } = useQuery<PipelineStage[]>({
-    queryKey: ["/api/pipeline/stages", selectedPipelineId],
+    queryKey: [`/api/pipeline/stages?pipelineId=${selectedPipelineId}`],
     enabled: !!selectedPipelineId,
   });
 
   // Fetch leads
   const { data: leads = [], isLoading: leadsLoading } = useQuery<Lead[]>({
-    queryKey: ["/api/pipeline/leads", selectedPipelineId],
+    queryKey: [`/api/pipeline/leads?pipelineId=${selectedPipelineId}`],
     enabled: !!selectedPipelineId,
   });
 
@@ -103,7 +103,7 @@ export default function PipelinePage() {
     lostValue: number;
     totalCount: number;
   }>({
-    queryKey: ["/api/pipeline/metrics", selectedPipelineId],
+    queryKey: [`/api/pipeline/metrics?pipelineId=${selectedPipelineId}`],
     enabled: !!selectedPipelineId,
   });
 
@@ -114,7 +114,7 @@ export default function PipelinePage() {
     },
     onSuccess: () => {
       // Solo invalidar métricas, no refetch de leads porque ya actualizamos optimistically
-      queryClient.invalidateQueries({ queryKey: ["/api/pipeline/metrics", selectedPipelineId] });
+      queryClient.invalidateQueries({ queryKey: [`/api/pipeline/metrics?pipelineId=${selectedPipelineId}`] });
       toast({
         title: "Lead movido",
         description: "El lead se movió exitosamente",
@@ -122,7 +122,7 @@ export default function PipelinePage() {
     },
     onError: () => {
       // Rollback: invalidar leads para refetch del servidor
-      queryClient.invalidateQueries({ queryKey: ["/api/pipeline/leads", selectedPipelineId] });
+      queryClient.invalidateQueries({ queryKey: [`/api/pipeline/leads?pipelineId=${selectedPipelineId}`] });
       toast({
         title: "Error",
         description: "No se pudo mover el lead",
@@ -159,7 +159,7 @@ export default function PipelinePage() {
       
       if (isLead && isStage) {
         // Actualizar optimísticamente el estado local ANTES de la mutation
-        queryClient.setQueryData(["/api/pipeline/leads", selectedPipelineId], (oldLeads: Lead[] | undefined) => {
+        queryClient.setQueryData([`/api/pipeline/leads?pipelineId=${selectedPipelineId}`], (oldLeads: Lead[] | undefined) => {
           if (!oldLeads) return oldLeads;
           return oldLeads.map((lead) =>
             lead.id === leadId ? { ...lead, stageId } : lead

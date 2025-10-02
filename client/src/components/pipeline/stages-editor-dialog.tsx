@@ -44,6 +44,7 @@ import {
 interface StagesEditorDialogProps {
   stages: PipelineStage[];
   leads: Lead[];
+  pipelineId: string | null;
 }
 
 function SortableStageItem({
@@ -111,7 +112,7 @@ function SortableStageItem({
   );
 }
 
-export function StagesEditorDialog({ stages, leads }: StagesEditorDialogProps) {
+export function StagesEditorDialog({ stages, leads, pipelineId }: StagesEditorDialogProps) {
   const [open, setOpen] = useState(false);
   const [localStages, setLocalStages] = useState<PipelineStage[]>(stages);
   const [deleteId, setDeleteId] = useState<string | null>(null);
@@ -149,7 +150,7 @@ export function StagesEditorDialog({ stages, leads }: StagesEditorDialogProps) {
       return apiRequest("PATCH", `/api/pipeline/stages/${id}`, data);
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/pipeline/stages"] });
+      queryClient.invalidateQueries({ queryKey: [`/api/pipeline/stages?pipelineId=${pipelineId}`] });
     },
   });
 
@@ -158,7 +159,7 @@ export function StagesEditorDialog({ stages, leads }: StagesEditorDialogProps) {
       return apiRequest("DELETE", `/api/pipeline/stages/${id}`);
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/pipeline/stages"] });
+      queryClient.invalidateQueries({ queryKey: [`/api/pipeline/stages?pipelineId=${pipelineId}`] });
       toast({
         title: "Etapa eliminada",
         description: "La etapa se eliminó exitosamente",
@@ -178,7 +179,7 @@ export function StagesEditorDialog({ stages, leads }: StagesEditorDialogProps) {
       return apiRequest("PATCH", "/api/pipeline/stages/reorder", { stages });
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/pipeline/stages"] });
+      queryClient.invalidateQueries({ queryKey: [`/api/pipeline/stages?pipelineId=${pipelineId}`] });
       toast({
         title: "Orden actualizado",
         description: "Las etapas se reordenaron exitosamente",
@@ -196,15 +197,15 @@ export function StagesEditorDialog({ stages, leads }: StagesEditorDialogProps) {
 
   const createStage = useMutation({
     mutationFn: async (data: { name: string; order: number; color: string }) => {
-      return apiRequest("POST", "/api/pipeline/stages", data);
+      return apiRequest("POST", "/api/pipeline/stages", { ...data, pipelineId });
     },
     onSuccess: async (data: any) => {
       // Invalidate to refetch all stages
-      await queryClient.invalidateQueries({ queryKey: ["/api/pipeline/stages"] });
+      await queryClient.invalidateQueries({ queryKey: [`/api/pipeline/stages?pipelineId=${pipelineId}`] });
       
       // After refetch, persist the reordered stages to backend
       // This ensures the new stage stays at the beginning
-      const refetchedStages = queryClient.getQueryData(["/api/pipeline/stages"]) as PipelineStage[];
+      const refetchedStages = queryClient.getQueryData([`/api/pipeline/stages?pipelineId=${pipelineId}`]) as PipelineStage[];
       if (refetchedStages && data?.id) {
         // Find the new stage and make sure it's at order 0
         const reorderedStages = refetchedStages
@@ -221,7 +222,7 @@ export function StagesEditorDialog({ stages, leads }: StagesEditorDialogProps) {
         
         // Persist the new order to backend
         await apiRequest("PATCH", "/api/pipeline/stages/reorder", { stages: reorderedStages });
-        await queryClient.invalidateQueries({ queryKey: ["/api/pipeline/stages"] });
+        await queryClient.invalidateQueries({ queryKey: [`/api/pipeline/stages?pipelineId=${pipelineId}`] });
       }
       
       toast({
@@ -311,6 +312,7 @@ export function StagesEditorDialog({ stages, leads }: StagesEditorDialogProps) {
     const newStage: PipelineStage = {
       id: tempId,
       tenantId: "",
+      pipelineId: pipelineId || "",
       name: "Nueva Etapa",
       order: 0,
       color: "#3b82f6",

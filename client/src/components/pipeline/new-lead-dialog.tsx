@@ -52,9 +52,10 @@ type NewLeadFormData = z.infer<typeof newLeadSchema>;
 
 interface NewLeadDialogProps {
   stages: PipelineStage[];
+  pipelineId: string | null;
 }
 
-export function NewLeadDialog({ stages }: NewLeadDialogProps) {
+export function NewLeadDialog({ stages, pipelineId }: NewLeadDialogProps) {
   const [open, setOpen] = useState(false);
   const { toast } = useToast();
 
@@ -83,6 +84,7 @@ export function NewLeadDialog({ stages }: NewLeadDialogProps) {
       const payload: any = {
         name: data.name,
         stageId: data.stageId,
+        pipelineId: pipelineId,
         currency: data.currency || "USD",
         probability: data.probability ?? 50,
       };
@@ -104,8 +106,8 @@ export function NewLeadDialog({ stages }: NewLeadDialogProps) {
       return apiRequest("POST", "/api/pipeline/leads", payload);
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/pipeline/leads"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/pipeline/metrics"] });
+      queryClient.invalidateQueries({ queryKey: [`/api/pipeline/leads?pipelineId=${pipelineId}`] });
+      queryClient.invalidateQueries({ queryKey: [`/api/pipeline/metrics?pipelineId=${pipelineId}`] });
       toast({
         title: "Lead creado",
         description: "El lead se creó exitosamente",
