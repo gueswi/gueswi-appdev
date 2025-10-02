@@ -1189,11 +1189,26 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
 
     try {
-      const pipelines = await db
+      let pipelines = await db
         .select()
         .from(schema.pipelines)
         .where(eq(schema.pipelines.tenantId, req.user.tenantId))
         .orderBy(desc(schema.pipelines.isDefault), schema.pipelines.createdAt);
+      
+      // If no pipelines exist, create a default one
+      if (pipelines.length === 0) {
+        const [newPipeline] = await db
+          .insert(schema.pipelines)
+          .values({
+            tenantId: req.user.tenantId,
+            name: "Pipeline Principal",
+            description: "Pipeline principal de ventas",
+            isDefault: true,
+          })
+          .returning();
+        
+        pipelines = [newPipeline];
+      }
       
       res.json(pipelines);
     } catch (error: any) {
