@@ -28,10 +28,24 @@ import { Calendar, MapPin, Users, Briefcase, Plus, Settings } from "lucide-react
 import type { Location, Service, StaffMember, Appointment } from "@shared/schema";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { CalendarView } from "@/components/bookings/calendar-view";
+import { AppointmentDialog } from "@/components/bookings/appointment-dialog";
+import { LocationManagerDialog } from "@/components/bookings/location-manager-dialog";
+import { ServiceManagerDialog } from "@/components/bookings/service-manager-dialog";
+import { StaffManagerDialog } from "@/components/bookings/staff-manager-dialog";
 
 export default function BookingsPage() {
   const [selectedLocationId, setSelectedLocationId] = useState<string>("all");
   const [activeTab, setActiveTab] = useState("calendar");
+  
+  // Dialog states
+  const [appointmentDialogOpen, setAppointmentDialogOpen] = useState(false);
+  const [selectedAppointment, setSelectedAppointment] = useState<Appointment | null>(null);
+  const [locationDialogOpen, setLocationDialogOpen] = useState(false);
+  const [selectedLocation, setSelectedLocation] = useState<Location | null>(null);
+  const [serviceDialogOpen, setServiceDialogOpen] = useState(false);
+  const [selectedService, setSelectedService] = useState<Service | null>(null);
+  const [staffDialogOpen, setStaffDialogOpen] = useState(false);
+  const [selectedStaff, setSelectedStaff] = useState<StaffMember | null>(null);
 
   // Fetch locations
   const { data: locations = [], isLoading: locationsLoading } = useQuery<Location[]>({
@@ -74,27 +88,17 @@ export default function BookingsPage() {
             </p>
           </div>
           <div className="flex items-center gap-3">
-            <Dialog>
-              <DialogTrigger asChild>
-                <Button data-testid="button-new-appointment" size="sm">
-                  <Plus className="h-4 w-4 mr-2" />
-                  Nueva Cita
-                </Button>
-              </DialogTrigger>
-              <DialogContent>
-                <DialogHeader>
-                  <DialogTitle>Nueva Cita</DialogTitle>
-                  <DialogDescription>
-                    Crea una nueva cita para un cliente
-                  </DialogDescription>
-                </DialogHeader>
-                <div className="space-y-4 py-4">
-                  <p className="text-sm text-muted-foreground">
-                    Formulario de cita en desarrollo...
-                  </p>
-                </div>
-              </DialogContent>
-            </Dialog>
+            <Button
+              data-testid="button-new-appointment"
+              size="sm"
+              onClick={() => {
+                setSelectedAppointment(null);
+                setAppointmentDialogOpen(true);
+              }}
+            >
+              <Plus className="h-4 w-4 mr-2" />
+              Nueva Cita
+            </Button>
             <Button variant="outline" size="sm" data-testid="button-settings">
               <Settings className="h-4 w-4" />
             </Button>
@@ -182,12 +186,12 @@ export default function BookingsPage() {
               isLoading={appointmentsLoading || staffLoading || servicesLoading}
               selectedLocationId={selectedLocationId}
               onAppointmentClick={(appointment) => {
-                // TODO: Open appointment details dialog
-                console.log("Appointment clicked:", appointment);
+                setSelectedAppointment(appointment);
+                setAppointmentDialogOpen(true);
               }}
               onCreateAppointment={(dateInfo) => {
-                // TODO: Open create appointment dialog with pre-filled dates
-                console.log("Create appointment:", dateInfo);
+                setSelectedAppointment(null);
+                setAppointmentDialogOpen(true);
               }}
             />
           </TabsContent>
@@ -202,7 +206,14 @@ export default function BookingsPage() {
                     Gestiona los servicios disponibles para reserva
                   </CardDescription>
                 </div>
-                <Button size="sm" data-testid="button-add-service">
+                <Button
+                  size="sm"
+                  data-testid="button-add-service"
+                  onClick={() => {
+                    setSelectedService(null);
+                    setServiceDialogOpen(true);
+                  }}
+                >
                   <Plus className="h-4 w-4 mr-2" />
                   Agregar Servicio
                 </Button>
@@ -279,7 +290,14 @@ export default function BookingsPage() {
                     Gestiona el personal y su disponibilidad
                   </CardDescription>
                 </div>
-                <Button size="sm" data-testid="button-add-staff">
+                <Button
+                  size="sm"
+                  data-testid="button-add-staff"
+                  onClick={() => {
+                    setSelectedStaff(null);
+                    setStaffDialogOpen(true);
+                  }}
+                >
                   <Plus className="h-4 w-4 mr-2" />
                   Agregar Personal
                 </Button>
@@ -366,7 +384,14 @@ export default function BookingsPage() {
                     Gestiona las ubicaciones donde se ofrecen servicios
                   </CardDescription>
                 </div>
-                <Button size="sm" data-testid="button-add-location">
+                <Button
+                  size="sm"
+                  data-testid="button-add-location"
+                  onClick={() => {
+                    setSelectedLocation(null);
+                    setLocationDialogOpen(true);
+                  }}
+                >
                   <Plus className="h-4 w-4 mr-2" />
                   Agregar Ubicación
                 </Button>
@@ -444,6 +469,34 @@ export default function BookingsPage() {
           </TabsContent>
         </Tabs>
       </div>
+
+      {/* Dialogs */}
+      <AppointmentDialog
+        open={appointmentDialogOpen}
+        onOpenChange={setAppointmentDialogOpen}
+        appointment={selectedAppointment}
+        services={services}
+        staff={staff}
+        locations={locations}
+      />
+
+      <LocationManagerDialog
+        open={locationDialogOpen}
+        onOpenChange={setLocationDialogOpen}
+        location={selectedLocation}
+      />
+
+      <ServiceManagerDialog
+        open={serviceDialogOpen}
+        onOpenChange={setServiceDialogOpen}
+        service={selectedService}
+      />
+
+      <StaffManagerDialog
+        open={staffDialogOpen}
+        onOpenChange={setStaffDialogOpen}
+        staff={selectedStaff}
+      />
     </div>
   );
 }
