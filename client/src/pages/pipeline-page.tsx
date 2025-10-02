@@ -119,8 +119,11 @@ export default function PipelinePage() {
     return matchesSearch;
   });
 
+  // Sort stages by order field
+  const sortedStages = [...stages].sort((a, b) => a.order - b.order);
+
   // Group leads by stage
-  const leadsByStage = stages.reduce(
+  const leadsByStage = sortedStages.reduce(
     (acc, stage) => {
       acc[stage.id] = filteredLeads.filter((lead) => lead.stageId === stage.id);
       return acc;
@@ -139,8 +142,8 @@ export default function PipelinePage() {
             Pipeline de Ventas
           </h1>
           <div className="flex items-center gap-2">
-            <StagesEditorDialog stages={stages} />
-            <NewLeadDialog stages={stages} />
+            <StagesEditorDialog stages={sortedStages} />
+            <NewLeadDialog stages={sortedStages} />
           </div>
         </div>
 
@@ -211,10 +214,10 @@ export default function PipelinePage() {
             ) : (
               <div className="flex gap-4 h-full">
                 <SortableContext
-                  items={stages.map((s) => s.id)}
+                  items={sortedStages.map((s) => s.id)}
                   strategy={horizontalListSortingStrategy}
                 >
-                  {stages.map((stage) => (
+                  {sortedStages.map((stage) => (
                     <StageColumn
                       key={stage.id}
                       stage={stage}
@@ -237,7 +240,7 @@ export default function PipelinePage() {
       {selectedLead && (
         <LeadDetailsDialog
           lead={selectedLead}
-          stages={stages}
+          stages={sortedStages}
           onClose={() => setSelectedLead(null)}
         />
       )}

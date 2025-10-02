@@ -182,20 +182,28 @@ export function StagesEditorDialog({ stages }: StagesEditorDialogProps) {
   const handleDragEnd = (event: DragEndEvent) => {
     const { active, over } = event;
 
+    console.log("🔍 Drag end event:", { activeId: active.id, overId: over?.id });
+
     if (over && active.id !== over.id) {
       const oldIndex = localStages.findIndex((s) => s.id === active.id);
       const newIndex = localStages.findIndex((s) => s.id === over.id);
 
+      console.log("🔍 Reordering stages:", { oldIndex, newIndex });
+
       const newStages = arrayMove(localStages, oldIndex, newIndex);
       setLocalStages(newStages);
-
-      // Update order on server
-      const reorderedStages = newStages.map((stage, index) => ({
-        id: stage.id,
-        order: index,
-      }));
-      reorderStages.mutate(reorderedStages);
     }
+  };
+
+  const handleSaveOrder = () => {
+    // Save current order to server
+    const reorderedStages = localStages.map((stage, index) => ({
+      id: stage.id,
+      order: index,
+    }));
+    
+    console.log("🔍 Saving stage order:", reorderedStages);
+    reorderStages.mutate(reorderedStages);
   };
 
   const handleUpdate = (id: string, data: { name?: string; color?: string }) => {
@@ -262,15 +270,25 @@ export function StagesEditorDialog({ stages }: StagesEditorDialogProps) {
               </SortableContext>
             </DndContext>
 
-            <Button
-              variant="outline"
-              onClick={handleAddStage}
-              className="w-full"
-              data-testid="button-add-stage"
-            >
-              <Plus className="w-4 h-4 mr-2" />
-              Nueva Etapa
-            </Button>
+            <div className="flex gap-2">
+              <Button
+                variant="outline"
+                onClick={handleAddStage}
+                className="flex-1"
+                data-testid="button-add-stage"
+              >
+                <Plus className="w-4 h-4 mr-2" />
+                Nueva Etapa
+              </Button>
+              <Button
+                onClick={handleSaveOrder}
+                disabled={reorderStages.isPending}
+                className="flex-1"
+                data-testid="button-save-order"
+              >
+                Guardar Orden
+              </Button>
+            </div>
           </div>
         </DialogContent>
       </Dialog>

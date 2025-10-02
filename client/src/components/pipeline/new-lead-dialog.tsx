@@ -100,10 +100,11 @@ export function NewLeadDialog({ stages }: NewLeadDialogProps) {
       form.reset();
       setOpen(false);
     },
-    onError: () => {
+    onError: (error: any) => {
+      console.error("Error creating lead:", error);
       toast({
         title: "Error",
-        description: "No se pudo crear el lead",
+        description: error.message || "No se pudo crear el lead",
         variant: "destructive",
       });
     },

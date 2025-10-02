@@ -1304,9 +1304,34 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const { id } = req.params;
       const { name, color } = req.body;
 
+      // Build update object with only provided fields
+      const updateData: any = {};
+      if (name !== undefined) updateData.name = name;
+      if (color !== undefined) updateData.color = color;
+
+      // If no fields to update, return current stage
+      if (Object.keys(updateData).length === 0) {
+        const [stage] = await db
+          .select()
+          .from(schema.pipelineStages)
+          .where(
+            and(
+              eq(schema.pipelineStages.id, id),
+              eq(schema.pipelineStages.tenantId, req.user.tenantId),
+            ),
+          )
+          .limit(1);
+        
+        if (!stage) {
+          return res.status(404).json({ error: "Stage not found" });
+        }
+        
+        return res.json(stage);
+      }
+
       const [updated] = await db
         .update(schema.pipelineStages)
-        .set({ name, color })
+        .set(updateData)
         .where(
           and(
             eq(schema.pipelineStages.id, id),
@@ -1386,22 +1411,30 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
 
     try {
-      const { stages } = req.body; // Array of { id, order }
+      const { stages } = req.body;
 
+      if (!stages || !Array.isArray(stages) || stages.length === 0) {
+        return res.status(400).json({ error: "Invalid stages array" });
+      }
+
+      // Update each stage's order
       for (const stage of stages) {
-        await db
-          .update(schema.pipelineStages)
-          .set({ order: stage.order })
-          .where(
-            and(
-              eq(schema.pipelineStages.id, stage.id),
-              eq(schema.pipelineStages.tenantId, req.user.tenantId),
-            ),
-          );
+        if (stage.id && typeof stage.order === 'number') {
+          await db
+            .update(schema.pipelineStages)
+            .set({ order: stage.order })
+            .where(
+              and(
+                eq(schema.pipelineStages.id, stage.id),
+                eq(schema.pipelineStages.tenantId, req.user.tenantId),
+              ),
+            );
+        }
       }
 
       res.json({ success: true });
     } catch (error: any) {
+      console.error("Error reordering stages:", error);
       res.status(500).json({ error: error.message });
     }
   });
@@ -1422,21 +1455,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
         });
       }
 
+      // Convertir y limpiar datos
+      const processedData: any = { ...validationResult.data };
+      
+      // Convertir value de number a string si es necesario (para decimal en BD)
+      if (typeof processedData.value === 'number') {
+        processedData.value = processedData.value.toString();
+      }
+      
       // Convertir strings de fecha a objetos Date
-      const processedData = { ...validationResult.data };
       if (processedData.expectedCloseDate && typeof processedData.expectedCloseDate === 'string') {
         const date = new Date(processedData.expectedCloseDate);
         if (isNaN(date.getTime())) {
           return res.status(400).json({ error: "Invalid expectedCloseDate format" });
         }
         processedData.expectedCloseDate = date;
-      }
-      if (processedData.closedAt && typeof processedData.closedAt === 'string') {
-        const date = new Date(processedData.closedAt);
-        if (isNaN(date.getTime())) {
-          return res.status(400).json({ error: "Invalid closedAt format" });
-        }
-        processedData.closedAt = date;
       }
 
       const [lead] = await db
