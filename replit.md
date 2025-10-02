@@ -86,6 +86,64 @@ Preferred communication style: Simple, everyday language.
 
 # Recent Changes
 
+## Pipeline CRM System (October 2025)
+Implemented complete Pipeline CRM with Kanban-style visual workflow accessible at `/pipeline`:
+
+### Backend Implementation
+- **13 Protected API Endpoints** - All requiring authentication with tenant isolation:
+  - Stages: GET/POST/PATCH/DELETE `/api/pipeline/stages` + POST `/api/pipeline/stages/reorder`
+  - Leads: GET/POST/PATCH/DELETE `/api/pipeline/leads` + GET `/api/pipeline/leads/:id`
+  - Actions: PATCH `/api/pipeline/leads/:id/move` + POST `/api/pipeline/leads/:id/activities`
+  - Metrics: GET `/api/pipeline/metrics` (real-time calculations)
+- **Database Schema**:
+  - `pipeline_stages`: id (uuid), tenant_id, name, order, color, is_fixed, created_at
+  - `leads`: id (uuid), tenant_id, stage_id, name, email, phone, company, value, currency, probability, source, assigned_to, expected_close_date, closed_at, notes, tags, created_at, updated_at
+  - `lead_activities`: id (uuid), lead_id, user_id, type (note/call/email/meeting/stage_change), description, metadata, created_at
+- **Metrics Calculation**:
+  - Total Pipeline Value: Sum of all lead values
+  - Conversion Rate: (Won leads / Total leads) × 100
+  - Average Closing Days: Time from creation to won status
+  - Won/Total Counts: Real-time deal tracking
+- **Fixed Stages**: "Ganado" and "Perdido" stages auto-seeded, protected from deletion/editing
+
+### Frontend Implementation
+- **Main Page**: `client/src/pages/pipeline-page.tsx`
+  - Kanban board with horizontal stage columns
+  - Metrics header with 5 key metrics (Total Value, Conversion Rate, Won Count, Total Count, Avg Days)
+  - Search/filter functionality
+  - @dnd-kit integration for drag-and-drop
+- **5 Core Components**:
+  - `StageColumn`: Droppable container for leads with stage info
+  - `LeadCard`: Draggable lead card with value, company, probability, tags
+  - `NewLeadDialog`: Comprehensive form (name, company, email, phone, value, currency, probability, stage, close date, notes, tags)
+  - `StagesEditorDialog`: Stage management with drag-to-reorder, create/edit/delete, color picker
+  - `LeadDetailsDialog`: 3-tab interface (Info, Activities timeline, Edit)
+- **Drag-and-Drop Features**:
+  - Drag leads between stages (auto-creates stage_change activity)
+  - Drag stages to reorder (updates order for all stages)
+  - Visual feedback during drag operations
+- **Quick Actions**:
+  - "Mark as Won" - Moves lead to Ganado stage, sets closed_at
+  - "Mark as Lost" - Moves lead to Perdido stage, sets closed_at
+- **Activities Tracking**:
+  - Automatic activities: lead created, lead updated, stage changed
+  - Manual activities: notes, calls, emails, meetings
+  - Timeline view with timestamps
+
+### UX Features
+- Loading states for all queries and mutations
+- Toast notifications for all actions (success/error)
+- Responsive design for mobile/tablet/desktop
+- Dark mode support throughout
+- Confirmation dialogs for destructive actions
+- Search by lead name or company
+- data-testid attributes for all interactive elements
+- TanStack Query for optimistic updates and cache invalidation
+
+### Database Initialization
+- Auto-seeded 5 default stages for all 13 existing tenants (65 total stages)
+- Default stages: Lead (#3b82f6), Qualified (#8b5cf6), Proposal (#f59e0b), Ganado (#10b981, fixed), Perdido (#ef4444, fixed)
+
 ## Advanced Metrics Dashboard (October 2025)
 Implemented production-ready advanced analytics dashboard accessible at `/analytics`:
 
