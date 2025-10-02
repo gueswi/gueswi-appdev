@@ -49,8 +49,8 @@ export function StageColumn({ stage, leads, onLeadClick }: StageColumnProps) {
       <div
         ref={setNodeRef}
         className={`
-          flex-1 bg-gray-100 dark:bg-gray-800 rounded-lg p-3 pb-20
-          min-h-[300px] transition-colors
+          flex-1 bg-gray-100 dark:bg-gray-800 rounded-lg p-3 pb-24
+          min-h-[400px] transition-colors
           ${isOver ? "bg-blue-50 dark:bg-blue-900/20 ring-2 ring-blue-400" : ""}
         `}
         data-testid={`droppable-stage-${stage.id}`}

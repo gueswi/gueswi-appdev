@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useMutation } from "@tanstack/react-query";
 import { Settings, Plus, Trash2, GripVertical } from "lucide-react";
 import {
@@ -50,10 +50,12 @@ function SortableStageItem({
   stage,
   onUpdate,
   onDelete,
+  isNew,
 }: {
   stage: PipelineStage;
   onUpdate: (id: string, data: { name?: string; color?: string }) => void;
   onDelete: (id: string) => void;
+  isNew?: boolean;
 }) {
   const {
     attributes,
@@ -72,7 +74,9 @@ function SortableStageItem({
     <div
       ref={setNodeRef}
       style={style}
-      className="flex items-center gap-2 bg-gray-50 dark:bg-gray-800 p-3 rounded-lg"
+      className={`flex items-center gap-2 bg-gray-50 dark:bg-gray-800 p-3 rounded-lg ${
+        isNew ? 'ring-2 ring-green-500 ring-offset-2 animate-pulse' : ''
+      }`}
     >
       <div {...attributes} {...listeners} className="cursor-grab active:cursor-grabbing">
         <GripVertical className="w-4 h-4 text-gray-400" />
@@ -111,7 +115,9 @@ export function StagesEditorDialog({ stages, leads }: StagesEditorDialogProps) {
   const [open, setOpen] = useState(false);
   const [localStages, setLocalStages] = useState<PipelineStage[]>(stages);
   const [deleteId, setDeleteId] = useState<string | null>(null);
+  const [newlyCreatedId, setNewlyCreatedId] = useState<string | null>(null);
   const { toast } = useToast();
+  const debounceTimers = useRef<Record<string, NodeJS.Timeout>>({});
 
   // Count leads per stage (with safety check)
   const leadsPerStage = (leads || []).reduce((acc, lead) => {
@@ -192,12 +198,43 @@ export function StagesEditorDialog({ stages, leads }: StagesEditorDialogProps) {
     mutationFn: async (data: { name: string; order: number; color: string }) => {
       return apiRequest("POST", "/api/pipeline/stages", data);
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/pipeline/stages"] });
+    onSuccess: async (data: any) => {
+      // Invalidate to refetch all stages
+      await queryClient.invalidateQueries({ queryKey: ["/api/pipeline/stages"] });
+      
+      // After refetch, persist the reordered stages to backend
+      // This ensures the new stage stays at the beginning
+      const refetchedStages = queryClient.getQueryData(["/api/pipeline/stages"]) as PipelineStage[];
+      if (refetchedStages && data?.id) {
+        // Find the new stage and make sure it's at order 0
+        const reorderedStages = refetchedStages
+          .sort((a, b) => {
+            // New stage first, then others by current order
+            if (a.id === data.id) return -1;
+            if (b.id === data.id) return 1;
+            return a.order - b.order;
+          })
+          .map((stage, index) => ({
+            id: stage.id,
+            order: index,
+          }));
+        
+        // Persist the new order to backend
+        await apiRequest("PATCH", "/api/pipeline/stages/reorder", { stages: reorderedStages });
+        await queryClient.invalidateQueries({ queryKey: ["/api/pipeline/stages"] });
+      }
+      
       toast({
         title: "Etapa creada",
         description: "La nueva etapa se creó exitosamente",
       });
+      
+      // Update the newly created ID to the real one from backend
+      if (data?.id) {
+        setNewlyCreatedId(data.id);
+        // Clear highlight after 5 seconds
+        setTimeout(() => setNewlyCreatedId(null), 5000);
+      }
     },
   });
 
@@ -218,21 +255,33 @@ export function StagesEditorDialog({ stages, leads }: StagesEditorDialogProps) {
   };
 
   const handleSaveOrder = () => {
-    // Save current order to server
-    const reorderedStages = localStages.map((stage, index) => ({
-      id: stage.id,
-      order: index,
-    }));
+    // Save current order to server - filter out stages without valid IDs
+    const reorderedStages = localStages
+      .filter(stage => stage.id && stage.id.length > 0)
+      .map((stage, index) => ({
+        id: stage.id,
+        order: index,
+      }));
     
     console.log("🔍 Saving stage order:", reorderedStages);
     reorderStages.mutate(reorderedStages);
   };
 
   const handleUpdate = (id: string, data: { name?: string; color?: string }) => {
+    // Update local state immediately for smooth UX
     setLocalStages((prev) =>
       prev.map((s) => (s.id === id ? { ...s, ...data } : s))
     );
-    updateStage.mutate({ id, data });
+    
+    // Debounce API call to avoid cutting text while typing
+    if (debounceTimers.current[id]) {
+      clearTimeout(debounceTimers.current[id]);
+    }
+    
+    debounceTimers.current[id] = setTimeout(() => {
+      updateStage.mutate({ id, data });
+      delete debounceTimers.current[id];
+    }, 800);
   };
 
   const handleDelete = (id: string) => {
@@ -247,10 +296,33 @@ export function StagesEditorDialog({ stages, leads }: StagesEditorDialogProps) {
   };
 
   const handleAddStage = () => {
-    const newOrder = Math.max(...localStages.map((s) => s.order), -1) + 1;
+    // Create temporary ID for optimistic update
+    const tempId = `temp-${Date.now()}`;
+    
+    // Optimistically add new stage at the beginning
+    const newStage: PipelineStage = {
+      id: tempId,
+      tenantId: "",
+      name: "Nueva Etapa",
+      order: 0,
+      color: "#3b82f6",
+      isFixed: false,
+      createdAt: new Date(),
+    };
+    
+    // Update local state immediately - add at beginning and increment other orders
+    setLocalStages((prev) => {
+      const updatedOthers = prev.map(s => ({ ...s, order: s.order + 1 }));
+      return [newStage, ...updatedOthers];
+    });
+    
+    // Track as newly created for visual highlight
+    setNewlyCreatedId(tempId);
+    
+    // Create in backend
     createStage.mutate({
       name: "Nueva Etapa",
-      order: newOrder,
+      order: 0,
       color: "#3b82f6",
     });
   };
@@ -286,6 +358,7 @@ export function StagesEditorDialog({ stages, leads }: StagesEditorDialogProps) {
                       stage={stage}
                       onUpdate={handleUpdate}
                       onDelete={handleDelete}
+                      isNew={stage.id === newlyCreatedId}
                     />
                   ))}
                 </div>

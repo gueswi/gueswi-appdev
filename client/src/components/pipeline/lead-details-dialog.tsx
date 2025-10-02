@@ -61,10 +61,11 @@ export function LeadDetailsDialog({ lead, stages, onClose }: LeadDetailsDialogPr
   const { toast } = useToast();
   const [activeTab, setActiveTab] = useState("info");
 
-  // Fetch lead details
-  const { data: leadDetails } = useQuery<Lead>({
+  // Fetch lead details - refetch on mount to ensure fresh data after edits
+  const { data: leadDetails, isLoading } = useQuery<Lead>({
     queryKey: ["/api/pipeline/leads", lead.id],
     initialData: lead,
+    refetchOnMount: 'always',
   });
 
   // Fetch lead activities
