@@ -3260,6 +3260,46 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Función auxiliar mejorada para validar horarios con múltiples bloques
+  const validateStaffAvailability = (
+    staffSchedule: any,
+    dayOfWeek: number,
+    startMinutes: number,
+    endMinutes: number
+  ): { valid: boolean; message?: string } => {
+    const daySchedule = staffSchedule[dayOfWeek];
+
+    if (!daySchedule || !daySchedule.enabled) {
+      return {
+        valid: false,
+        message: `El personal no trabaja este día`,
+      };
+    }
+
+    // Verificar que la cita esté COMPLETAMENTE dentro de ALGUNO de los bloques
+    const isWithinAnyBlock = daySchedule.blocks?.some((block: any) => {
+      const [startH, startM] = block.start.split(":").map(Number);
+      const [endH, endM] = block.end.split(":").map(Number);
+      const blockStart = startH * 60 + startM;
+      const blockEnd = endH * 60 + endM;
+
+      // La cita COMPLETA debe estar dentro del bloque
+      return startMinutes >= blockStart && endMinutes <= blockEnd;
+    });
+
+    if (!isWithinAnyBlock) {
+      const blocksStr = daySchedule.blocks
+        .map((b: any) => `${b.start}-${b.end}`)
+        .join(", ");
+      return {
+        valid: false,
+        message: `El personal solo trabaja en estos horarios: ${blocksStr}`,
+      };
+    }
+
+    return { valid: true };
+  };
+
   // Función helper para validar horario de citas
   const validateAppointmentTime = async (locationId: string, staffId: string, startTime: Date, endTime: Date) => {
     // Validar horario de la ubicación
@@ -3308,27 +3348,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
     const staffScheduleForLocation = staffSchedules?.[locationId];
 
     if (!staffScheduleForLocation) {
-      throw new Error("Staff member does not work at this location");
+      throw new Error("El personal no trabaja en esta ubicación");
     }
 
-    const staffDaySchedule = staffScheduleForLocation[dayOfWeek];
-    if (!staffDaySchedule?.enabled) {
-      throw new Error("Staff member does not work on this day at this location");
-    }
+    const validation = validateStaffAvailability(
+      staffScheduleForLocation,
+      dayOfWeek,
+      startMinutes,
+      endMinutes
+    );
 
-    // Verificar que la cita esté dentro de ALGUNO de los bloques del staff
-    const staffWorksInTimeRange = staffDaySchedule.blocks?.some((block: any) => {
-      const [startH, startM] = block.start.split(":").map(Number);
-      const [endH, endM] = block.end.split(":").map(Number);
-      const blockStart = startH * 60 + startM;
-      const blockEnd = endH * 60 + endM;
-      
-      // La cita debe estar COMPLETAMENTE dentro del bloque del staff
-      return startMinutes >= blockStart && endMinutes <= blockEnd;
-    });
-
-    if (!staffWorksInTimeRange) {
-      throw new Error("Staff member is not available at this time. Check their schedule.");
+    if (!validation.valid) {
+      throw new Error(validation.message);
     }
 
     return true;
