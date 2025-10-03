@@ -2909,14 +2909,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
           .where(inArray(schema.staffServices.staffId, staffIds));
       }
 
-      // Attach services to each staff member
-      const staffWithServices = staff.map(member => ({
-        ...member,
-        staffServices: staffServices.filter(ss => ss.staffId === member.id),
-        serviceIds: staffServices.filter(ss => ss.staffId === member.id).map(ss => ss.serviceId),
+      // CRÍTICO: Parsear schedulesByLocation de JSON
+      const staffWithParsedSchedules = staff.map((s: any) => ({
+        ...s,
+        schedulesByLocation: typeof s.schedulesByLocation === 'string' 
+          ? JSON.parse(s.schedulesByLocation) 
+          : s.schedulesByLocation || {},
+        staffServices: staffServices.filter(ss => ss.staffId === s.id),
+        serviceIds: staffServices.filter(ss => ss.staffId === s.id).map(ss => ss.serviceId),
       }));
 
-      res.json(staffWithServices);
+      res.json(staffWithParsedSchedules);
     } catch (error: any) {
       res.status(500).json({ error: error.message });
     }
@@ -3170,18 +3173,95 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Función helper para validar horario de citas
+  const validateAppointmentTime = async (locationId: string, staffId: string, startTime: Date, endTime: Date) => {
+    // Validar horario de la ubicación
+    const location = await db.query.locations.findFirst({
+      where: eq(schema.locations.id, locationId),
+    });
+
+    if (!location) {
+      throw new Error("Location not found");
+    }
+
+    const dayOfWeek = startTime.getDay();
+    const operatingHours = location.operatingHours as any;
+    const daySchedule = operatingHours?.[dayOfWeek];
+
+    if (!daySchedule?.enabled) {
+      const dayNames = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+      throw new Error(`This location is closed on ${dayNames[dayOfWeek]}`);
+    }
+
+    const startMinutes = startTime.getHours() * 60 + startTime.getMinutes();
+    const endMinutes = endTime.getHours() * 60 + endTime.getMinutes();
+
+    const isWithinLocationBlocks = daySchedule.blocks?.some((block: any) => {
+      const [startH, startM] = block.start.split(":").map(Number);
+      const [endH, endM] = block.end.split(":").map(Number);
+      const blockStart = startH * 60 + startM;
+      const blockEnd = endH * 60 + endM;
+      return startMinutes >= blockStart && endMinutes <= blockEnd;
+    });
+
+    if (!isWithinLocationBlocks) {
+      throw new Error("Appointment time is outside location operating hours");
+    }
+
+    // Validar horario del staff
+    const staff = await db.query.staffMembers.findFirst({
+      where: eq(schema.staffMembers.id, staffId),
+    });
+
+    if (!staff) {
+      throw new Error("Staff member not found");
+    }
+
+    const staffSchedules = staff.schedulesByLocation as any;
+    const staffScheduleForLocation = staffSchedules?.[locationId];
+
+    if (!staffScheduleForLocation) {
+      throw new Error("Staff member does not work at this location");
+    }
+
+    const staffDaySchedule = staffScheduleForLocation[dayOfWeek];
+    if (!staffDaySchedule?.enabled) {
+      throw new Error("Staff member does not work on this day at this location");
+    }
+
+    const staffWorksInTimeRange = staffDaySchedule.blocks?.some((block: any) => {
+      const [startH, startM] = block.start.split(":").map(Number);
+      const [endH, endM] = block.end.split(":").map(Number);
+      const blockStart = startH * 60 + startM;
+      const blockEnd = endH * 60 + endM;
+      return startMinutes >= blockStart && endMinutes <= blockEnd;
+    });
+
+    if (!staffWorksInTimeRange) {
+      throw new Error("Staff member is not available at this time");
+    }
+
+    return true;
+  };
+
   app.post("/api/appointments", async (req, res) => {
     if (!req.isAuthenticated() || !req.user.tenantId) {
       return res.sendStatus(401);
     }
 
     try {
-      const validatedData = insertAppointmentSchema.parse(req.body);
+      const validatedData = insertAppointmentSchema.parse(req.body) as any;
       
       // Validate that startTime is not in the past
       const startTime = new Date(validatedData.startTime);
+      const endTime = new Date(validatedData.endTime);
       if (startTime < new Date()) {
         return res.status(400).json({ error: "Cannot create appointments in the past" });
+      }
+
+      // Validar horario de la ubicación y staff
+      if (validatedData.locationId && validatedData.staffId) {
+        await validateAppointmentTime(validatedData.locationId, validatedData.staffId, startTime, endTime);
       }
       
       const [appointment] = await db
@@ -3207,25 +3287,26 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const { id } = req.params;
       const validatedData = insertAppointmentSchema.partial().parse(req.body);
       
+      // Get the existing appointment
+      const [existing] = await db
+        .select()
+        .from(schema.appointments)
+        .where(
+          and(
+            eq(schema.appointments.id, id),
+            eq(schema.appointments.tenantId, req.user.tenantId)
+          )
+        )
+        .limit(1);
+
+      if (!existing) {
+        return res.status(404).json({ error: "Appointment not found" });
+      }
+
       // Only validate if startTime is being changed and the new time is in the past
       if (validatedData.startTime) {
-        // Get the existing appointment to compare
-        const [existing] = await db
-          .select()
-          .from(schema.appointments)
-          .where(
-            and(
-              eq(schema.appointments.id, id),
-              eq(schema.appointments.tenantId, req.user.tenantId)
-            )
-          )
-          .limit(1);
-
-        if (!existing) {
-          return res.status(404).json({ error: "Appointment not found" });
-        }
-
         const newStartTime = new Date(validatedData.startTime);
+        const newEndTime = validatedData.endTime ? new Date(validatedData.endTime) : new Date(existing.endTime);
         const existingStartTime = new Date(existing.startTime);
         const now = new Date();
         
@@ -3233,6 +3314,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
         if (newStartTime.getTime() !== existingStartTime.getTime() && newStartTime < now) {
           return res.status(400).json({ error: "Cannot move appointments to the past" });
         }
+
+        // Validar horario de la ubicación y staff si cambia el tiempo
+        const locationId = validatedData.locationId || existing.locationId;
+        const staffId = validatedData.staffId || existing.staffId;
+        await validateAppointmentTime(locationId, staffId, newStartTime, newEndTime);
       }
       
       const [updated] = await db

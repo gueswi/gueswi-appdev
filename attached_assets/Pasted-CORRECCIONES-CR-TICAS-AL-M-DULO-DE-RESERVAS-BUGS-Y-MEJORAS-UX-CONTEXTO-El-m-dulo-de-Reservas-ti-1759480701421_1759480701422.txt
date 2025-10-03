@@ -1,0 +1,945 @@
+CORRECCIONES CRÍTICAS AL MÓDULO DE RESERVAS - BUGS Y MEJORAS UX
+⚠️ CONTEXTO
+El módulo de Reservas tiene 3 problemas críticos que deben corregirse: datos no cargan al editar personal, falta flujo jerárquico en nueva cita, y validaciones de horarios no funcionan.
+
+🐛 PARTE 1: FIX BUG #1 - Modal "Editar Personal" no carga datos
+Problema
+Al editar un staff member existente, los campos de ubicaciones y servicios aparecen vacíos a pesar de haber sido guardados.
+Solución
+En client/src/components/bookings/staff-manager.tsx, corregir la función handleOpenDialog:
+typescriptconst handleOpenDialog = (staffMember?: any) => {
+  if (staffMember) {
+    setEditingStaff(staffMember);
+    setFormData({
+      name: staffMember.name,
+      email: staffMember.email || "",
+      phone: staffMember.phone || "",
+      role: staffMember.role || "",
+    });
+
+    // CRÍTICO: Cargar ubicaciones del staff
+    const staffLocationIds = staffMember.schedulesByLocation 
+      ? Object.keys(staffMember.schedulesByLocation)
+      : [];
+    setSelectedLocations(staffLocationIds);
+
+    // CRÍTICO: Cargar horarios por ubicación
+    if (staffMember.schedulesByLocation) {
+      setSchedulesByLocation(staffMember.schedulesByLocation);
+    } else {
+      setSchedulesByLocation({});
+    }
+
+    // CRÍTICO: Cargar servicios del staff
+    const staffServiceIds = staffMember.staffServices?.map((ss: any) => ss.serviceId) || [];
+    setSelectedServices(staffServiceIds);
+
+  } else {
+    // Crear nuevo staff
+    setEditingStaff(null);
+    setFormData({ name: "", email: "", phone: "", role: "" });
+    setSelectedLocations([]);
+    setSchedulesByLocation({});
+    setSelectedServices([]);
+  }
+  setDialogOpen(true);
+};
+También actualizar el endpoint GET en server/routes.ts:
+typescriptapp.get("/api/calendar/staff", async (req, res) => {
+  if (!req.isAuthenticated() || !req.user.tenantId) {
+    return res.sendStatus(401);
+  }
+
+  try {
+    const staff = await db.query.staffMembers.findMany({
+      where: eq(schema.staffMembers.tenantId, req.user.tenantId),
+      with: {
+        staffServices: {
+          with: { service: true }
+        },
+        location: true,
+      },
+      orderBy: [asc(schema.staffMembers.name)],
+    });
+
+    // CRÍTICO: Parsear schedulesByLocation de JSON
+    const staffWithParsedSchedules = staff.map((s: any) => ({
+      ...s,
+      schedulesByLocation: typeof s.schedulesByLocation === 'string' 
+        ? JSON.parse(s.schedulesByLocation) 
+        : s.schedulesByLocation || {}
+    }));
+
+    res.json(staffWithParsedSchedules);
+  } catch (error: any) {
+    console.error("❌ Error fetching staff:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+🎯 PARTE 2: MEJORA #2.1 - Combobox con buscador para servicios
+Problema
+Dropdown de servicios tiene scroll largo cuando hay muchos servicios.
+Solución
+Reemplazar <Select> con <Combobox> en appointment-dialog.tsx:
+typescriptimport { useState } from "react";
+import { Check, ChevronsUpDown } from "lucide-react";
+import { cn } from "@/lib/utils";
+import { Button } from "@/components/ui/button";
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+} from "@/components/ui/command";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+
+// Dentro del componente AppointmentDialog:
+const [openServiceCombo, setOpenServiceCombo] = useState(false);
+const [selectedServiceId, setSelectedServiceId] = useState("");
+
+// En el formulario, reemplazar el Select de servicios con:
+<div>
+  <label className="block text-sm font-medium mb-2">
+    Servicio *
+  </label>
+  <Popover open={openServiceCombo} onOpenChange={setOpenServiceCombo}>
+    <PopoverTrigger asChild>
+      <Button
+        variant="outline"
+        role="combobox"
+        aria-expanded={openServiceCombo}
+        className="w-full justify-between"
+        disabled={!selectedLocationId}
+      >
+        {selectedServiceId
+          ? filteredServices?.find((s: any) => s.id === selectedServiceId)?.name
+          : "Seleccionar servicio"}
+        <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+      </Button>
+    </PopoverTrigger>
+    <PopoverContent className="w-full p-0">
+      <Command>
+        <CommandInput placeholder="Buscar servicio..." />
+        <CommandEmpty>No se encontró el servicio</CommandEmpty>
+        <CommandGroup className="max-h-64 overflow-auto">
+          {filteredServices?.map((service: any) => (
+            <CommandItem
+              key={service.id}
+              value={service.name}
+              onSelect={() => {
+                setSelectedServiceId(service.id);
+                setOpenServiceCombo(false);
+              }}
+            >
+              <Check
+                className={cn(
+                  "mr-2 h-4 w-4",
+                  selectedServiceId === service.id ? "opacity-100" : "opacity-0"
+                )}
+              />
+              <div className="flex-1">
+                <div className="font-medium">{service.name}</div>
+                <div className="text-xs text-muted-foreground">
+                  {service.duration} min • ${service.price || "0"}
+                </div>
+              </div>
+            </CommandItem>
+          ))}
+        </CommandGroup>
+      </Command>
+    </PopoverContent>
+  </Popover>
+</div>
+
+🔄 PARTE 3: FIX BUG #2.2 - Flujo jerárquico con cascada
+Problema
+No hay jerarquía Ubicación → Servicio → Personal con filtrado en cascada.
+Solución
+Reescribir completamente appointment-dialog.tsx con lógica de cascada:
+typescriptimport { useState, useEffect } from "react";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
+import { useToast } from "@/hooks/use-toast";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Check, ChevronsUpDown } from "lucide-react";
+import { cn } from "@/lib/utils";
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+} from "@/components/ui/command";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+
+interface AppointmentDialogProps {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  appointment?: any;
+  defaultDate?: Date | null;
+  preSelectedLocationId?: string | null;
+}
+
+export default function AppointmentDialog({
+  open,
+  onOpenChange,
+  appointment,
+  defaultDate,
+  preSelectedLocationId,
+}: AppointmentDialogProps) {
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+
+  // Estados del formulario en cascada
+  const [selectedLocationId, setSelectedLocationId] = useState<string>("");
+  const [selectedServiceId, setSelectedServiceId] = useState<string>("");
+  const [selectedStaffId, setSelectedStaffId] = useState<string>("");
+
+  // Estados de UI
+  const [openServiceCombo, setOpenServiceCombo] = useState(false);
+  const [openStaffCombo, setOpenStaffCombo] = useState(false);
+
+  // Fetch data
+  const { data: locations } = useQuery({
+    queryKey: ["/api/calendar/locations"],
+  });
+
+  const { data: allServices } = useQuery({
+    queryKey: ["/api/calendar/services"],
+  });
+
+  const { data: allStaff } = useQuery({
+    queryKey: ["/api/calendar/staff"],
+  });
+
+  // STEP 1: Pre-seleccionar ubicación si viene del filtro
+  useEffect(() => {
+    if (open && preSelectedLocationId) {
+      setSelectedLocationId(preSelectedLocationId);
+    }
+  }, [open, preSelectedLocationId]);
+
+  // STEP 2: Resetear appointment cuando se abre el dialog
+  useEffect(() => {
+    if (open && !appointment) {
+      // Nuevo appointment
+      setSelectedLocationId(preSelectedLocationId || "");
+      setSelectedServiceId("");
+      setSelectedStaffId("");
+    } else if (open && appointment) {
+      // Editar appointment
+      setSelectedLocationId(appointment.locationId || appointment.location?.id || "");
+      setSelectedServiceId(appointment.serviceId || appointment.service?.id || "");
+      setSelectedStaffId(appointment.staffId || appointment.staff?.id || "");
+    }
+  }, [open, appointment, preSelectedLocationId]);
+
+  // FILTRO EN CASCADA #1: Servicios disponibles en la ubicación seleccionada
+  const filteredServices = allServices?.filter((service: any) => {
+    if (!selectedLocationId) return false;
+    
+    const serviceLocationIds = service.serviceLocations?.map((sl: any) => sl.locationId) || [];
+    return serviceLocationIds.includes(selectedLocationId);
+  });
+
+  // FILTRO EN CASCADA #2: Personal disponible en ubicación Y que ofrece el servicio
+  const filteredStaff = allStaff?.filter((staff: any) => {
+    if (!selectedLocationId || !selectedServiceId) return false;
+
+    // Verifica que trabaje en la ubicación
+    const worksInLocation = staff.schedulesByLocation && 
+      Object.keys(staff.schedulesByLocation).includes(selectedLocationId);
+    
+    // Verifica que ofrezca el servicio
+    const offersService = staff.staffServices?.some((ss: any) => ss.serviceId === selectedServiceId);
+
+    return worksInLocation && offersService;
+  });
+
+  // CASCADA: Resetear servicio si se cambia ubicación
+  const handleLocationChange = (locationId: string) => {
+    setSelectedLocationId(locationId);
+    setSelectedServiceId(""); // Reset
+    setSelectedStaffId(""); // Reset
+  };
+
+  // CASCADA: Resetear staff si se cambia servicio
+  const handleServiceChange = (serviceId: string) => {
+    setSelectedServiceId(serviceId);
+    setSelectedStaffId(""); // Reset
+  };
+
+  // Mutations
+  const createMutation = useMutation({
+    mutationFn: async (data: any) => {
+      const res = await fetch("/api/calendar/appointments", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify(data),
+      });
+      if (!res.ok) {
+        const error = await res.json();
+        throw new Error(error.error || "Failed to create");
+      }
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/calendar/appointments"] });
+      toast({ title: "Cita creada exitosamente" });
+      onOpenChange(false);
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Error al crear cita",
+        description: error.message,
+        variant: "destructive",
+      });
+    },
+  });
+
+  const updateMutation = useMutation({
+    mutationFn: async ({ id, data }: any) => {
+      const res = await fetch(`/api/calendar/appointments/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify(data),
+      });
+      if (!res.ok) {
+        const error = await res.json();
+        throw new Error(error.error || "Failed to update");
+      }
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/calendar/appointments"] });
+      toast({ title: "Cita actualizada" });
+      onOpenChange(false);
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Error al actualizar",
+        description: error.message,
+        variant: "destructive",
+      });
+    },
+  });
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    const formData = new FormData(e.currentTarget as HTMLFormElement);
+
+    // Validaciones
+    if (!selectedLocationId) {
+      toast({
+        title: "Error",
+        description: "Debes seleccionar una ubicación",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (!selectedServiceId) {
+      toast({
+        title: "Error",
+        description: "Debes seleccionar un servicio",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (!selectedStaffId) {
+      toast({
+        title: "Error",
+        description: "Debes seleccionar personal",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    // Obtener servicio para calcular endTime
+    const service = allServices?.find((s: any) => s.id === selectedServiceId);
+    if (!service) {
+      toast({
+        title: "Error",
+        description: "Servicio no encontrado",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    const startTime = new Date(formData.get("startTime") as string);
+    const endTime = new Date(startTime);
+    endTime.setMinutes(endTime.getMinutes() + service.duration);
+
+    const appointmentData = {
+      locationId: selectedLocationId,
+      serviceId: selectedServiceId,
+      staffId: selectedStaffId,
+      customerName: formData.get("customerName"),
+      customerEmail: formData.get("customerEmail"),
+      customerPhone: formData.get("customerPhone"),
+      startTime: startTime.toISOString(),
+      endTime: endTime.toISOString(),
+      timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+      notes: formData.get("notes"),
+    };
+
+    if (appointment) {
+      updateMutation.mutate({ id: appointment.id, data: appointmentData });
+    } else {
+      createMutation.mutate(appointmentData);
+    }
+  };
+
+  const formatDateTimeLocal = (isoDate: string) => {
+    if (!isoDate) return "";
+    const date = new Date(isoDate);
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, "0");
+    const day = String(date.getDate()).padStart(2, "0");
+    const hours = String(date.getHours()).padStart(2, "0");
+    const minutes = String(date.getMinutes()).padStart(2, "0");
+    return `${year}-${month}-${day}T${hours}:${minutes}`;
+  };
+
+  const selectedService = allServices?.find((s: any) => s.id === selectedServiceId);
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle>
+            {appointment ? "Editar Cita" : "Nueva Cita"}
+          </DialogTitle>
+        </DialogHeader>
+
+        <form onSubmit={handleSubmit} className="space-y-4">
+          {/* PASO 1: Ubicación (obligatorio primero) */}
+          <div>
+            <Label>Ubicación *</Label>
+            <Select
+              value={selectedLocationId}
+              onValueChange={handleLocationChange}
+            >
+              <SelectTrigger>
+                <SelectValue placeholder="Seleccionar ubicación" />
+              </SelectTrigger>
+              <SelectContent>
+                {locations?.map((location: any) => (
+                  <SelectItem key={location.id} value={location.id}>
+                    {location.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          {/* PASO 2: Servicio (habilitado solo si hay ubicación) */}
+          <div>
+            <Label>Servicio *</Label>
+            <Popover open={openServiceCombo} onOpenChange={setOpenServiceCombo}>
+              <PopoverTrigger asChild>
+                <Button
+                  variant="outline"
+                  role="combobox"
+                  className="w-full justify-between"
+                  disabled={!selectedLocationId}
+                >
+                  {selectedServiceId
+                    ? filteredServices?.find((s: any) => s.id === selectedServiceId)?.name
+                    : "Seleccionar servicio"}
+                  <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent className="w-full p-0">
+                <Command>
+                  <CommandInput placeholder="Buscar servicio..." />
+                  <CommandEmpty>No se encontró el servicio</CommandEmpty>
+                  <CommandGroup className="max-h-64 overflow-auto">
+                    {filteredServices?.map((service: any) => (
+                      <CommandItem
+                        key={service.id}
+                        value={service.name}
+                        onSelect={() => {
+                          handleServiceChange(service.id);
+                          setOpenServiceCombo(false);
+                        }}
+                      >
+                        <Check
+                          className={cn(
+                            "mr-2 h-4 w-4",
+                            selectedServiceId === service.id ? "opacity-100" : "opacity-0"
+                          )}
+                        />
+                        <div className="flex-1">
+                          <div className="font-medium">{service.name}</div>
+                          <div className="text-xs text-muted-foreground">
+                            {service.duration} min • ${service.price || "0"}
+                          </div>
+                        </div>
+                      </CommandItem>
+                    ))}
+                  </CommandGroup>
+                </Command>
+              </PopoverContent>
+            </Popover>
+            {!selectedLocationId && (
+              <p className="text-xs text-red-500 mt-1">
+                Primero selecciona una ubicación
+              </p>
+            )}
+          </div>
+
+          {/* PASO 3: Personal (habilitado solo si hay servicio) */}
+          <div>
+            <Label>Personal *</Label>
+            <Popover open={openStaffCombo} onOpenChange={setOpenStaffCombo}>
+              <PopoverTrigger asChild>
+                <Button
+                  variant="outline"
+                  role="combobox"
+                  className="w-full justify-between"
+                  disabled={!selectedServiceId}
+                >
+                  {selectedStaffId
+                    ? filteredStaff?.find((s: any) => s.id === selectedStaffId)?.name
+                    : "Seleccionar personal"}
+                  <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent className="w-full p-0">
+                <Command>
+                  <CommandInput placeholder="Buscar personal..." />
+                  <CommandEmpty>No hay personal disponible</CommandEmpty>
+                  <CommandGroup className="max-h-64 overflow-auto">
+                    {filteredStaff?.map((staff: any) => (
+                      <CommandItem
+                        key={staff.id}
+                        value={staff.name}
+                        onSelect={() => {
+                          setSelectedStaffId(staff.id);
+                          setOpenStaffCombo(false);
+                        }}
+                      >
+                        <Check
+                          className={cn(
+                            "mr-2 h-4 w-4",
+                            selectedStaffId === staff.id ? "opacity-100" : "opacity-0"
+                          )}
+                        />
+                        <div className="flex-1">
+                          <div className="font-medium">{staff.name}</div>
+                          <div className="text-xs text-muted-foreground">
+                            {staff.role || "Staff"}
+                          </div>
+                        </div>
+                      </CommandItem>
+                    ))}
+                  </CommandGroup>
+                </Command>
+              </PopoverContent>
+            </Popover>
+            {!selectedServiceId && (
+              <p className="text-xs text-red-500 mt-1">
+                Primero selecciona un servicio
+              </p>
+            )}
+          </div>
+
+          {/* Información del servicio */}
+          {selectedService && (
+            <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
+              <p className="text-sm text-blue-700">
+                <strong>Duración:</strong> {selectedService.duration} minutos
+              </p>
+              <p className="text-xs text-blue-600 mt-1">
+                La hora de finalización se calculará automáticamente
+              </p>
+            </div>
+          )}
+
+          {/* Datos del cliente */}
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <Label>Nombre del Cliente *</Label>
+              <Input
+                name="customerName"
+                defaultValue={appointment?.customerName || ""}
+                placeholder="Juan Pérez"
+                required
+              />
+            </div>
+            <div>
+              <Label>Teléfono *</Label>
+              <Input
+                name="customerPhone"
+                type="tel"
+                defaultValue={appointment?.customerPhone || ""}
+                placeholder="+58 424 1234567"
+                required
+              />
+            </div>
+          </div>
+
+          <div>
+            <Label>Email (opcional)</Label>
+            <Input
+              name="customerEmail"
+              type="email"
+              defaultValue={appointment?.customerEmail || ""}
+              placeholder="juan@ejemplo.com"
+            />
+          </div>
+
+          {/* Fecha y hora */}
+          <div>
+            <Label>Fecha y Hora de Inicio *</Label>
+            <Input
+              type="datetime-local"
+              name="startTime"
+              defaultValue={
+                appointment
+                  ? formatDateTimeLocal(appointment.startTime)
+                  : defaultDate
+                  ? formatDateTimeLocal(defaultDate.toISOString())
+                  : ""
+              }
+              required
+            />
+          </div>
+
+          {/* Notas */}
+          <div>
+            <Label>Notas (opcional)</Label>
+            <Textarea
+              name="notes"
+              defaultValue={appointment?.notes || ""}
+              placeholder="Notas adicionales sobre la cita..."
+              rows={3}
+            />
+          </div>
+
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
+              Cancelar
+            </Button>
+            <Button
+              type="submit"
+              disabled={createMutation.isPending || updateMutation.isPending}
+            >
+              {createMutation.isPending || updateMutation.isPending
+                ? "Guardando..."
+                : appointment
+                ? "Actualizar"
+                : "Crear Cita"}
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
+}
+Actualizar calendar-view.tsx para pasar preSelectedLocationId:
+typescript// En calendar-view.tsx, agregar estado de filtro de ubicación:
+const [selectedLocationFilter, setSelectedLocationFilter] = useState<string | null>(null);
+
+// Al abrir el dialog:
+const handleDateClick = (info: any) => {
+  if (info.date < new Date()) {
+    toast({
+      title: "Fecha no disponible",
+      description: "No puedes crear citas en el pasado",
+      variant: "destructive",
+    });
+    return;
+  }
+  
+  setSelectedDate(info.date);
+  setSelectedAppointment(null);
+  setDialogOpen(true);
+};
+
+// Pasar al componente:
+<AppointmentDialog
+  open={dialogOpen}
+  onOpenChange={setDialogOpen}
+  appointment={selectedAppointment}
+  defaultDate={selectedDate}
+  preSelectedLocationId={selectedLocationFilter}
+/>
+
+🔒 PARTE 4: FIX BUG #3 - Validación estricta de horarios
+Problema
+El calendario permite crear/mover citas en días cerrados y fuera de horario.
+Solución Frontend
+En calendar-view.tsx, actualizar configuración de FullCalendar:
+typescript// Obtener location seleccionada del filtro
+const { data: selectedLocation } = useQuery({
+  queryKey: ["/api/calendar/locations", selectedLocationFilter],
+  enabled: !!selectedLocationFilter,
+});
+
+// Convertir operatingHours a businessHours de FullCalendar
+const businessHours = selectedLocation?.operatingHours
+  ? Object.entries(selectedLocation.operatingHours)
+      .filter(([_, schedule]: any) => schedule?.enabled)
+      .flatMap(([day, schedule]: any) =>
+        schedule.blocks?.map((block: any) => ({
+          daysOfWeek: [parseInt(day)],
+          startTime: block.start,
+          endTime: block.end,
+        }))
+      )
+      .filter(Boolean)
+  : [];
+
+// Función para verificar si una fecha está en horario de operación
+const isWithinBusinessHours = (date: Date, locationId: string) => {
+  const location = locations?.find((l: any) => l.id === locationId);
+  if (!location?.operatingHours) return false;
+
+  const dayOfWeek = date.getDay();
+  const daySchedule = location.operatingHours[dayOfWeek];
+
+  if (!daySchedule?.enabled) return false;
+
+  const timeMinutes = date.getHours() * 60 + date.getMinutes();
+
+  return daySchedule.blocks?.some((block: any) => {
+    const [startH, startM] = block.start.split(":").map(Number);
+    const [endH, endM] = block.end.split(":").map(Number);
+    const blockStart = startH * 60 + startM;
+    const blockEnd = endH * 60 + endM;
+    return timeMinutes >= blockStart && timeMinutes < blockEnd;
+  });
+};
+
+<FullCalendar
+  // ... props existentes ...
+
+  businessHours={businessHours}
+  selectConstraint="businessHours"
+  eventConstraint="businessHours"
+
+  // Prevenir clicks fuera de horario
+  selectAllow={(selectInfo) => {
+    if (!selectedLocationFilter) return true; // Sin filtro, permitir todo
+    return isWithinBusinessHours(selectInfo.start, selectedLocationFilter);
+  }}
+
+  // Prevenir drag fuera de horario
+  eventAllow={(dropInfo, draggedEvent) => {
+    const locationId = draggedEvent.extendedProps?.locationId || selectedLocationFilter;
+    if (!locationId) return true;
+    return isWithinBusinessHours(dropInfo.start, locationId);
+  }}
+
+  // Estilo para slots fuera de horario
+  slotLaneClassNames={(arg) => {
+    if (!selectedLocation) return "";
+
+    const dayOfWeek = arg.date.getDay();
+    const daySchedule = selectedLocation.operatingHours?.[dayOfWeek];
+
+    if (!daySchedule?.enabled) {
+      return "bg-red-50 opacity-40 cursor-not-allowed";
+    }
+
+    const timeMinutes = arg.date.getHours() * 60 + arg.date.getMinutes();
+    const isWithinHours = daySchedule.blocks?.some((block: any) => {
+      const [startH, startM] = block.start.split(":").map(Number);
+      const [endH, endM] = block.end.split(":").map(Number);
+      const blockStart = startH * 60 + startM;
+      const blockEnd = endH * 60 + endM;
+      return timeMinutes >= blockStart && timeMinutes < blockEnd;
+    });
+
+    return isWithinHours ? "" : "bg-red-50 opacity-40";
+  }}
+
+  // Override del evento drop para validar
+  eventDrop={(info) => {
+    const newStart = info.event.start;
+    const locationId = info.event.extendedProps?.locationId;
+
+    // Validar fecha pasada
+    if (newStart < new Date()) {
+      info.revert();
+      toast({
+        title: "Operación no permitida",
+        description: "No puedes mover citas al pasado",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    // Validar horario de ubicación
+    if (locationId && !isWithinBusinessHours(newStart, locationId)) {
+      info.revert();
+      toast({
+        title: "Horario no disponible",
+        description: "Esta ubicación no opera en ese horario",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    // Si pasa validaciones, actualizar
+    updateAppointmentMutation.mutate({
+      id: info.event.id,
+      data: {
+        startTime: info.event.start.toISOString(),
+        endTime: info.event.end.toISOString(),
+      },
+    });
+  }}
+
+  dateClick={(info) => {
+    // Validar fecha pasada
+    if (info.date < new Date()) {
+      toast({
+        title: "Fecha no disponible",
+        description: "No puedes crear citas en el pasado",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    // Validar horario de ubicación
+    if (selectedLocationFilter && !isWithinBusinessHours(info.date, selectedLocationFilter)) {
+      toast({
+        title: "Horario no disponible",
+        description: "Esta ubicación no opera en ese horario",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setSelectedDate(info.date);
+    setSelectedAppointment(null);
+    setDialogOpen(true);
+  }}
+/>
+Solución Backend
+En server/routes.ts, agregar validaciones al crear/actualizar appointments:
+typescript// Función helper para validar horario
+const validateAppointmentTime = async (locationId: string, startTime: Date, endTime: Date) => {
+  const location = await db.query.locations.findFirst({
+    where: eq(schema.locations.id, locationId),
+  });
+
+  if (!location) {
+    throw new Error("Location not found");
+  }
+
+  const dayOfWeek = startTime.getDay();
+  const operatingHours = location.operatingHours as any;
+  const daySchedule = operatingHours?.[dayOfWeek];
+
+  if (!daySchedule?.enabled) {
+    throw new Error(`This location is closed on ${["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"][dayOfWeek]}`);
+  }
+
+  const startMinutes = startTime.getHours() * 60 + startTime.getMinutes();
+  const endMinutes = endTime.getHours() * 60 + endTime.getMinutes();
+
+  const isWithinBlocks = daySchedule.blocks?.some((block: any) => {
+    const [startH, startM] = block.start.split(":").map(Number);
+    const [endH, endM] = block.end.split(":").map(Number);
+    const blockStart = startH * 60 + startM;
+    const blockEnd = endH * 60 + endM;
+    return startMinutes >= blockStart && endMinutes <= blockEnd;
+  });
+
+  if (!isWithinBlocks) {
+    throw new Error("Appointment time is outside location operating hours");
+  }
+
+  return true;
+};
+
+// En POST /api/calendar/appointments:
+app.post("/api/calendar/appointments", async (req, res) => {
+  // ... código existente ...
+
+  try {
+    // Validar horario de la ubicación
+    await validateAppointmentTime(locationId, start, end);
+
+    // Validar que el staff trabaja en esa ubicación ese día/hora
+    const staffSchedules = staff.schedulesByLocation as any;
+    const staffScheduleForLocation = staffSchedules?.[locationId];
+
+    if (!staffScheduleForLocation) {
+      return res.status(400).json({
+        error: "Staff member does not work at this location",
+      });
+    }
+
+    const staffDaySchedule = staffScheduleForLocation[start.getDay()];
+    if (!staffDaySchedule?.enabled) {
+      return res.status(400).json({
+        error: "Staff member does not work on this day at this location",
+      });
+    }
+
+    const startMinutes = start.getHours() * 60 + start.getMinutes();
+    const endMinutes = end.getHours() * 60 + end.getMinutes();
+
+    const staffWorksInTimeRange = staffDaySchedule.blocks?.some((block: any) => {
+      const [startH, startM] = block.start.split(":").map(Number);
+      const [endH, endM] = block.end.split(":").map(Number);
+      const blockStart = startH * 60 + startM;
+      const blockEnd = endH * 60 + endM;
+      return startMinutes >= blockStart && endMinutes <= blockEnd;
+    });
+
+    if (!staffWorksInTimeRange) {
+      return res.status(400).json({
+        error: "Staff member is not available at this time",
+      });
+    }
+
+    // ... continuar con creación de appointment ...
+  } catch (error: any) {
+    console.error("❌ Validation error:", error);
+    return res.status(400).json({ error: error.message });
+  }
+});
+
+// Lo mismo en PATCH /api/calendar/appointments/:id
+
+✅ CHECKLIST DE IMPLEMENTACIÓN
+
+✅ Bug #1: Fix handleOpenDialog para cargar datos al editar staff
+✅ Bug #1: Actualizar endpoint GET staff para parsear schedulesByLocation
+✅ Mejora #2.1: Reemplazar Select con Combobox con buscador
+✅ Bug #2.2: Reescribir appointment-dialog con flujo en cascada
+✅ Bug #2.2: Pasar preSelectedLocationId desde calendar-view
+✅ Bug #3: Configurar businessHours en FullCalendar
+✅ Bug #3: Agregar validaciones selectAllow y eventAllow
+✅ Bug #3: Estilizar slots cerrados con bg-red-50
+✅ Bug #3: Validar en backend con validateAppointmentTime
+✅ Testing completo del flujo

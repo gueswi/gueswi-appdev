@@ -46,6 +46,47 @@ export function CalendarView({
   const [filterStaffId, setFilterStaffId] = useState<string>("all");
   const [filterServiceId, setFilterServiceId] = useState<string>("all");
 
+  // Obtener location seleccionada para validaciones
+  const selectedLocation = selectedLocationId && selectedLocationId !== "all"
+    ? locations.find(l => l.id === selectedLocationId)
+    : null;
+
+  // Convertir operatingHours a businessHours de FullCalendar
+  const businessHours = selectedLocation?.operatingHours
+    ? Object.entries(selectedLocation.operatingHours as Record<string, any>)
+        .filter(([_, schedule]: any) => schedule?.enabled)
+        .flatMap(([day, schedule]: any) =>
+          schedule.blocks?.map((block: any) => ({
+            daysOfWeek: [parseInt(day)],
+            startTime: block.start,
+            endTime: block.end,
+          }))
+        )
+        .filter(Boolean)
+    : [];
+
+  // Función para verificar si una fecha está en horario de operación
+  const isWithinBusinessHours = (date: Date, locationId: string) => {
+    const location = locations?.find((l: any) => l.id === locationId);
+    if (!location?.operatingHours) return false;
+
+    const dayOfWeek = date.getDay();
+    const operatingHours = location.operatingHours as Record<string, any>;
+    const daySchedule = operatingHours[dayOfWeek];
+
+    if (!daySchedule?.enabled) return false;
+
+    const timeMinutes = date.getHours() * 60 + date.getMinutes();
+
+    return daySchedule.blocks?.some((block: any) => {
+      const [startH, startM] = block.start.split(":").map(Number);
+      const [endH, endM] = block.end.split(":").map(Number);
+      const blockStart = startH * 60 + startM;
+      const blockEnd = endH * 60 + endM;
+      return timeMinutes >= blockStart && timeMinutes < blockEnd;
+    });
+  };
+
   // Mutation to update appointment time with optimistic updates
   const updateAppointmentTime = useMutation({
     mutationFn: async ({
@@ -138,13 +179,25 @@ export function CalendarView({
     const { event } = info;
     const newStart = event.start!;
     const now = new Date();
+    const locationId = event.extendedProps?.appointment?.locationId;
 
-    // Prevent dragging appointments to the past
+    // Validar fecha pasada
     if (newStart < now) {
       info.revert();
       toast({
         title: "Operación no permitida",
         description: "No puedes mover citas al pasado",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    // Validar horario de ubicación
+    if (locationId && !isWithinBusinessHours(newStart, locationId)) {
+      info.revert();
+      toast({
+        title: "Horario no disponible",
+        description: "Esta ubicación no opera en ese horario",
         variant: "destructive",
       });
       return;
@@ -176,11 +229,21 @@ export function CalendarView({
     const selectedDate = selectInfo.start;
     const now = new Date();
 
-    // Prevent creating appointments in the past
+    // Validar fecha pasada
     if (selectedDate < now) {
       toast({
         title: "Fecha no disponible",
         description: "No puedes crear citas en el pasado",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    // Validar horario de ubicación
+    if (selectedLocationId && selectedLocationId !== "all" && !isWithinBusinessHours(selectedDate, selectedLocationId)) {
+      toast({
+        title: "Horario no disponible",
+        description: "Esta ubicación no opera en ese horario",
         variant: "destructive",
       });
       return;
@@ -382,6 +445,40 @@ export function CalendarView({
                   month: "Mes",
                   week: "Semana",
                   day: "Día",
+                }}
+                businessHours={businessHours}
+                selectConstraint={businessHours.length > 0 ? "businessHours" : undefined}
+                eventConstraint={businessHours.length > 0 ? "businessHours" : undefined}
+                selectAllow={(selectInfo) => {
+                  if (!selectedLocationId || selectedLocationId === "all") return true;
+                  return isWithinBusinessHours(selectInfo.start, selectedLocationId);
+                }}
+                eventAllow={(dropInfo, draggedEvent) => {
+                  const locationId = draggedEvent.extendedProps?.appointment?.locationId || selectedLocationId;
+                  if (!locationId || locationId === "all") return true;
+                  return isWithinBusinessHours(dropInfo.start, locationId);
+                }}
+                slotLaneClassNames={(arg) => {
+                  if (!selectedLocation) return "";
+
+                  const dayOfWeek = arg.date.getDay();
+                  const operatingHours = selectedLocation.operatingHours as Record<string, any>;
+                  const daySchedule = operatingHours?.[dayOfWeek];
+
+                  if (!daySchedule?.enabled) {
+                    return "bg-red-50 dark:bg-red-950 opacity-40 cursor-not-allowed";
+                  }
+
+                  const timeMinutes = arg.date.getHours() * 60 + arg.date.getMinutes();
+                  const isWithinHours = daySchedule.blocks?.some((block: any) => {
+                    const [startH, startM] = block.start.split(":").map(Number);
+                    const [endH, endM] = block.end.split(":").map(Number);
+                    const blockStart = startH * 60 + startM;
+                    const blockEnd = endH * 60 + endM;
+                    return timeMinutes >= blockStart && timeMinutes < blockEnd;
+                  });
+
+                  return isWithinHours ? "" : "bg-red-50 dark:bg-red-950 opacity-40";
                 }}
               />
             </div>

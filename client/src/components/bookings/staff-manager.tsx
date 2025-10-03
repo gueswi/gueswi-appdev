@@ -87,10 +87,26 @@ export default function StaffManager() {
         phone: staffMember.phone || "",
         role: staffMember.role || "",
       });
-      setSelectedLocations(staffMember.locationIds || []);
-      setSchedulesByLocation(staffMember.schedulesByLocation || {});
-      setSelectedServices(staffMember.serviceIds || []);
+
+      // CRÍTICO: Cargar ubicaciones del staff
+      const staffLocationIds = staffMember.schedulesByLocation 
+        ? Object.keys(staffMember.schedulesByLocation)
+        : [];
+      setSelectedLocations(staffLocationIds);
+
+      // CRÍTICO: Cargar horarios por ubicación
+      if (staffMember.schedulesByLocation) {
+        setSchedulesByLocation(staffMember.schedulesByLocation);
+      } else {
+        setSchedulesByLocation({});
+      }
+
+      // CRÍTICO: Cargar servicios del staff
+      const staffServiceIds = staffMember.staffServices?.map((ss: any) => ss.serviceId) || [];
+      setSelectedServices(staffServiceIds);
+
     } else {
+      // Crear nuevo staff
       setEditingStaff(null);
       setFormData({ name: "", email: "", phone: "", role: "" });
       setSelectedLocations([]);

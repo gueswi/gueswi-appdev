@@ -1,23 +1,25 @@
-import { useEffect } from "react";
-import { useForm } from "react-hook-form";
-import { zodResolver } from "@hookform/resolvers/zod";
-import { useMutation } from "@tanstack/react-query";
-import { z } from "zod";
+import { useState, useEffect } from "react";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
+import { useToast } from "@/hooks/use-toast";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Check, ChevronsUpDown } from "lucide-react";
+import { cn } from "@/lib/utils";
 import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+} from "@/components/ui/command";
 import {
-  Form,
-  FormControl,
-  FormField,
-  FormItem,
-  FormLabel,
-  FormMessage,
-} from "@/components/ui/form";
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import {
   Select,
   SelectContent,
@@ -25,508 +27,466 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
-import { Button } from "@/components/ui/button";
-import { apiRequest, queryClient } from "@/lib/queryClient";
-import { useToast } from "@/hooks/use-toast";
-import type { Appointment, Service, StaffMember, Location } from "@shared/schema";
+import { apiRequest } from "@/lib/queryClient";
 
 interface AppointmentDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  appointment?: Appointment | null;
-  services: Service[];
-  staff: StaffMember[];
-  locations: Location[];
-  prefilledDate?: { start: Date; end: Date };
+  appointment?: any;
+  defaultDate?: Date | null;
+  preSelectedLocationId?: string | null;
 }
 
-const formSchema = z.object({
-  serviceId: z.string().min(1, "Servicio requerido"),
-  staffId: z.string().min(1, "Personal requerido"),
-  locationId: z.string().min(1, "Ubicación requerida"),
-  customerName: z.string().min(1, "Nombre requerido"),
-  customerEmail: z.string().nullable().optional(),
-  customerPhone: z.string().min(1, "Teléfono requerido"),
-  startTime: z.union([z.date(), z.string()]),
-  status: z.string().nullable().optional(),
-  notes: z.string().nullable().optional(),
-});
-
-type FormData = z.infer<typeof formSchema>;
-
-export function AppointmentDialog({
+export default function AppointmentDialog({
   open,
   onOpenChange,
   appointment,
-  services,
-  staff,
-  locations,
-  prefilledDate,
+  defaultDate,
+  preSelectedLocationId,
 }: AppointmentDialogProps) {
   const { toast } = useToast();
-  const isEditing = !!appointment;
+  const queryClient = useQueryClient();
 
-  const form = useForm<FormData>({
-    resolver: zodResolver(formSchema),
-    defaultValues: appointment
-      ? {
-          serviceId: appointment.serviceId,
-          staffId: appointment.staffId,
-          locationId: appointment.locationId,
-          customerName: appointment.customerName,
-          customerEmail: appointment.customerEmail,
-          customerPhone: appointment.customerPhone,
-          startTime: new Date(appointment.startTime),
-          status: appointment.status,
-          notes: appointment.notes,
-        }
-      : {
-          serviceId: "",
-          staffId: "",
-          locationId: locations[0]?.id || "",
-          customerName: "",
-          customerEmail: "",
-          customerPhone: "",
-          startTime: prefilledDate?.start || new Date(),
-          status: "pending",
-          notes: "",
-        },
+  // Estados del formulario en cascada
+  const [selectedLocationId, setSelectedLocationId] = useState<string>("");
+  const [selectedServiceId, setSelectedServiceId] = useState<string>("");
+  const [selectedStaffId, setSelectedStaffId] = useState<string>("");
+
+  // Estados de UI
+  const [openServiceCombo, setOpenServiceCombo] = useState(false);
+  const [openStaffCombo, setOpenStaffCombo] = useState(false);
+
+  // Fetch data
+  const { data: locations } = useQuery({
+    queryKey: ["/api/calendar/locations"],
   });
 
+  const { data: allServices } = useQuery({
+    queryKey: ["/api/calendar/services"],
+  });
+
+  const { data: allStaff } = useQuery({
+    queryKey: ["/api/calendar/staff"],
+  });
+
+  // STEP 1: Pre-seleccionar ubicación si viene del filtro
+  useEffect(() => {
+    if (open && preSelectedLocationId) {
+      setSelectedLocationId(preSelectedLocationId);
+    }
+  }, [open, preSelectedLocationId]);
+
+  // STEP 2: Resetear appointment cuando se abre el dialog
+  useEffect(() => {
+    if (open && !appointment) {
+      // Nuevo appointment
+      setSelectedLocationId(preSelectedLocationId || "");
+      setSelectedServiceId("");
+      setSelectedStaffId("");
+    } else if (open && appointment) {
+      // Editar appointment
+      setSelectedLocationId(appointment.locationId || appointment.location?.id || "");
+      setSelectedServiceId(appointment.serviceId || appointment.service?.id || "");
+      setSelectedStaffId(appointment.staffId || appointment.staff?.id || "");
+    }
+  }, [open, appointment, preSelectedLocationId]);
+
+  // FILTRO EN CASCADA #1: Servicios disponibles en la ubicación seleccionada
+  const filteredServices = allServices?.filter((service: any) => {
+    if (!selectedLocationId) return false;
+    
+    const serviceLocationIds = service.serviceLocations?.map((sl: any) => sl.locationId) || [];
+    return serviceLocationIds.includes(selectedLocationId);
+  });
+
+  // FILTRO EN CASCADA #2: Personal disponible en ubicación Y que ofrece el servicio
+  const filteredStaff = allStaff?.filter((staff: any) => {
+    if (!selectedLocationId || !selectedServiceId) return false;
+
+    // Verifica que trabaje en la ubicación
+    const worksInLocation = staff.schedulesByLocation && 
+      Object.keys(staff.schedulesByLocation).includes(selectedLocationId);
+    
+    // Verifica que ofrezca el servicio
+    const offersService = staff.staffServices?.some((ss: any) => ss.serviceId === selectedServiceId);
+
+    return worksInLocation && offersService;
+  });
+
+  // CASCADA: Resetear servicio si se cambia ubicación
+  const handleLocationChange = (locationId: string) => {
+    setSelectedLocationId(locationId);
+    setSelectedServiceId(""); // Reset
+    setSelectedStaffId(""); // Reset
+  };
+
+  // CASCADA: Resetear staff si se cambia servicio
+  const handleServiceChange = (serviceId: string) => {
+    setSelectedServiceId(serviceId);
+    setSelectedStaffId(""); // Reset
+  };
+
+  // Mutations
   const createMutation = useMutation({
-    mutationFn: async (data: FormData) => {
-      // Get selected service to calculate duration
-      const service = services.find((s) => s.id === data.serviceId);
-      if (!service) {
-        throw new Error("Servicio no encontrado");
-      }
-
-      // Calculate endTime automatically
-      const startTime = new Date(data.startTime);
-      const endTime = new Date(startTime);
-      endTime.setMinutes(endTime.getMinutes() + service.duration);
-
-      const payload = {
-        ...data,
-        startTime: startTime.toISOString(),
-        endTime: endTime.toISOString(),
-        timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-      };
-      return await apiRequest("POST", "/api/appointments", payload);
+    mutationFn: async (data: any) => {
+      return await apiRequest("POST", "/api/appointments", data);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/appointments"] });
-      toast({
-        title: "Cita creada",
-        description: "La cita se ha creado exitosamente",
-      });
+      toast({ title: "Cita creada exitosamente" });
       onOpenChange(false);
-      form.reset();
     },
     onError: (error: any) => {
       toast({
-        title: "Error",
-        description: error.message || "No se pudo crear la cita",
+        title: "Error al crear cita",
+        description: error.message,
         variant: "destructive",
       });
     },
   });
 
   const updateMutation = useMutation({
-    mutationFn: async (data: FormData) => {
-      // Get selected service to calculate duration
-      const service = services.find((s) => s.id === data.serviceId);
-      if (!service) {
-        throw new Error("Servicio no encontrado");
-      }
-
-      // Calculate endTime automatically
-      const startTime = new Date(data.startTime);
-      const endTime = new Date(startTime);
-      endTime.setMinutes(endTime.getMinutes() + service.duration);
-
-      const payload = {
-        ...data,
-        startTime: startTime.toISOString(),
-        endTime: endTime.toISOString(),
-        timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-      };
-      return await apiRequest("PATCH", `/api/appointments/${appointment!.id}`, payload);
+    mutationFn: async ({ id, data }: any) => {
+      return await apiRequest("PATCH", `/api/appointments/${id}`, data);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/appointments"] });
-      toast({
-        title: "Cita actualizada",
-        description: "La cita se ha actualizado exitosamente",
-      });
+      toast({ title: "Cita actualizada" });
       onOpenChange(false);
     },
     onError: (error: any) => {
       toast({
-        title: "Error",
-        description: error.message || "No se pudo actualizar la cita",
+        title: "Error al actualizar",
+        description: error.message,
         variant: "destructive",
       });
     },
   });
 
-  // Reset form when appointment changes or dialog opens
-  useEffect(() => {
-    if (open) {
-      if (appointment) {
-        // Editing existing appointment
-        form.reset({
-          serviceId: appointment.serviceId,
-          staffId: appointment.staffId,
-          locationId: appointment.locationId,
-          customerName: appointment.customerName,
-          customerEmail: appointment.customerEmail,
-          customerPhone: appointment.customerPhone,
-          startTime: new Date(appointment.startTime),
-          status: appointment.status,
-          notes: appointment.notes,
-        });
-      } else {
-        // Creating new appointment
-        form.reset({
-          serviceId: "",
-          staffId: "",
-          locationId: locations[0]?.id || "",
-          customerName: "",
-          customerEmail: "",
-          customerPhone: "",
-          startTime: prefilledDate?.start || new Date(),
-          status: "pending",
-          notes: "",
-        });
-      }
-    }
-  }, [open, appointment, form, locations, prefilledDate]);
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    const formData = new FormData(e.currentTarget as HTMLFormElement);
 
-  const onSubmit = (data: FormData) => {
-    const startTime = new Date(data.startTime);
-    const now = new Date();
-    
-    // Only validate past dates for new appointments or when moving an existing appointment to the past
-    if (!isEditing) {
-      // Creating new appointment - block past dates
-      if (startTime < now) {
-        toast({
-          title: "Error: fecha en el pasado",
-          description: "No puedes crear citas en fechas pasadas",
-          variant: "destructive",
-        });
-        return;
-      }
-    } else {
-      // Editing existing appointment - only block if moving to a different past date
-      const originalStartTime = appointment ? new Date(appointment.startTime) : null;
-      const isMovingToThePast = originalStartTime && 
-                                startTime.getTime() !== originalStartTime.getTime() && 
-                                startTime < now;
-      
-      if (isMovingToThePast) {
-        toast({
-          title: "Operación no permitida",
-          description: "No puedes mover citas al pasado",
-          variant: "destructive",
-        });
-        return;
-      }
+    // Validaciones
+    if (!selectedLocationId) {
+      toast({
+        title: "Error",
+        description: "Debes seleccionar una ubicación",
+        variant: "destructive",
+      });
+      return;
     }
 
-    if (isEditing) {
-      updateMutation.mutate(data);
+    if (!selectedServiceId) {
+      toast({
+        title: "Error",
+        description: "Debes seleccionar un servicio",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (!selectedStaffId) {
+      toast({
+        title: "Error",
+        description: "Debes seleccionar personal",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    // Obtener servicio para calcular endTime
+    const service = allServices?.find((s: any) => s.id === selectedServiceId);
+    if (!service) {
+      toast({
+        title: "Error",
+        description: "Servicio no encontrado",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    const startTime = new Date(formData.get("startTime") as string);
+    const endTime = new Date(startTime);
+    endTime.setMinutes(endTime.getMinutes() + service.duration);
+
+    const appointmentData = {
+      locationId: selectedLocationId,
+      serviceId: selectedServiceId,
+      staffId: selectedStaffId,
+      customerName: formData.get("customerName"),
+      customerEmail: formData.get("customerEmail"),
+      customerPhone: formData.get("customerPhone"),
+      startTime: startTime.toISOString(),
+      endTime: endTime.toISOString(),
+      timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+      notes: formData.get("notes"),
+    };
+
+    if (appointment) {
+      updateMutation.mutate({ id: appointment.id, data: appointmentData });
     } else {
-      createMutation.mutate(data);
+      createMutation.mutate(appointmentData);
     }
   };
+
+  const formatDateTimeLocal = (isoDate: string) => {
+    if (!isoDate) return "";
+    const date = new Date(isoDate);
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, "0");
+    const day = String(date.getDate()).padStart(2, "0");
+    const hours = String(date.getHours()).padStart(2, "0");
+    const minutes = String(date.getMinutes()).padStart(2, "0");
+    return `${year}-${month}-${day}T${hours}:${minutes}`;
+  };
+
+  const selectedService = allServices?.find((s: any) => s.id === selectedServiceId);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>
-            {isEditing ? "Editar Cita" : "Nueva Cita"}
+            {appointment ? "Editar Cita" : "Nueva Cita"}
           </DialogTitle>
-          <DialogDescription>
-            {isEditing
-              ? "Modifica los detalles de la cita"
-              : "Completa el formulario para crear una nueva cita"}
-          </DialogDescription>
         </DialogHeader>
 
-        <Form {...form}>
-          <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
-            {/* Service */}
-            <FormField
-              control={form.control}
-              name="serviceId"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Servicio *</FormLabel>
-                  <Select
-                    onValueChange={field.onChange}
-                    value={field.value}
-                  >
-                    <FormControl>
-                      <SelectTrigger data-testid="select-service">
-                        <SelectValue placeholder="Seleccionar servicio" />
-                      </SelectTrigger>
-                    </FormControl>
-                    <SelectContent position="popper">
-                      {services.map((service) => (
-                        <SelectItem key={service.id} value={service.id}>
-                          {service.name} ({service.duration} min)
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
+        <form onSubmit={handleSubmit} className="space-y-4">
+          {/* PASO 1: Ubicación (obligatorio primero) */}
+          <div>
+            <Label>Ubicación *</Label>
+            <Select
+              value={selectedLocationId}
+              onValueChange={handleLocationChange}
+            >
+              <SelectTrigger data-testid="select-location">
+                <SelectValue placeholder="Seleccionar ubicación" />
+              </SelectTrigger>
+              <SelectContent>
+                {locations?.map((location: any) => (
+                  <SelectItem key={location.id} value={location.id}>
+                    {location.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
 
-            {/* Staff */}
-            <FormField
-              control={form.control}
-              name="staffId"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Personal *</FormLabel>
-                  <Select onValueChange={field.onChange} value={field.value}>
-                    <FormControl>
-                      <SelectTrigger data-testid="select-staff">
-                        <SelectValue placeholder="Seleccionar personal" />
-                      </SelectTrigger>
-                    </FormControl>
-                    <SelectContent position="popper">
-                      {staff.map((member) => (
-                        <SelectItem key={member.id} value={member.id}>
-                          {member.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-
-            {/* Location */}
-            <FormField
-              control={form.control}
-              name="locationId"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Ubicación *</FormLabel>
-                  <Select onValueChange={field.onChange} value={field.value}>
-                    <FormControl>
-                      <SelectTrigger data-testid="select-location">
-                        <SelectValue placeholder="Seleccionar ubicación" />
-                      </SelectTrigger>
-                    </FormControl>
-                    <SelectContent position="popper">
-                      {locations.map((location) => (
-                        <SelectItem key={location.id} value={location.id}>
-                          {location.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-
-            <div className="grid grid-cols-2 gap-4">
-              {/* Customer Name */}
-              <FormField
-                control={form.control}
-                name="customerName"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Nombre del Cliente *</FormLabel>
-                    <FormControl>
-                      <Input
-                        {...field}
-                        placeholder="Juan Pérez"
-                        data-testid="input-customer-name"
-                      />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-
-              {/* Customer Phone */}
-              <FormField
-                control={form.control}
-                name="customerPhone"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Teléfono *</FormLabel>
-                    <FormControl>
-                      <Input
-                        {...field}
-                        placeholder="+34 600 000 000"
-                        data-testid="input-customer-phone"
-                      />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-            </div>
-
-            {/* Customer Email */}
-            <FormField
-              control={form.control}
-              name="customerEmail"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Email (opcional)</FormLabel>
-                  <FormControl>
-                    <Input
-                      {...field}
-                      value={field.value || ""}
-                      type="email"
-                      placeholder="juan@ejemplo.com"
-                      data-testid="input-customer-email"
-                    />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-
-            {/* Start Time */}
-            <FormField
-              control={form.control}
-              name="startTime"
-              render={({ field }) => {
-                // Function to format date without timezone conversion
-                const formatDateTimeLocal = (value: Date | string) => {
-                  if (!value) return "";
-                  const date = value instanceof Date ? value : new Date(value);
-                  if (isNaN(date.getTime())) return "";
-                  
-                  // Get components in local timezone
-                  const year = date.getFullYear();
-                  const month = String(date.getMonth() + 1).padStart(2, '0');
-                  const day = String(date.getDate()).padStart(2, '0');
-                  const hours = String(date.getHours()).padStart(2, '0');
-                  const minutes = String(date.getMinutes()).padStart(2, '0');
-                  
-                  // Format for datetime-local input: "2025-10-14T14:00"
-                  return `${year}-${month}-${day}T${hours}:${minutes}`;
-                };
-
-                return (
-                  <FormItem>
-                    <FormLabel>Fecha y Hora de Inicio *</FormLabel>
-                    <FormControl>
-                      <Input
-                        type="datetime-local"
-                        value={formatDateTimeLocal(field.value)}
-                        onChange={(e) => field.onChange(new Date(e.target.value))}
-                        data-testid="input-start-time"
-                      />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                );
-              }}
-            />
-
-            {/* Duration Info */}
-            {form.watch("serviceId") && (() => {
-              const selectedService = services.find((s) => s.id === form.watch("serviceId"));
-              return selectedService ? (
-                <div className="bg-blue-50 dark:bg-blue-950 border border-blue-200 dark:border-blue-800 rounded-lg p-3">
-                  <p className="text-sm text-blue-700 dark:text-blue-300">
-                    <strong>Duración:</strong> {selectedService.duration} minutos
-                  </p>
-                  <p className="text-xs text-blue-600 dark:text-blue-400 mt-1">
-                    La hora de finalización se calculará automáticamente
-                  </p>
-                </div>
-              ) : null;
-            })()}
-
-            {/* Status */}
-            {isEditing && (
-              <FormField
-                control={form.control}
-                name="status"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Estado</FormLabel>
-                    <Select onValueChange={field.onChange} value={field.value || "pending"}>
-                      <FormControl>
-                        <SelectTrigger data-testid="select-status">
-                          <SelectValue />
-                        </SelectTrigger>
-                      </FormControl>
-                      <SelectContent position="popper">
-                        <SelectItem value="pending">Pendiente</SelectItem>
-                        <SelectItem value="confirmed">Confirmada</SelectItem>
-                        <SelectItem value="cancelled">Cancelada</SelectItem>
-                        <SelectItem value="completed">Completada</SelectItem>
-                      </SelectContent>
-                    </Select>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
+          {/* PASO 2: Servicio (habilitado solo si hay ubicación) */}
+          <div>
+            <Label>Servicio *</Label>
+            <Popover open={openServiceCombo} onOpenChange={setOpenServiceCombo}>
+              <PopoverTrigger asChild>
+                <Button
+                  variant="outline"
+                  role="combobox"
+                  className="w-full justify-between"
+                  disabled={!selectedLocationId}
+                  data-testid="select-service"
+                >
+                  {selectedServiceId
+                    ? filteredServices?.find((s: any) => s.id === selectedServiceId)?.name
+                    : "Seleccionar servicio"}
+                  <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent className="w-full p-0">
+                <Command>
+                  <CommandInput placeholder="Buscar servicio..." />
+                  <CommandEmpty>No se encontró el servicio</CommandEmpty>
+                  <CommandGroup className="max-h-64 overflow-auto">
+                    {filteredServices?.map((service: any) => (
+                      <CommandItem
+                        key={service.id}
+                        value={service.name}
+                        onSelect={() => {
+                          handleServiceChange(service.id);
+                          setOpenServiceCombo(false);
+                        }}
+                      >
+                        <Check
+                          className={cn(
+                            "mr-2 h-4 w-4",
+                            selectedServiceId === service.id ? "opacity-100" : "opacity-0"
+                          )}
+                        />
+                        <div className="flex-1">
+                          <div className="font-medium">{service.name}</div>
+                          <div className="text-xs text-muted-foreground">
+                            {service.duration} min • ${service.price || "0"}
+                          </div>
+                        </div>
+                      </CommandItem>
+                    ))}
+                  </CommandGroup>
+                </Command>
+              </PopoverContent>
+            </Popover>
+            {!selectedLocationId && (
+              <p className="text-xs text-red-500 mt-1">
+                Primero selecciona una ubicación
+              </p>
             )}
+          </div>
 
-            {/* Notes */}
-            <FormField
-              control={form.control}
-              name="notes"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Notas (opcional)</FormLabel>
-                  <FormControl>
-                    <Textarea
-                      {...field}
-                      value={field.value || ""}
-                      placeholder="Notas adicionales sobre la cita..."
-                      rows={3}
-                      data-testid="input-notes"
-                    />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
+          {/* PASO 3: Personal (habilitado solo si hay servicio) */}
+          <div>
+            <Label>Personal *</Label>
+            <Popover open={openStaffCombo} onOpenChange={setOpenStaffCombo}>
+              <PopoverTrigger asChild>
+                <Button
+                  variant="outline"
+                  role="combobox"
+                  className="w-full justify-between"
+                  disabled={!selectedServiceId}
+                  data-testid="select-staff"
+                >
+                  {selectedStaffId
+                    ? filteredStaff?.find((s: any) => s.id === selectedStaffId)?.name
+                    : "Seleccionar personal"}
+                  <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent className="w-full p-0">
+                <Command>
+                  <CommandInput placeholder="Buscar personal..." />
+                  <CommandEmpty>No hay personal disponible</CommandEmpty>
+                  <CommandGroup className="max-h-64 overflow-auto">
+                    {filteredStaff?.map((staff: any) => (
+                      <CommandItem
+                        key={staff.id}
+                        value={staff.name}
+                        onSelect={() => {
+                          setSelectedStaffId(staff.id);
+                          setOpenStaffCombo(false);
+                        }}
+                      >
+                        <Check
+                          className={cn(
+                            "mr-2 h-4 w-4",
+                            selectedStaffId === staff.id ? "opacity-100" : "opacity-0"
+                          )}
+                        />
+                        <div className="flex-1">
+                          <div className="font-medium">{staff.name}</div>
+                          <div className="text-xs text-muted-foreground">
+                            {staff.role || "Staff"}
+                          </div>
+                        </div>
+                      </CommandItem>
+                    ))}
+                  </CommandGroup>
+                </Command>
+              </PopoverContent>
+            </Popover>
+            {!selectedServiceId && (
+              <p className="text-xs text-red-500 mt-1">
+                Primero selecciona un servicio
+              </p>
+            )}
+          </div>
 
-            <div className="flex justify-end gap-3 pt-4">
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => onOpenChange(false)}
-                data-testid="button-cancel"
-              >
-                Cancelar
-              </Button>
-              <Button
-                type="submit"
-                disabled={createMutation.isPending || updateMutation.isPending}
-                data-testid="button-submit"
-              >
-                {createMutation.isPending || updateMutation.isPending
-                  ? "Guardando..."
-                  : isEditing
-                  ? "Actualizar"
-                  : "Crear Cita"}
-              </Button>
+          {/* Información del servicio */}
+          {selectedService && (
+            <div className="bg-blue-50 dark:bg-blue-950 border border-blue-200 dark:border-blue-800 rounded-lg p-3">
+              <p className="text-sm text-blue-700 dark:text-blue-300">
+                <strong>Duración:</strong> {selectedService.duration} minutos
+              </p>
+              <p className="text-xs text-blue-600 dark:text-blue-400 mt-1">
+                La hora de finalización se calculará automáticamente
+              </p>
             </div>
-          </form>
-        </Form>
+          )}
+
+          {/* Datos del cliente */}
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <Label>Nombre del Cliente *</Label>
+              <Input
+                name="customerName"
+                defaultValue={appointment?.customerName || ""}
+                placeholder="Juan Pérez"
+                required
+                data-testid="input-customer-name"
+              />
+            </div>
+            <div>
+              <Label>Teléfono *</Label>
+              <Input
+                name="customerPhone"
+                type="tel"
+                defaultValue={appointment?.customerPhone || ""}
+                placeholder="+58 424 1234567"
+                required
+                data-testid="input-customer-phone"
+              />
+            </div>
+          </div>
+
+          <div>
+            <Label>Email (opcional)</Label>
+            <Input
+              name="customerEmail"
+              type="email"
+              defaultValue={appointment?.customerEmail || ""}
+              placeholder="juan@ejemplo.com"
+              data-testid="input-customer-email"
+            />
+          </div>
+
+          {/* Fecha y hora */}
+          <div>
+            <Label>Fecha y Hora de Inicio *</Label>
+            <Input
+              type="datetime-local"
+              name="startTime"
+              defaultValue={
+                appointment
+                  ? formatDateTimeLocal(appointment.startTime)
+                  : defaultDate
+                  ? formatDateTimeLocal(defaultDate.toISOString())
+                  : ""
+              }
+              required
+              data-testid="input-start-time"
+            />
+          </div>
+
+          {/* Notas */}
+          <div>
+            <Label>Notas (opcional)</Label>
+            <Textarea
+              name="notes"
+              defaultValue={appointment?.notes || ""}
+              placeholder="Notas adicionales sobre la cita..."
+              rows={3}
+              data-testid="input-notes"
+            />
+          </div>
+
+          <DialogFooter>
+            <Button 
+              type="button" 
+              variant="outline" 
+              onClick={() => onOpenChange(false)}
+              data-testid="button-cancel"
+            >
+              Cancelar
+            </Button>
+            <Button
+              type="submit"
+              disabled={createMutation.isPending || updateMutation.isPending}
+              data-testid="button-submit"
+            >
+              {createMutation.isPending || updateMutation.isPending
+                ? "Guardando..."
+                : appointment
+                ? "Actualizar"
+                : "Crear Cita"}
+            </Button>
+          </DialogFooter>
+        </form>
       </DialogContent>
     </Dialog>
   );

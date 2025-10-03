@@ -26,7 +26,7 @@ import { Input } from "@/components/ui/input";
 import { Calendar, MapPin, Plus, Settings, Briefcase, Users } from "lucide-react";
 import type { Location, Service, StaffMember, Appointment } from "@shared/schema";
 import { CalendarView } from "@/components/bookings/calendar-view";
-import { AppointmentDialog } from "@/components/bookings/appointment-dialog";
+import AppointmentDialog from "@/components/bookings/appointment-dialog";
 import LocationsManager from "@/components/bookings/locations-manager";
 import ServicesManager from "@/components/bookings/services-manager";
 import StaffManager from "@/components/bookings/staff-manager";
@@ -225,9 +225,7 @@ export default function BookingsPage() {
         open={appointmentDialogOpen}
         onOpenChange={setAppointmentDialogOpen}
         appointment={selectedAppointment}
-        services={services}
-        staff={staff}
-        locations={locations}
+        preSelectedLocationId={selectedLocationId === "all" ? null : selectedLocationId}
       />
 
       <SettingsDialog
