@@ -3219,6 +3219,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const { serviceId, staffId, date, locationId } = req.query;
 
+      console.log("🔍 Available Slots Request:", {
+        serviceId,
+        staffId,
+        date,
+        locationId,
+      });
+
       if (!serviceId || !staffId || !date || !locationId) {
         return res.status(400).json({ error: "Missing required parameters" });
       }
@@ -3241,22 +3248,50 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(404).json({ error: "Staff not found" });
       }
 
-      const staffSchedules = staff.schedulesByLocation as any;
+      console.log("🔍 Staff schedulesByLocation RAW:", staff.schedulesByLocation);
+      console.log("🔍 Type:", typeof staff.schedulesByLocation);
+
+      // CRÍTICO: Parsear si es string
+      let staffSchedules = staff.schedulesByLocation as any;
+      if (typeof staffSchedules === "string") {
+        try {
+          staffSchedules = JSON.parse(staffSchedules);
+          console.log("🔍 Parsed from string to object");
+        } catch (e) {
+          console.error("❌ Failed to parse schedulesByLocation:", e);
+          staffSchedules = {};
+        }
+      }
+
+      console.log("🔍 Staff schedules PARSED:", staffSchedules);
+
       const staffScheduleForLocation = staffSchedules?.[locationId as string];
 
+      console.log("🔍 Schedule for location:", staffScheduleForLocation);
+
       if (!staffScheduleForLocation) {
+        console.log("❌ Staff does not work at this location");
         return res.json({ slots: [] }); // No trabaja en esta ubicación
       }
 
       // Obtener día de la semana
       const requestedDate = new Date(date as string);
       const dayOfWeek = requestedDate.getDay();
+
+      console.log("🔍 Requested date:", requestedDate);
+      console.log("🔍 Day of week:", dayOfWeek, "(0=Sun, 1=Mon, ..., 6=Sat)");
+
       const staffDaySchedule = staffScheduleForLocation[dayOfWeek];
+
+      console.log("🔍 Staff schedule for day:", staffDaySchedule);
 
       // VALIDACIÓN CRÍTICA: Si el staff no trabaja este día, retornar vacío
       if (!staffDaySchedule || !staffDaySchedule.enabled) {
+        console.log("❌ Staff does not work on this day");
         return res.json({ slots: [] });
       }
+
+      console.log("✅ Staff works on this day, generating slots...");
 
       // Obtener citas existentes para este día
       const startOfDay = new Date(requestedDate);
@@ -3274,11 +3309,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
         ),
       });
 
+      console.log("🔍 Existing appointments:", existingAppointments.length);
+
       // Generar slots basados en los BLOQUES del STAFF (no de la ubicación)
       const slots: any[] = [];
       const slotDuration = service.duration;
 
-      staffDaySchedule.blocks.forEach((block: any) => {
+      console.log("🔍 Service duration:", slotDuration, "minutes");
+      console.log("🔍 Number of blocks:", staffDaySchedule.blocks?.length);
+
+      staffDaySchedule.blocks.forEach((block: any, blockIndex: number) => {
+        console.log(`🔍 Processing block ${blockIndex}:`, block);
+
         const [startH, startM] = block.start.split(":").map(Number);
         const [endH, endM] = block.end.split(":").map(Number);
 
@@ -3287,6 +3329,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
         const blockEnd = new Date(requestedDate);
         blockEnd.setHours(endH, endM, 0, 0);
+
+        console.log(`🔍 Block range: ${currentTime.toLocaleTimeString()} to ${blockEnd.toLocaleTimeString()}`);
 
         while (currentTime < blockEnd) {
           const slotEnd = new Date(currentTime);
@@ -3312,6 +3356,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
                 startTime: currentTime.toISOString(),
                 endTime: slotEnd.toISOString(),
               });
+              console.log(`✅ Added slot: ${currentTime.toLocaleTimeString()}`);
+            } else if (currentTime <= now) {
+              console.log(`⏰ Skipped past slot: ${currentTime.toLocaleTimeString()}`);
+            } else if (isOccupied) {
+              console.log(`🚫 Skipped occupied slot: ${currentTime.toLocaleTimeString()}`);
             }
           }
 
@@ -3319,6 +3368,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
           currentTime.setMinutes(currentTime.getMinutes() + 30);
         }
       });
+
+      console.log(`🔍 Total slots generated: ${slots.length}`);
 
       res.json({ slots });
     } catch (error: any) {

@@ -1,0 +1,274 @@
+# BUG CRÍTICO: Slots no se muestran para personal con horarios configurados
+
+## Contexto del Bug
+
+**Personal configurado:**
+- Nombre: "Nombre Personal TEST"
+- Ubicación: Madrid 1
+- Horario: Lunes 09:00-12:00 y 15:00-18:00
+
+**Comportamiento actual:**
+Al seleccionar este personal en el modal de Nueva Cita para el Lunes 6 de octubre, aparece el mensaje "No hay horarios disponibles para este día".
+
+**Comportamiento esperado:**
+Debería mostrar slots disponibles: 09:00, 09:30, 10:00, 10:30, 11:00, 11:30, 15:00, 15:30, 16:00, 16:30, 17:00, 17:30
+
+---
+
+## DIAGNÓSTICO
+
+El problema puede estar en:
+1. Parsing incorrecto de `schedulesByLocation` 
+2. Query string mal formado en la petición
+3. Validación de día de la semana incorrecta
+
+---
+
+## SOLUCIÓN #1: Debug del endpoint
+
+En `server/routes.ts`, agregar logging temporal al endpoint `/api/calendar/available-slots`:
+```typescript
+app.get("/api/calendar/available-slots", async (req, res) => {
+  try {
+    const { serviceId, staffId, date, locationId } = req.query;
+
+    console.log("🔍 Available Slots Request:", {
+      serviceId,
+      staffId,
+      date,
+      locationId,
+    });
+
+    if (!serviceId || !staffId || !date || !locationId) {
+      return res.status(400).json({ error: "Missing required parameters" });
+    }
+
+    const service = await db.query.services.findFirst({
+      where: eq(schema.services.id, serviceId as string),
+    });
+
+    if (!service) {
+      return res.status(404).json({ error: "Service not found" });
+    }
+
+    const staff = await db.query.staffMembers.findFirst({
+      where: eq(schema.staffMembers.id, staffId as string),
+    });
+
+    if (!staff) {
+      return res.status(404).json({ error: "Staff not found" });
+    }
+
+    console.log("🔍 Staff schedulesByLocation RAW:", staff.schedulesByLocation);
+    console.log("🔍 Type:", typeof staff.schedulesByLocation);
+
+    // CRÍTICO: Parsear si es string
+    let staffSchedules = staff.schedulesByLocation;
+    if (typeof staffSchedules === "string") {
+      staffSchedules = JSON.parse(staffSchedules);
+    }
+
+    console.log("🔍 Staff schedules PARSED:", staffSchedules);
+
+    const staffScheduleForLocation = staffSchedules?.[locationId as string];
+
+    console.log("🔍 Schedule for location:", staffScheduleForLocation);
+
+    if (!staffScheduleForLocation) {
+      console.log("❌ Staff does not work at this location");
+      return res.json({ slots: [] });
+    }
+
+    const requestedDate = new Date(date as string);
+    const dayOfWeek = requestedDate.getDay();
+
+    console.log("🔍 Requested date:", requestedDate);
+    console.log("🔍 Day of week:", dayOfWeek);
+
+    const staffDaySchedule = staffScheduleForLocation[dayOfWeek];
+
+    console.log("🔍 Staff schedule for day:", staffDaySchedule);
+
+    if (!staffDaySchedule || !staffDaySchedule.enabled) {
+      console.log("❌ Staff does not work on this day");
+      return res.json({ slots: [] });
+    }
+
+    console.log("✅ Staff works on this day, generating slots...");
+
+    // Obtener citas existentes
+    const startOfDay = new Date(requestedDate);
+    startOfDay.setHours(0, 0, 0, 0);
+    const endOfDay = new Date(requestedDate);
+    endOfDay.setHours(23, 59, 59, 999);
+
+    const existingAppointments = await db.query.appointments.findMany({
+      where: and(
+        eq(schema.appointments.staffId, staffId as string),
+        eq(schema.appointments.locationId, locationId as string),
+        gte(schema.appointments.startTime, startOfDay),
+        lte(schema.appointments.startTime, endOfDay),
+        ne(schema.appointments.status, "cancelled")
+      ),
+    });
+
+    console.log("🔍 Existing appointments:", existingAppointments.length);
+
+    // Generar slots
+    const slots: any[] = [];
+    const slotDuration = service.duration;
+
+    staffDaySchedule.blocks.forEach((block: any, blockIndex: number) => {
+      console.log(`🔍 Processing block ${blockIndex}:`, block);
+
+      const [startH, startM] = block.start.split(":").map(Number);
+      const [endH, endM] = block.end.split(":").map(Number);
+
+      let currentTime = new Date(requestedDate);
+      currentTime.setHours(startH, startM, 0, 0);
+
+      const blockEnd = new Date(requestedDate);
+      blockEnd.setHours(endH, endM, 0, 0);
+
+      console.log(`🔍 Block range: ${currentTime.toISOString()} to ${blockEnd.toISOString()}`);
+
+      while (currentTime < blockEnd) {
+        const slotEnd = new Date(currentTime);
+        slotEnd.setMinutes(slotEnd.getMinutes() + slotDuration);
+
+        if (slotEnd <= blockEnd) {
+          const isOccupied = existingAppointments.some((apt) => {
+            const aptStart = new Date(apt.startTime);
+            const aptEnd = new Date(apt.endTime);
+            return (
+              (currentTime >= aptStart && currentTime < aptEnd) ||
+              (slotEnd > aptStart && slotEnd <= aptEnd) ||
+              (currentTime <= aptStart && slotEnd >= aptEnd)
+            );
+          });
+
+          const now = new Date();
+          if (currentTime > now && !isOccupied) {
+            slots.push({
+              startTime: currentTime.toISOString(),
+              endTime: slotEnd.toISOString(),
+            });
+            console.log(`✅ Added slot: ${currentTime.toLocaleTimeString()}`);
+          }
+        }
+
+        currentTime.setMinutes(currentTime.getMinutes() + 30);
+      }
+    });
+
+    console.log(`🔍 Total slots generated: ${slots.length}`);
+
+    res.json({ slots });
+  } catch (error: any) {
+    console.error("❌ Error fetching available slots:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+SOLUCIÓN #2: Verificar petición desde frontend
+En client/src/components/bookings/weekly-slot-picker.tsx, verificar que la petición se hace correctamente:
+typescriptconst { data: slotsData, isLoading } = useQuery({
+  queryKey: [
+    "/api/calendar/available-slots",
+    serviceId,
+    staffId,
+    selectedDay.toISOString().split("T")[0],
+    locationId,
+  ],
+  enabled: !!serviceId && !!staffId && !!locationId,
+  queryFn: async () => {
+    const dateStr = selectedDay.toISOString().split("T")[0];
+    
+    // Construir URL con query params
+    const url = new URL('/api/calendar/available-slots', window.location.origin);
+    url.searchParams.append('serviceId', serviceId);
+    url.searchParams.append('staffId', staffId);
+    url.searchParams.append('date', dateStr);
+    url.searchParams.append('locationId', locationId);
+    url.searchParams.append('public', 'true');
+
+    console.log("🔍 Fetching slots with URL:", url.toString());
+
+    const res = await fetch(url.toString(), { 
+      credentials: "include" 
+    });
+
+    if (!res.ok) {
+      const errorText = await res.text();
+      console.error("❌ Slots fetch failed:", errorText);
+      throw new Error("Failed to fetch slots");
+    }
+
+    const data = await res.json();
+    console.log("🔍 Slots response:", data);
+    
+    return data;
+  },
+});
+
+SOLUCIÓN #3: Verificar formato de schedulesByLocation en DB
+El problema más probable es que schedulesByLocation esté guardado como string JSON en lugar de objeto.
+En server/routes.ts, en el GET de staff members:
+typescriptapp.get("/api/calendar/staff", async (req, res) => {
+  if (!req.isAuthenticated() || !req.user.tenantId) {
+    return res.sendStatus(401);
+  }
+
+  try {
+    const staff = await db.query.staffMembers.findMany({
+      where: eq(schema.staffMembers.tenantId, req.user.tenantId),
+      with: {
+        staffServices: {
+          with: { service: true }
+        },
+        location: true,
+      },
+      orderBy: [asc(schema.staffMembers.name)],
+    });
+
+    // CRÍTICO: Parsear schedulesByLocation si es string
+    const staffWithParsedSchedules = staff.map((s: any) => {
+      let schedules = s.schedulesByLocation;
+      
+      if (typeof schedules === 'string') {
+        try {
+          schedules = JSON.parse(schedules);
+        } catch (e) {
+          console.error("❌ Failed to parse schedules for staff:", s.id, e);
+          schedules = {};
+        }
+      }
+
+      return {
+        ...s,
+        schedulesByLocation: schedules || {}
+      };
+    });
+
+    res.json(staffWithParsedSchedules);
+  } catch (error: any) {
+    console.error("❌ Error fetching staff:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+TESTING
+Después de implementar estas correcciones:
+
+Abre el modal de Nueva Cita
+Selecciona Madrid 1 → Corte de pelo → Nombre Personal TEST
+Abre la consola del navegador (F12)
+Abre los logs del servidor en Replit
+Observa todos los logs que empiezan con 🔍
+
+Busca específicamente:
+
+¿schedulesByLocation es un string o un objeto?
+¿El dayOfWeek es correcto? (Lunes = 1)
+¿Los blocks tienen el formato correcto?
+¿Se están generando slots?
