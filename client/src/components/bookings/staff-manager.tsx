@@ -158,12 +158,13 @@ export default function StaffManager() {
 
     const newSchedules = { ...schedulesByLocation };
     if (newSchedules[locationId][dayIndex].enabled) {
+      // Deshabilitar
       newSchedules[locationId][dayIndex] = { enabled: false, blocks: [] };
     } else {
-      const firstLocationBlock = locationDaySchedule.blocks[0];
+      // Habilitar con horario VACÍO para que el usuario defina su propio horario
       newSchedules[locationId][dayIndex] = {
         enabled: true,
-        blocks: [{ start: firstLocationBlock.start, end: firstLocationBlock.end }],
+        blocks: [{ start: "09:00", end: "17:00" }], // Valores por defecto editables
       };
     }
     setSchedulesByLocation(newSchedules);
