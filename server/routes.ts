@@ -2809,6 +2809,323 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // ============================================================================
+  // Calendar Management Endpoints (Locations, Staff, Services)
+  // ============================================================================
+
+  // Locations endpoints
+  app.get("/api/calendar/locations", async (req, res) => {
+    if (!req.isAuthenticated() || !req.user.tenantId) {
+      return res.sendStatus(401);
+    }
+
+    try {
+      const locations = await db
+        .select()
+        .from(schema.locations)
+        .where(eq(schema.locations.tenantId, req.user.tenantId))
+        .orderBy(schema.locations.name);
+
+      res.json(locations);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.post("/api/calendar/locations", async (req, res) => {
+    if (!req.isAuthenticated() || !req.user.tenantId) {
+      return res.sendStatus(401);
+    }
+
+    try {
+      const { operatingHours, ...locationData } = req.body;
+      
+      const [location] = await db
+        .insert(schema.locations)
+        .values({
+          ...locationData,
+          operatingHours,
+          tenantId: req.user.tenantId,
+        })
+        .returning();
+
+      res.status(201).json(location);
+    } catch (error: any) {
+      res.status(400).json({ error: error.message });
+    }
+  });
+
+  app.patch("/api/calendar/locations/:id", async (req, res) => {
+    if (!req.isAuthenticated() || !req.user.tenantId) {
+      return res.sendStatus(401);
+    }
+
+    try {
+      const { id } = req.params;
+      const { operatingHours, ...locationData } = req.body;
+
+      const [location] = await db
+        .update(schema.locations)
+        .set({
+          ...locationData,
+          operatingHours,
+          updatedAt: new Date(),
+        })
+        .where(and(
+          eq(schema.locations.id, id),
+          eq(schema.locations.tenantId, req.user.tenantId)
+        ))
+        .returning();
+
+      if (!location) {
+        return res.status(404).json({ error: "Location not found" });
+      }
+
+      res.json(location);
+    } catch (error: any) {
+      res.status(400).json({ error: error.message });
+    }
+  });
+
+  // Staff endpoints
+  app.get("/api/calendar/staff", async (req, res) => {
+    if (!req.isAuthenticated() || !req.user.tenantId) {
+      return res.sendStatus(401);
+    }
+
+    try {
+      const staff = await db
+        .select()
+        .from(schema.staffMembers)
+        .where(eq(schema.staffMembers.tenantId, req.user.tenantId))
+        .orderBy(schema.staffMembers.name);
+
+      // Get staff services relations
+      const staffIds = staff.map(s => s.id);
+      let staffServices: any[] = [];
+      if (staffIds.length > 0) {
+        staffServices = await db
+          .select()
+          .from(schema.staffServices)
+          .where(inArray(schema.staffServices.staffId, staffIds));
+      }
+
+      // Attach services to each staff member
+      const staffWithServices = staff.map(member => ({
+        ...member,
+        staffServices: staffServices.filter(ss => ss.staffId === member.id),
+        serviceIds: staffServices.filter(ss => ss.staffId === member.id).map(ss => ss.serviceId),
+      }));
+
+      res.json(staffWithServices);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.post("/api/calendar/staff", async (req, res) => {
+    if (!req.isAuthenticated() || !req.user.tenantId) {
+      return res.sendStatus(401);
+    }
+
+    try {
+      const { schedulesByLocation, serviceIds, locationIds, ...staffData } = req.body;
+      
+      const [staff] = await db
+        .insert(schema.staffMembers)
+        .values({
+          ...staffData,
+          schedulesByLocation,
+          tenantId: req.user.tenantId,
+        })
+        .returning();
+
+      // Insert staff-service relations
+      if (serviceIds && serviceIds.length > 0) {
+        await db.insert(schema.staffServices).values(
+          serviceIds.map((serviceId: string) => ({
+            staffId: staff.id,
+            serviceId,
+            tenantId: req.user.tenantId,
+          }))
+        );
+      }
+
+      res.status(201).json(staff);
+    } catch (error: any) {
+      res.status(400).json({ error: error.message });
+    }
+  });
+
+  app.patch("/api/calendar/staff/:id", async (req, res) => {
+    if (!req.isAuthenticated() || !req.user.tenantId) {
+      return res.sendStatus(401);
+    }
+
+    try {
+      const { id } = req.params;
+      const { schedulesByLocation, serviceIds, locationIds, ...staffData } = req.body;
+
+      const [staff] = await db
+        .update(schema.staffMembers)
+        .set({
+          ...staffData,
+          schedulesByLocation,
+          updatedAt: new Date(),
+        })
+        .where(and(
+          eq(schema.staffMembers.id, id),
+          eq(schema.staffMembers.tenantId, req.user.tenantId)
+        ))
+        .returning();
+
+      if (!staff) {
+        return res.status(404).json({ error: "Staff not found" });
+      }
+
+      // Update staff-service relations
+      if (serviceIds !== undefined) {
+        // Delete existing relations
+        await db.delete(schema.staffServices)
+          .where(eq(schema.staffServices.staffId, id));
+
+        // Insert new relations
+        if (serviceIds.length > 0) {
+          await db.insert(schema.staffServices).values(
+            serviceIds.map((serviceId: string) => ({
+              staffId: id,
+              serviceId,
+              tenantId: req.user.tenantId,
+            }))
+          );
+        }
+      }
+
+      res.json(staff);
+    } catch (error: any) {
+      res.status(400).json({ error: error.message });
+    }
+  });
+
+  // Services endpoints
+  app.get("/api/calendar/services", async (req, res) => {
+    if (!req.isAuthenticated() || !req.user.tenantId) {
+      return res.sendStatus(401);
+    }
+
+    try {
+      const services = await db
+        .select()
+        .from(schema.services)
+        .where(eq(schema.services.tenantId, req.user.tenantId))
+        .orderBy(schema.services.name);
+
+      // Get service locations relations
+      const serviceIds = services.map(s => s.id);
+      let serviceLocations: any[] = [];
+      if (serviceIds.length > 0) {
+        serviceLocations = await db
+          .select()
+          .from(schema.serviceLocations)
+          .where(inArray(schema.serviceLocations.serviceId, serviceIds));
+      }
+
+      // Attach locations to each service
+      const servicesWithLocations = services.map(service => ({
+        ...service,
+        serviceLocations: serviceLocations.filter(sl => sl.serviceId === service.id),
+      }));
+
+      res.json(servicesWithLocations);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.post("/api/calendar/services", async (req, res) => {
+    if (!req.isAuthenticated() || !req.user.tenantId) {
+      return res.sendStatus(401);
+    }
+
+    try {
+      const { locationIds, ...serviceData } = req.body;
+
+      if (!locationIds || locationIds.length === 0) {
+        return res.status(400).json({ error: "At least one location is required" });
+      }
+      
+      const [service] = await db
+        .insert(schema.services)
+        .values({
+          ...serviceData,
+          tenantId: req.user.tenantId,
+        })
+        .returning();
+
+      // Insert service-location relations
+      await db.insert(schema.serviceLocations).values(
+        locationIds.map((locationId: string) => ({
+          serviceId: service.id,
+          locationId,
+          tenantId: req.user.tenantId,
+        }))
+      );
+
+      res.status(201).json(service);
+    } catch (error: any) {
+      res.status(400).json({ error: error.message });
+    }
+  });
+
+  app.patch("/api/calendar/services/:id", async (req, res) => {
+    if (!req.isAuthenticated() || !req.user.tenantId) {
+      return res.sendStatus(401);
+    }
+
+    try {
+      const { id } = req.params;
+      const { locationIds, ...serviceData } = req.body;
+
+      const [service] = await db
+        .update(schema.services)
+        .set({
+          ...serviceData,
+          updatedAt: new Date(),
+        })
+        .where(and(
+          eq(schema.services.id, id),
+          eq(schema.services.tenantId, req.user.tenantId)
+        ))
+        .returning();
+
+      if (!service) {
+        return res.status(404).json({ error: "Service not found" });
+      }
+
+      // Update service-location relations
+      if (locationIds !== undefined) {
+        // Delete existing relations
+        await db.delete(schema.serviceLocations)
+          .where(eq(schema.serviceLocations.serviceId, id));
+
+        // Insert new relations
+        if (locationIds.length > 0) {
+          await db.insert(schema.serviceLocations).values(
+            locationIds.map((locationId: string) => ({
+              serviceId: id,
+              locationId,
+              tenantId: req.user.tenantId,
+            }))
+          );
+        }
+      }
+
+      res.json(service);
+    } catch (error: any) {
+      res.status(400).json({ error: error.message });
+    }
+  });
+
+  // ============================================================================
   // Authenticated appointments endpoints
   // ============================================================================
   
