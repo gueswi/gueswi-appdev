@@ -1,0 +1,367 @@
+# CORRECCIONES FINALES - MÓDULO RESERVAS
+
+## BUG #1: Validación de horario de staff sigue siendo exacta (no por rango)
+
+**Problema:** Al intentar modificar el horario de un staff member dentro del rango de la ubicación, muestra error "Horario fuera de rango".
+
+**Causa:** La función `updateBlock` en `staff-manager.tsx` no está validando correctamente el rango.
+
+**Solución:**
+
+En `client/src/components/bookings/staff-manager.tsx`, reemplazar COMPLETAMENTE la función `updateBlock`:
+```typescript
+const updateBlock = (locationId: string, dayIndex: number, blockIndex: number, field: "start" | "end", value: string) => {
+  const location = locations?.find((l: any) => l.id === locationId);
+  const locationDaySchedule = location?.operatingHours?.[dayIndex];
+
+  if (!locationDaySchedule || !locationDaySchedule.enabled) {
+    toast({
+      title: "Día no disponible",
+      description: "Esta ubicación no opera este día",
+      variant: "destructive",
+    });
+    return;
+  }
+
+  // Convertir valor ingresado a minutos desde medianoche
+  const [inputH, inputM] = value.split(":").map(Number);
+  const inputMinutes = inputH * 60 + inputM;
+
+  // Calcular rango TOTAL de la ubicación (todos los bloques combinados)
+  let locationMinStart = Infinity;
+  let locationMaxEnd = 0;
+
+  locationDaySchedule.blocks.forEach((block: any) => {
+    const [startH, startM] = block.start.split(":").map(Number);
+    const [endH, endM] = block.end.split(":").map(Number);
+    const blockStart = startH * 60 + startM;
+    const blockEnd = endH * 60 + endM;
+    
+    if (blockStart < locationMinStart) locationMinStart = blockStart;
+    if (blockEnd > locationMaxEnd) locationMaxEnd = blockEnd;
+  });
+
+  // VALIDACIÓN CRÍTICA: Verificar que esté dentro del rango global
+  if (inputMinutes < locationMinStart || inputMinutes > locationMaxEnd) {
+    const minTime = `${String(Math.floor(locationMinStart / 60)).padStart(2, "0")}:${String(locationMinStart % 60).padStart(2, "0")}`;
+    const maxTime = `${String(Math.floor(locationMaxEnd / 60)).padStart(2, "0")}:${String(locationMaxEnd % 60).padStart(2, "0")}`;
+    
+    toast({
+      title: "Horario fuera de rango",
+      description: `Debe estar entre ${minTime} y ${maxTime}`,
+      variant: "destructive",
+    });
+    return;
+  }
+
+  // Actualizar el valor
+  const newSchedules = { ...schedulesByLocation };
+  const block = newSchedules[locationId][dayIndex].blocks[blockIndex];
+  const oldValue = block[field];
+  block[field] = value;
+
+  // Validar que start < end
+  const [startH, startM] = block.start.split(":").map(Number);
+  const [endH, endM] = block.end.split(":").map(Number);
+  const blockStart = startH * 60 + startM;
+  const blockEnd = endH * 60 + endM;
+
+  if (blockStart >= blockEnd) {
+    toast({
+      title: "Horario inválido",
+      description: "La hora de inicio debe ser menor que la de fin",
+      variant: "destructive",
+    });
+    block[field] = oldValue; // Revertir
+    return;
+  }
+
+  // Validar solapamiento con otros bloques del mismo día
+  const blocks = newSchedules[locationId][dayIndex].blocks;
+  for (let i = 0; i < blocks.length; i++) {
+    if (i === blockIndex) continue;
+    
+    const [oStartH, oStartM] = blocks[i].start.split(":").map(Number);
+    const [oEndH, oEndM] = blocks[i].end.split(":").map(Number);
+    const otherStart = oStartH * 60 + oStartM;
+    const otherEnd = oEndH * 60 + oEndM;
+    
+    // Detectar solapamiento
+    if (blockStart < otherEnd && blockEnd > otherStart) {
+      toast({
+        title: "Bloques solapados",
+        description: "Los bloques de horario no pueden solaparse entre sí",
+        variant: "destructive",
+      });
+      block[field] = oldValue; // Revertir
+      return;
+    }
+  }
+
+  // Si pasa todas las validaciones, aplicar cambio
+  setSchedulesByLocation(newSchedules);
+};
+
+BUG #2: Mejorar UX del modal "Nueva Cita"
+Problema: El modal permite abrir en fechas cerradas y muestra error después.
+Solución:
+Paso 1: Deshabilitar días cerrados en el calendario
+En client/src/components/bookings/calendar-view.tsx, actualizar dateClick:
+typescriptdateClick={(info) => {
+  const clickedDate = info.date;
+  
+  // Validar fecha pasada
+  if (clickedDate < new Date()) {
+    toast({
+      title: "Fecha no disponible",
+      description: "No puedes crear citas en el pasado",
+      variant: "destructive",
+    });
+    return;
+  }
+
+  // Validar horario de ubicación SI hay filtro activo
+  if (selectedLocationFilter) {
+    const location = locations?.find((l: any) => l.id === selectedLocationFilter);
+    const dayOfWeek = clickedDate.getDay();
+    const daySchedule = location?.operatingHours?.[dayOfWeek];
+
+    if (!daySchedule?.enabled) {
+      const dayName = ["Domingo", "Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado"][dayOfWeek];
+      toast({
+        title: "Ubicación cerrada",
+        description: `Esta ubicación no opera los ${dayName}`,
+        variant: "destructive",
+      });
+      return;
+    }
+
+    // Validar que la hora clickeada esté en horario
+    const clickMinutes = clickedDate.getHours() * 60 + clickedDate.getMinutes();
+    const isInSchedule = daySchedule.blocks?.some((block: any) => {
+      const [startH, startM] = block.start.split(":").map(Number);
+      const [endH, endM] = block.end.split(":").map(Number);
+      const blockStart = startH * 60 + startM;
+      const blockEnd = endH * 60 + endM;
+      return clickMinutes >= blockStart && clickMinutes < blockEnd;
+    });
+
+    if (!isInSchedule) {
+      toast({
+        title: "Horario no disponible",
+        description: "Esta ubicación no opera en este horario",
+        variant: "destructive",
+      });
+      return;
+    }
+  }
+
+  // Si pasa todas las validaciones, abrir modal
+  setSelectedDate(clickedDate);
+  setSelectedAppointment(null);
+  setDialogOpen(true);
+}}
+Paso 2: Validar en tiempo real en el modal
+En appointment-dialog.tsx, agregar validación antes de habilitar el botón submit:
+typescript// Dentro del componente AppointmentDialog, agregar:
+const [isValid, setIsValid] = useState(false);
+
+// useEffect para validar en tiempo real
+useEffect(() => {
+  const validate = () => {
+    if (!selectedLocationId || !selectedServiceId || !selectedStaffId) {
+      return false;
+    }
+    
+    // Obtener fecha seleccionada del input
+    const startTimeInput = document.querySelector('input[name="startTime"]') as HTMLInputElement;
+    if (!startTimeInput?.value) return false;
+
+    const startTime = new Date(startTimeInput.value);
+    const dayOfWeek = startTime.getDay();
+
+    // Validar que la ubicación esté abierta
+    const location = locations?.find((l: any) => l.id === selectedLocationId);
+    const daySchedule = location?.operatingHours?.[dayOfWeek];
+    if (!daySchedule?.enabled) return false;
+
+    // Validar que el staff trabaje ese día
+    const staff = allStaff?.find((s: any) => s.id === selectedStaffId);
+    const staffSchedule = staff?.schedulesByLocation?.[selectedLocationId]?.[dayOfWeek];
+    if (!staffSchedule?.enabled) return false;
+
+    return true;
+  };
+
+  setIsValid(validate());
+}, [selectedLocationId, selectedServiceId, selectedStaffId, locations, allStaff]);
+
+// En el botón de submit:
+<Button
+  type="submit"
+  disabled={!isValid || createMutation.isPending || updateMutation.isPending}
+>
+  {createMutation.isPending || updateMutation.isPending
+    ? "Guardando..."
+    : appointment
+    ? "Actualizar"
+    : "Crear Cita"}
+</Button>
+
+BUG #3: Agregar opción de eliminar ubicaciones
+En client/src/components/bookings/locations-manager.tsx:
+typescript// Agregar mutation de eliminar:
+const deleteMutation = useMutation({
+  mutationFn: async (id: string) => {
+    const res = await fetch(`/api/calendar/locations/${id}`, {
+      method: "DELETE",
+      credentials: "include",
+    });
+    if (!res.ok) throw new Error("Failed to delete");
+    return res.json();
+  },
+  onSuccess: () => {
+    queryClient.invalidateQueries({ queryKey: ["/api/calendar/locations"] });
+    toast({ title: "Ubicación eliminada" });
+    handleCloseDialog();
+  },
+  onError: (error: any) => {
+    toast({
+      title: "Error al eliminar",
+      description: error.message,
+      variant: "destructive",
+    });
+  },
+});
+
+// En el modal de edición, agregar botón de eliminar:
+<DialogFooter className="flex justify-between">
+  <div>
+    {editingLocation && (
+      <Button
+        type="button"
+        variant="destructive"
+        onClick={() => {
+          if (confirm("¿Estás seguro de eliminar esta ubicación? Esta acción no se puede deshacer.")) {
+            deleteMutation.mutate(editingLocation.id);
+          }
+        }}
+      >
+        Eliminar Ubicación
+      </Button>
+    )}
+  </div>
+  <div className="flex gap-2">
+    <Button variant="outline" onClick={handleCloseDialog}>
+      Cancelar
+    </Button>
+    <Button onClick={handleSubmit} disabled={saveMutation.isPending}>
+      {saveMutation.isPending ? "Guardando..." : "Guardar"}
+    </Button>
+  </div>
+</DialogFooter>
+
+BUG #4: Mensaje descriptivo al mover cita
+En client/src/components/bookings/calendar-view.tsx, actualizar handleEventDrop:
+typescripteventDrop={(info) => {
+  const newStart = info.event.start;
+  const newEnd = info.event.end;
+  const appointment = info.event.extendedProps;
+  const locationId = appointment.locationId;
+  const staffId = appointment.staffId;
+
+  // Validar fecha pasada
+  if (newStart < new Date()) {
+    info.revert();
+    toast({
+      title: "Operación no permitida",
+      description: "No puedes mover citas al pasado",
+      variant: "destructive",
+    });
+    return;
+  }
+
+  // Obtener datos de ubicación y staff
+  const location = locations?.find((l: any) => l.id === locationId);
+  const staff = allStaff?.find((s: any) => s.id === staffId);
+  const dayOfWeek = newStart.getDay();
+  const dayName = ["Domingo", "Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado"][dayOfWeek];
+
+  // Validar ubicación
+  const locationDaySchedule = location?.operatingHours?.[dayOfWeek];
+  if (!locationDaySchedule?.enabled) {
+    info.revert();
+    toast({
+      title: "Ubicación cerrada",
+      description: `${location?.name} no opera los ${dayName}`,
+      variant: "destructive",
+    });
+    return;
+  }
+
+  // Validar staff
+  const staffSchedule = staff?.schedulesByLocation?.[locationId]?.[dayOfWeek];
+  if (!staffSchedule?.enabled) {
+    // Obtener días que SÍ trabaja el staff
+    const workingDays = [];
+    const staffScheduleForLocation = staff?.schedulesByLocation?.[locationId] || {};
+    
+    Object.keys(staffScheduleForLocation).forEach((day) => {
+      const daySchedule = staffScheduleForLocation[day];
+      if (daySchedule?.enabled) {
+        const dayNames = ["Dom", "Lun", "Mar", "Mié", "Jue", "Vie", "Sáb"];
+        const blocks = daySchedule.blocks.map((b: any) => `${b.start}-${b.end}`).join(", ");
+        workingDays.push(`${dayNames[day]} (${blocks})`);
+      }
+    });
+
+    info.revert();
+    toast({
+      title: "Staff no disponible",
+      description: `${staff?.name} no trabaja los ${dayName}. Solo trabaja: ${workingDays.join(" • ")}`,
+      variant: "destructive",
+    });
+    return;
+  }
+
+  // Validar horario específico del staff
+  const startMinutes = newStart.getHours() * 60 + newStart.getMinutes();
+  const endMinutes = newEnd.getHours() * 60 + newEnd.getMinutes();
+
+  const isInStaffSchedule = staffSchedule.blocks?.some((block: any) => {
+    const [startH, startM] = block.start.split(":").map(Number);
+    const [endH, endM] = block.end.split(":").map(Number);
+    const blockStart = startH * 60 + startM;
+    const blockEnd = endH * 60 + endM;
+    return startMinutes >= blockStart && endMinutes <= blockEnd;
+  });
+
+  if (!isInStaffSchedule) {
+    const staffBlocks = staffSchedule.blocks.map((b: any) => `${b.start}-${b.end}`).join(", ");
+    info.revert();
+    toast({
+      title: "Horario no disponible",
+      description: `${staff?.name} solo trabaja: ${staffBlocks} los ${dayName}`,
+      variant: "destructive",
+    });
+    return;
+  }
+
+  // Si pasa todas las validaciones, actualizar
+  updateAppointmentMutation.mutate({
+    id: info.event.id,
+    data: {
+      startTime: newStart.toISOString(),
+      endTime: newEnd.toISOString(),
+    },
+  });
+}}
+
+✅ TESTING FINAL
+Después de estos cambios, verificar:
+
+✅ Crear staff "Juan" → Lunes 10:00-12:00 en ubicación que trabaja 9:00-18:00 → Debe permitirse
+✅ Intentar poner Juan: Lunes 8:00-9:00 → Debe fallar con mensaje claro
+✅ Click en domingo cerrado → Modal NO debe abrirse, mostrar toast
+✅ Eliminar una ubicación → Debe funcionar con confirmación
+✅ Mover cita de Juan del Lunes al Martes → Mensaje claro: "Juan solo trabaja Lun (10:00-12:00)"

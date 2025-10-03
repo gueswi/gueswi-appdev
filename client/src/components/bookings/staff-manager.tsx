@@ -237,85 +237,94 @@ export default function StaffManager() {
   };
 
   const updateBlock = (locationId: string, dayIndex: number, blockIndex: number, field: "start" | "end", value: string) => {
-    const location = (locations || []).find((l: any) => l.id === locationId);
+    const location = locations?.find((l: any) => l.id === locationId);
     const locationDaySchedule = location?.operatingHours?.[dayIndex];
 
-    // Convertir el valor ingresado a minutos
+    if (!locationDaySchedule || !locationDaySchedule.enabled) {
+      toast({
+        title: "Día no disponible",
+        description: "Esta ubicación no opera este día",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    // Convertir valor ingresado a minutos desde medianoche
     const [inputH, inputM] = value.split(":").map(Number);
     const inputMinutes = inputH * 60 + inputM;
 
-    // Obtener el rango completo de la ubicación (de todos sus bloques)
-    const locationMinStart = Math.min(
-      ...locationDaySchedule.blocks.map((b: any) => {
-        const [h, m] = b.start.split(":").map(Number);
-        return h * 60 + m;
-      })
-    );
+    // Calcular rango TOTAL de la ubicación (todos los bloques combinados)
+    let locationMinStart = Infinity;
+    let locationMaxEnd = 0;
 
-    const locationMaxEnd = Math.max(
-      ...locationDaySchedule.blocks.map((b: any) => {
-        const [h, m] = b.end.split(":").map(Number);
-        return h * 60 + m;
-      })
-    );
+    locationDaySchedule.blocks.forEach((block: any) => {
+      const [startH, startM] = block.start.split(":").map(Number);
+      const [endH, endM] = block.end.split(":").map(Number);
+      const blockStart = startH * 60 + startM;
+      const blockEnd = endH * 60 + endM;
+      
+      if (blockStart < locationMinStart) locationMinStart = blockStart;
+      if (blockEnd > locationMaxEnd) locationMaxEnd = blockEnd;
+    });
 
-    // NUEVA VALIDACIÓN: Verificar que esté DENTRO del rango de la ubicación
+    // VALIDACIÓN CRÍTICA: Verificar que esté dentro del rango global
     if (inputMinutes < locationMinStart || inputMinutes > locationMaxEnd) {
       const minTime = `${String(Math.floor(locationMinStart / 60)).padStart(2, "0")}:${String(locationMinStart % 60).padStart(2, "0")}`;
       const maxTime = `${String(Math.floor(locationMaxEnd / 60)).padStart(2, "0")}:${String(locationMaxEnd % 60).padStart(2, "0")}`;
       
       toast({
         title: "Horario fuera de rango",
-        description: `El horario debe estar entre ${minTime} y ${maxTime} (horario de la ubicación)`,
+        description: `Debe estar entre ${minTime} y ${maxTime}`,
         variant: "destructive",
       });
       return;
     }
 
-    // Crear una copia profunda del bloque para validar antes de mutar el estado
-    const currentBlock = schedulesByLocation[locationId][dayIndex].blocks[blockIndex];
-    const testBlock = { ...currentBlock, [field]: value };
+    // Actualizar el valor
+    const newSchedules = { ...schedulesByLocation };
+    const block = newSchedules[locationId][dayIndex].blocks[blockIndex];
+    const oldValue = block[field];
+    block[field] = value;
 
-    // Validar start < end
-    if (testBlock.start >= testBlock.end) {
+    // Validar que start < end
+    const [startH, startM] = block.start.split(":").map(Number);
+    const [endH, endM] = block.end.split(":").map(Number);
+    const blockStart = startH * 60 + startM;
+    const blockEnd = endH * 60 + endM;
+
+    if (blockStart >= blockEnd) {
       toast({
         title: "Horario inválido",
         description: "La hora de inicio debe ser menor que la de fin",
         variant: "destructive",
       });
+      block[field] = oldValue; // Revertir
       return;
     }
 
-    // Validar que no se solape con otros bloques del mismo staff
-    const blocks = schedulesByLocation[locationId][dayIndex].blocks;
-    const [testStartH, testStartM] = testBlock.start.split(":").map(Number);
-    const [testEndH, testEndM] = testBlock.end.split(":").map(Number);
-    const testStart = testStartH * 60 + testStartM;
-    const testEnd = testEndH * 60 + testEndM;
-
+    // Validar solapamiento con otros bloques del mismo día
+    const blocks = newSchedules[locationId][dayIndex].blocks;
     for (let i = 0; i < blocks.length; i++) {
       if (i === blockIndex) continue;
       
-      const otherBlock = blocks[i];
-      const [otherStartH, otherStartM] = otherBlock.start.split(":").map(Number);
-      const [otherEndH, otherEndM] = otherBlock.end.split(":").map(Number);
-      const otherStart = otherStartH * 60 + otherStartM;
-      const otherEnd = otherEndH * 60 + otherEndM;
+      const [oStartH, oStartM] = blocks[i].start.split(":").map(Number);
+      const [oEndH, oEndM] = blocks[i].end.split(":").map(Number);
+      const otherStart = oStartH * 60 + oStartM;
+      const otherEnd = oEndH * 60 + oEndM;
       
-      // Verificar solapamiento
-      if ((testStart < otherEnd && testEnd > otherStart)) {
+      // Detectar solapamiento
+      if (blockStart < otherEnd && blockEnd > otherStart) {
         toast({
-          title: "Horario inválido",
-          description: "Los bloques de horario no pueden solaparse",
+          title: "Bloques solapados",
+          description: "Los bloques de horario no pueden solaparse entre sí",
           variant: "destructive",
         });
+        block[field] = oldValue; // Revertir
         return;
       }
     }
 
-    // Si todas las validaciones pasan, ahora sí actualizar el estado
-    const newSchedules = { ...schedulesByLocation };
-    newSchedules[locationId][dayIndex].blocks[blockIndex][field] = value;
+    // Si pasa todas las validaciones, aplicar cambio
     setSchedulesByLocation(newSchedules);
   };
 
