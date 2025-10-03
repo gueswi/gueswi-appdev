@@ -306,7 +306,6 @@ export default function StaffManager() {
     // Actualizar el valor
     const newSchedules = { ...schedulesByLocation };
     const block = newSchedules[locationId][dayIndex].blocks[blockIndex];
-    const oldValue = block[field];
     block[field] = value;
 
     // Validar que start < end
@@ -321,7 +320,6 @@ export default function StaffManager() {
         description: "La hora de inicio debe ser menor que la de fin",
         variant: "destructive",
       });
-      block[field] = oldValue; // Revertir
       return;
     }
 
@@ -342,7 +340,6 @@ export default function StaffManager() {
           description: "Los bloques de horario no pueden solaparse entre sí",
           variant: "destructive",
         });
-        block[field] = oldValue; // Revertir
         return;
       }
     }
@@ -546,9 +543,14 @@ export default function StaffManager() {
                                   <Input
                                     type="time"
                                     value={block.start}
-                                    onChange={(e) =>
-                                      updateBlock(locationId, dayIndex, blockIndex, "start", e.target.value)
-                                    }
+                                    onBlur={(e) => {
+                                      updateBlock(locationId, dayIndex, blockIndex, "start", e.target.value);
+                                    }}
+                                    onChange={(e) => {
+                                      const newSchedules = { ...schedulesByLocation };
+                                      newSchedules[locationId][dayIndex].blocks[blockIndex].start = e.target.value;
+                                      setSchedulesByLocation(newSchedules);
+                                    }}
                                     className="w-28 text-sm"
                                     data-testid={`input-block-start-${locationId}-${dayIndex}-${blockIndex}`}
                                   />
@@ -556,9 +558,14 @@ export default function StaffManager() {
                                   <Input
                                     type="time"
                                     value={block.end}
-                                    onChange={(e) =>
-                                      updateBlock(locationId, dayIndex, blockIndex, "end", e.target.value)
-                                    }
+                                    onBlur={(e) => {
+                                      updateBlock(locationId, dayIndex, blockIndex, "end", e.target.value);
+                                    }}
+                                    onChange={(e) => {
+                                      const newSchedules = { ...schedulesByLocation };
+                                      newSchedules[locationId][dayIndex].blocks[blockIndex].end = e.target.value;
+                                      setSchedulesByLocation(newSchedules);
+                                    }}
                                     className="w-28 text-sm"
                                     data-testid={`input-block-end-${locationId}-${dayIndex}-${blockIndex}`}
                                   />
