@@ -23,7 +23,7 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { Calendar, MapPin, Plus, Settings } from "lucide-react";
+import { Calendar, MapPin, Plus, Settings, Briefcase, Users } from "lucide-react";
 import type { Location, Service, StaffMember, Appointment } from "@shared/schema";
 import { CalendarView } from "@/components/bookings/calendar-view";
 import { AppointmentDialog } from "@/components/bookings/appointment-dialog";
@@ -68,7 +68,15 @@ export default function BookingsPage() {
 
   const filteredStaff = selectedLocationId === "all"
     ? staff
-    : staff.filter(s => s.locationId === selectedLocationId);
+    : staff.filter(s => {
+        // Staff member works at a location if they have schedules for it
+        if (s.schedulesByLocation) {
+          const schedules = s.schedulesByLocation as Record<string, any>;
+          return Object.keys(schedules).includes(selectedLocationId);
+        }
+        // Fallback to primary locationId if no schedules defined
+        return s.locationId === selectedLocationId;
+      });
 
   return (
     <div className="h-full flex flex-col">
