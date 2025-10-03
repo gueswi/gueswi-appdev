@@ -43,6 +43,10 @@ Preferred communication style: Simple, everyday language.
     -   Business hours enforcement with visual feedback and drag-drop prevention
     -   Cascade selection flow (Location → Service → Staff) with real-time filtering
     -   Backend validation for appointment time slots against both location and staff availability
+    -   View-conditional drag-drop validation: Month view allows all-day moves, Week/Day views enforce business hours
+    -   shadcn AlertDialog confirmations for all delete operations (Services, Staff, Locations) instead of native browser confirm()
+    -   Smart date pre-selection: Clicking calendar dates pre-fills appointment dialog with selected datetime
+    -   DELETE endpoints with proper relation cleanup (serviceLocations, staffServices) to maintain referential integrity
 -   **Development Practices**: Monorepo structure, path mapping, environment configurations, robust build processes, clean architecture.
 
 # External Dependencies
