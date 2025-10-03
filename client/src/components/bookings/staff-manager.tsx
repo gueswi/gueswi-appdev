@@ -78,6 +78,29 @@ export default function StaffManager() {
     },
   });
 
+  const deleteMutation = useMutation({
+    mutationFn: async (id: string) => {
+      const res = await fetch(`/api/calendar/staff/${id}`, {
+        method: "DELETE",
+        credentials: "include",
+      });
+      if (!res.ok) throw new Error("Failed to delete");
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/calendar/staff"] });
+      toast({ title: "Personal eliminado" });
+      handleCloseDialog();
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Error al eliminar",
+        description: error.message,
+        variant: "destructive",
+      });
+    },
+  });
+
   const handleOpenDialog = (staffMember?: any) => {
     if (staffMember) {
       setEditingStaff(staffMember);
@@ -594,13 +617,31 @@ export default function StaffManager() {
             </div>
           </div>
 
-          <DialogFooter>
-            <Button variant="outline" onClick={handleCloseDialog} data-testid="button-cancel-staff">
-              Cancelar
-            </Button>
-            <Button onClick={handleSubmit} disabled={saveMutation.isPending} data-testid="button-save-staff">
-              {saveMutation.isPending ? "Guardando..." : "Guardar"}
-            </Button>
+          <DialogFooter className="flex justify-between">
+            <div>
+              {editingStaff && (
+                <Button
+                  type="button"
+                  variant="destructive"
+                  onClick={() => {
+                    if (confirm("¿Eliminar este personal? Esta acción no se puede deshacer.")) {
+                      deleteMutation.mutate(editingStaff.id);
+                    }
+                  }}
+                  data-testid="button-delete-staff"
+                >
+                  Eliminar Personal
+                </Button>
+              )}
+            </div>
+            <div className="flex gap-2">
+              <Button variant="outline" onClick={handleCloseDialog} data-testid="button-cancel-staff">
+                Cancelar
+              </Button>
+              <Button onClick={handleSubmit} disabled={saveMutation.isPending} data-testid="button-save-staff">
+                {saveMutation.isPending ? "Guardando..." : "Guardar"}
+              </Button>
+            </div>
           </DialogFooter>
         </DialogContent>
       </Dialog>

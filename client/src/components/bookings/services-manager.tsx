@@ -56,6 +56,29 @@ export default function ServicesManager() {
     },
   });
 
+  const deleteMutation = useMutation({
+    mutationFn: async (id: string) => {
+      const res = await fetch(`/api/calendar/services/${id}`, {
+        method: "DELETE",
+        credentials: "include",
+      });
+      if (!res.ok) throw new Error("Failed to delete");
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/calendar/services"] });
+      toast({ title: "Servicio eliminado" });
+      handleCloseDialog();
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Error al eliminar",
+        description: error.message,
+        variant: "destructive",
+      });
+    },
+  });
+
   const handleOpenDialog = (service?: any) => {
     if (service) {
       setEditingService(service);
@@ -215,13 +238,31 @@ export default function ServicesManager() {
             </div>
           </div>
 
-          <DialogFooter>
-            <Button variant="outline" onClick={handleCloseDialog} data-testid="button-cancel-service">
-              Cancelar
-            </Button>
-            <Button onClick={handleSubmit} disabled={saveMutation.isPending} data-testid="button-save-service">
-              {saveMutation.isPending ? "Guardando..." : "Guardar"}
-            </Button>
+          <DialogFooter className="flex justify-between">
+            <div>
+              {editingService && (
+                <Button
+                  type="button"
+                  variant="destructive"
+                  onClick={() => {
+                    if (confirm("¿Eliminar este servicio? Esta acción no se puede deshacer.")) {
+                      deleteMutation.mutate(editingService.id);
+                    }
+                  }}
+                  data-testid="button-delete-service"
+                >
+                  Eliminar Servicio
+                </Button>
+              )}
+            </div>
+            <div className="flex gap-2">
+              <Button variant="outline" onClick={handleCloseDialog} data-testid="button-cancel-service">
+                Cancelar
+              </Button>
+              <Button onClick={handleSubmit} disabled={saveMutation.isPending} data-testid="button-save-service">
+                {saveMutation.isPending ? "Guardando..." : "Guardar"}
+              </Button>
+            </div>
           </DialogFooter>
         </DialogContent>
       </Dialog>

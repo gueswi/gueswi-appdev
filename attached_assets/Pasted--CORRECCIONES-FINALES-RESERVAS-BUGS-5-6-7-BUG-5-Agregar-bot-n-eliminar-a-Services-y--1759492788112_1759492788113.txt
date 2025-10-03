@@ -1,0 +1,286 @@
+# CORRECCIONES FINALES - RESERVAS (BUGS #5, #6, #7)
+
+## BUG #5: Agregar botón eliminar a Services y Staff
+
+### En `client/src/components/bookings/services-manager.tsx`:
+
+Agregar mutation y botón de eliminar igual que en LocationsManager:
+```typescript
+// Agregar después de las mutations existentes:
+const deleteMutation = useMutation({
+  mutationFn: async (id: string) => {
+    const res = await fetch(`/api/calendar/services/${id}`, {
+      method: "DELETE",
+      credentials: "include",
+    });
+    if (!res.ok) throw new Error("Failed to delete");
+    return res.json();
+  },
+  onSuccess: () => {
+    queryClient.invalidateQueries({ queryKey: ["/api/calendar/services"] });
+    toast({ title: "Servicio eliminado" });
+    handleCloseDialog();
+  },
+  onError: (error: any) => {
+    toast({
+      title: "Error al eliminar",
+      description: error.message,
+      variant: "destructive",
+    });
+  },
+});
+
+// En el DialogFooter del modal de edición:
+<DialogFooter className="flex justify-between">
+  <div>
+    {editingService && (
+      <Button
+        type="button"
+        variant="destructive"
+        onClick={() => {
+          if (confirm("¿Eliminar este servicio? Esta acción no se puede deshacer.")) {
+            deleteMutation.mutate(editingService.id);
+          }
+        }}
+      >
+        Eliminar Servicio
+      </Button>
+    )}
+  </div>
+  <div className="flex gap-2">
+    <Button variant="outline" onClick={handleCloseDialog}>
+      Cancelar
+    </Button>
+    <Button onClick={handleSubmit} disabled={saveMutation.isPending}>
+      {saveMutation.isPending ? "Guardando..." : "Guardar"}
+    </Button>
+  </div>
+</DialogFooter>
+En client/src/components/bookings/staff-manager.tsx:
+Agregar lo mismo para Staff:
+typescriptconst deleteMutation = useMutation({
+  mutationFn: async (id: string) => {
+    const res = await fetch(`/api/calendar/staff/${id}`, {
+      method: "DELETE",
+      credentials: "include",
+    });
+    if (!res.ok) throw new Error("Failed to delete");
+    return res.json();
+  },
+  onSuccess: () => {
+    queryClient.invalidateQueries({ queryKey: ["/api/calendar/staff"] });
+    toast({ title: "Personal eliminado" });
+    handleCloseDialog();
+  },
+  onError: (error: any) => {
+    toast({
+      title: "Error al eliminar",
+      description: error.message,
+      variant: "destructive",
+    });
+  },
+});
+
+// En el DialogFooter:
+<DialogFooter className="flex justify-between">
+  <div>
+    {editingStaff && (
+      <Button
+        type="button"
+        variant="destructive"
+        onClick={() => {
+          if (confirm("¿Eliminar este personal? Esta acción no se puede deshacer.")) {
+            deleteMutation.mutate(editingStaff.id);
+          }
+        }}
+      >
+        Eliminar Personal
+      </Button>
+    )}
+  </div>
+  <div className="flex gap-2">
+    <Button variant="outline" onClick={handleCloseDialog}>
+      Cancelar
+    </Button>
+    <Button onClick={handleSubmit} disabled={saveMutation.isPending}>
+      {saveMutation.isPending ? "Guardando..." : "Guardar"}
+    </Button>
+  </div>
+</DialogFooter>
+
+BUG #6: Validar dependencias al eliminar ubicación
+En server/routes.ts, modificar el endpoint DELETE de locations:
+typescriptapp.delete("/api/calendar/locations/:id", async (req, res) => {
+  if (!req.isAuthenticated() || !req.user.tenantId) {
+    return res.sendStatus(401);
+  }
+
+  try {
+    const locationId = req.params.id;
+
+    // VALIDACIÓN: Verificar si hay staff asignado a esta ubicación
+    const staffInLocation = await db.query.staffMembers.findMany({
+      where: and(
+        eq(schema.staffMembers.tenantId, req.user.tenantId),
+        eq(schema.staffMembers.isActive, true)
+      ),
+    });
+
+    // Verificar si algún staff tiene esta ubicación en sus schedulesByLocation
+    const hasStaff = staffInLocation.some((staff: any) => {
+      const schedules = staff.schedulesByLocation || {};
+      return Object.keys(schedules).includes(locationId);
+    });
+
+    if (hasStaff) {
+      return res.status(400).json({
+        error: "No se puede eliminar esta ubicación porque tiene personal asignado. Primero elimina o reasigna el personal."
+      });
+    }
+
+    // Si no hay dependencias, proceder a eliminar
+    await db.delete(schema.locations)
+      .where(and(
+        eq(schema.locations.id, locationId),
+        eq(schema.locations.tenantId, req.user.tenantId)
+      ));
+    
+    console.log("📍 Location deleted:", locationId);
+    res.json({ success: true });
+  } catch (error: any) {
+    console.error("❌ Error deleting location:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+BUG #7: Input de hora valida en tiempo real (problema crítico)
+Problema: El onChange del input type="time" dispara validación mientras escribes. Al escribir "1" se valida como "01:00" antes de terminar de escribir "11:00".
+Solución: Usar onBlur en lugar de onChange para validar solo cuando el usuario termina de editar.
+En client/src/components/bookings/staff-manager.tsx, modificar los inputs de tiempo:
+typescript// ELIMINAR esto:
+// onChange={(e) => updateBlock(locationId, dayIndex, blockIndex, 'start', e.target.value)}
+
+// REEMPLAZAR con esto:
+<Input
+  type="time"
+  value={block.start}
+  onBlur={(e) => {
+    // Solo validar cuando el usuario termina de editar (pierde foco)
+    updateBlock(locationId, dayIndex, blockIndex, 'start', e.target.value);
+  }}
+  onChange={(e) => {
+    // Actualizar visualmente sin validar
+    const newSchedules = { ...schedulesByLocation };
+    newSchedules[locationId][dayIndex].blocks[blockIndex].start = e.target.value;
+    setSchedulesByLocation(newSchedules);
+  }}
+  className="w-32"
+/>
+
+<span className="text-muted-foreground">a</span>
+
+<Input
+  type="time"
+  value={block.end}
+  onBlur={(e) => {
+    updateBlock(locationId, dayIndex, blockIndex, 'end', e.target.value);
+  }}
+  onChange={(e) => {
+    const newSchedules = { ...schedulesByLocation };
+    newSchedules[locationId][dayIndex].blocks[blockIndex].end = e.target.value;
+    setSchedulesByLocation(newSchedules);
+  }}
+  className="w-32"
+/>
+Explicación del fix:
+
+onChange: Actualiza el estado inmediatamente para que el usuario vea lo que escribe
+onBlur: Valida solo cuando el input pierde el foco (usuario terminó de escribir)
+Esto previene validaciones prematuras mientras escribes
+
+
+TAMBIÉN: Arreglar la función updateBlock para que NO revierta el valor
+En la función updateBlock, eliminar las líneas que hacen block[field] = oldValue:
+typescriptconst updateBlock = (locationId: string, dayIndex: number, blockIndex: number, field: "start" | "end", value: string) => {
+  const location = locations?.find((l: any) => l.id === locationId);
+  const locationDaySchedule = location?.operatingHours?.[dayIndex];
+
+  if (!locationDaySchedule || !locationDaySchedule.enabled) {
+    toast({
+      title: "Día no disponible",
+      description: "Esta ubicación no opera este día",
+      variant: "destructive",
+    });
+    return;
+  }
+
+  const [inputH, inputM] = value.split(":").map(Number);
+  const inputMinutes = inputH * 60 + inputM;
+
+  let locationMinStart = Infinity;
+  let locationMaxEnd = 0;
+
+  locationDaySchedule.blocks.forEach((block: any) => {
+    const [startH, startM] = block.start.split(":").map(Number);
+    const [endH, endM] = block.end.split(":").map(Number);
+    const blockStart = startH * 60 + startM;
+    const blockEnd = endH * 60 + endM;
+    
+    if (blockStart < locationMinStart) locationMinStart = blockStart;
+    if (blockEnd > locationMaxEnd) locationMaxEnd = blockEnd;
+  });
+
+  if (inputMinutes < locationMinStart || inputMinutes > locationMaxEnd) {
+    const minTime = `${String(Math.floor(locationMinStart / 60)).padStart(2, "0")}:${String(locationMinStart % 60).padStart(2, "0")}`;
+    const maxTime = `${String(Math.floor(locationMaxEnd / 60)).padStart(2, "0")}:${String(locationMaxEnd % 60).padStart(2, "0")}`;
+    
+    toast({
+      title: "Horario fuera de rango",
+      description: `Debe estar entre ${minTime} y ${maxTime}`,
+      variant: "destructive",
+    });
+    
+    // NO REVERTIR - solo mostrar error
+    return;
+  }
+
+  // Ya no guardamos oldValue ni revertimos
+  const newSchedules = { ...schedulesByLocation };
+  const block = newSchedules[locationId][dayIndex].blocks[blockIndex];
+  block[field] = value;
+
+  const [startH, startM] = block.start.split(":").map(Number);
+  const [endH, endM] = block.end.split(":").map(Number);
+  const blockStart = startH * 60 + startM;
+  const blockEnd = endH * 60 + endM;
+
+  if (blockStart >= blockEnd) {
+    toast({
+      title: "Horario inválido",
+      description: "La hora de inicio debe ser menor que la de fin",
+      variant: "destructive",
+    });
+    return; // NO revertir
+  }
+
+  const blocks = newSchedules[locationId][dayIndex].blocks;
+  for (let i = 0; i < blocks.length; i++) {
+    if (i === blockIndex) continue;
+    
+    const [oStartH, oStartM] = blocks[i].start.split(":").map(Number);
+    const [oEndH, oEndM] = blocks[i].end.split(":").map(Number);
+    const otherStart = oStartH * 60 + oStartM;
+    const otherEnd = oEndH * 60 + oEndM;
+    
+    if (blockStart < otherEnd && blockEnd > otherStart) {
+      toast({
+        title: "Bloques solapados",
+        description: "Los bloques de horario no pueden solaparse entre sí",
+        variant: "destructive",
+      });
+      return; // NO revertir
+    }
+  }
+
+  setSchedulesByLocation(newSchedules);
+};
