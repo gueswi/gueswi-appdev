@@ -2886,6 +2886,49 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  app.delete("/api/calendar/locations/:id", async (req, res) => {
+    if (!req.isAuthenticated() || !req.user.tenantId) {
+      return res.sendStatus(401);
+    }
+
+    try {
+      const locationId = req.params.id;
+
+      // VALIDACIÓN: Verificar si hay staff asignado a esta ubicación
+      const staffInLocation = await db.query.staffMembers.findMany({
+        where: and(
+          eq(schema.staffMembers.tenantId, req.user.tenantId),
+          eq(schema.staffMembers.isActive, true)
+        ),
+      });
+
+      // Verificar si algún staff tiene esta ubicación en sus schedulesByLocation
+      const hasStaff = staffInLocation.some((staff: any) => {
+        const schedules = staff.schedulesByLocation || {};
+        return Object.keys(schedules).includes(locationId);
+      });
+
+      if (hasStaff) {
+        return res.status(400).json({
+          error: "No se puede eliminar esta ubicación porque tiene personal asignado. Primero elimina o reasigna el personal."
+        });
+      }
+
+      // Si no hay dependencias, proceder a eliminar
+      await db.delete(schema.locations)
+        .where(and(
+          eq(schema.locations.id, locationId),
+          eq(schema.locations.tenantId, req.user.tenantId)
+        ));
+      
+      console.log("📍 Location deleted:", locationId);
+      res.json({ success: true });
+    } catch (error: any) {
+      console.error("❌ Error deleting location:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
   // Staff endpoints
   app.get("/api/calendar/staff", async (req, res) => {
     if (!req.isAuthenticated() || !req.user.tenantId) {
