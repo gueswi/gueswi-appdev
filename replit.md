@@ -37,6 +37,12 @@ Preferred communication style: Simple, everyday language.
     -   Mutation pipelineId snapshotting to prevent cache invalidation issues
     -   Full CRUD operations for pipelines with inline editing
 -   **Advanced Analytics**: Dashboard with AI-driven metrics like ROI Savings, Hours Saved, CSAT Score, Churn Risk, Intent Detection, and Sentiment Analysis.
+-   **Calendar & Booking System**: Comprehensive appointment scheduling with service management, staff availability, location management, and public booking widget. Features include:
+    -   Hierarchical location-based operating hours validation
+    -   Flexible staff schedules within location ranges (staff can work subset hours, e.g., location 9-17, staff 10-12)
+    -   Business hours enforcement with visual feedback and drag-drop prevention
+    -   Cascade selection flow (Location → Service → Staff) with real-time filtering
+    -   Backend validation for appointment time slots against both location and staff availability
 -   **Development Practices**: Monorepo structure, path mapping, environment configurations, robust build processes, clean architecture.
 
 # External Dependencies
