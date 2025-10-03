@@ -1,0 +1,233 @@
+# BUG CRÍTICO: Slots no se generan para horarios del personal
+
+## Problema Identificado
+
+El personal "Prueba Personal 2 horarios" tiene configurado:
+- Ubicación: Madrid 1
+- Horario: Lunes 09:00-12:00 y 15:00-17:30
+
+Al intentar crear una cita para Lunes 6 de octubre, aparece "No hay horarios disponibles para este día".
+
+**Causa raíz:** El endpoint `/api/calendar/available-slots` no está parseando correctamente `schedulesByLocation` o está fallando en la generación de slots.
+
+---
+
+## SOLUCIÓN COMPLETA
+
+### Paso 1: Verificar y corregir el endpoint de slots
+
+En `server/routes.ts`, **REEMPLAZAR COMPLETAMENTE** el endpoint `/api/calendar/available-slots`:
+```typescript
+app.get("/api/calendar/available-slots", async (req, res) => {
+  try {
+    const { serviceId, staffId, date, locationId } = req.query;
+
+    if (!serviceId || !staffId || !date || !locationId) {
+      return res.status(400).json({ error: "Missing required parameters" });
+    }
+
+    // Obtener servicio
+    const service = await db.query.services.findFirst({
+      where: eq(schema.services.id, serviceId as string),
+    });
+
+    if (!service) {
+      return res.status(404).json({ error: "Service not found" });
+    }
+
+    // Obtener staff
+    const staff = await db.query.staffMembers.findFirst({
+      where: eq(schema.staffMembers.id, staffId as string),
+    });
+
+    if (!staff) {
+      return res.status(404).json({ error: "Staff not found" });
+    }
+
+    // CRÍTICO: Parsear schedulesByLocation si es string
+    let staffSchedules = staff.schedulesByLocation;
+    if (typeof staffSchedules === "string") {
+      try {
+        staffSchedules = JSON.parse(staffSchedules);
+      } catch (e) {
+        console.error("❌ Failed to parse staff schedules:", e);
+        return res.json({ slots: [] });
+      }
+    }
+
+    // Verificar que el staff trabaja en esta ubicación
+    const staffScheduleForLocation = staffSchedules?.[locationId as string];
+    if (!staffScheduleForLocation) {
+      return res.json({ slots: [] });
+    }
+
+    // Parsear fecha solicitada
+    const requestedDate = new Date(date as string + "T00:00:00");
+    const dayOfWeek = requestedDate.getDay();
+
+    // Verificar que el staff trabaja este día
+    const staffDaySchedule = staffScheduleForLocation[dayOfWeek];
+    if (!staffDaySchedule || !staffDaySchedule.enabled || !staffDaySchedule.blocks) {
+      return res.json({ slots: [] });
+    }
+
+    // Obtener citas existentes para este día
+    const startOfDay = new Date(requestedDate);
+    startOfDay.setHours(0, 0, 0, 0);
+    const endOfDay = new Date(requestedDate);
+    endOfDay.setHours(23, 59, 59, 999);
+
+    const existingAppointments = await db.query.appointments.findMany({
+      where: and(
+        eq(schema.appointments.staffId, staffId as string),
+        eq(schema.appointments.locationId, locationId as string),
+        gte(schema.appointments.startTime, startOfDay),
+        lte(schema.appointments.startTime, endOfDay),
+        ne(schema.appointments.status, "cancelled")
+      ),
+    });
+
+    // Generar slots basados en los bloques del personal
+    const slots: any[] = [];
+    const slotDuration = service.duration;
+    const now = new Date();
+
+    staffDaySchedule.blocks.forEach((block: any) => {
+      const [startH, startM] = block.start.split(":").map(Number);
+      const [endH, endM] = block.end.split(":").map(Number);
+
+      // Crear fecha/hora de inicio del bloque
+      let currentTime = new Date(requestedDate);
+      currentTime.setHours(startH, startM, 0, 0);
+
+      // Crear fecha/hora de fin del bloque
+      const blockEnd = new Date(requestedDate);
+      blockEnd.setHours(endH, endM, 0, 0);
+
+      // Generar slots cada 30 minutos
+      while (currentTime < blockEnd) {
+        const slotEnd = new Date(currentTime);
+        slotEnd.setMinutes(slotEnd.getMinutes() + slotDuration);
+
+        // Verificar que el slot completo cabe en el bloque
+        if (slotEnd <= blockEnd) {
+          // Verificar que el slot no está ocupado
+          const isOccupied = existingAppointments.some((apt) => {
+            const aptStart = new Date(apt.startTime);
+            const aptEnd = new Date(apt.endTime);
+            return (
+              (currentTime >= aptStart && currentTime < aptEnd) ||
+              (slotEnd > aptStart && slotEnd <= aptEnd) ||
+              (currentTime <= aptStart && slotEnd >= aptEnd)
+            );
+          });
+
+          // Solo agregar si es futuro y no está ocupado
+          if (currentTime > now && !isOccupied) {
+            slots.push({
+              startTime: currentTime.toISOString(),
+              endTime: slotEnd.toISOString(),
+            });
+          }
+        }
+
+        // Avanzar al siguiente slot (intervalos de 30 min)
+        currentTime.setMinutes(currentTime.getMinutes() + 30);
+      }
+    });
+
+    res.json({ slots });
+  } catch (error: any) {
+    console.error("❌ Error fetching available slots:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+Paso 2: Asegurar parsing correcto en GET staff
+En server/routes.ts, en el endpoint GET /api/calendar/staff:
+typescriptapp.get("/api/calendar/staff", async (req, res) => {
+  if (!req.isAuthenticated() || !req.user.tenantId) {
+    return res.sendStatus(401);
+  }
+
+  try {
+    const staff = await db.query.staffMembers.findMany({
+      where: eq(schema.staffMembers.tenantId, req.user.tenantId),
+      with: {
+        staffServices: {
+          with: { service: true }
+        },
+        location: true,
+      },
+      orderBy: [asc(schema.staffMembers.name)],
+    });
+
+    // CRÍTICO: Parsear schedulesByLocation
+    const staffWithParsedSchedules = staff.map((s: any) => {
+      let schedules = s.schedulesByLocation;
+      
+      if (typeof schedules === 'string') {
+        try {
+          schedules = JSON.parse(schedules);
+        } catch (e) {
+          console.error("❌ Failed to parse schedules for staff:", s.id);
+          schedules = {};
+        }
+      }
+
+      return {
+        ...s,
+        schedulesByLocation: schedules || {}
+      };
+    });
+
+    res.json(staffWithParsedSchedules);
+  } catch (error: any) {
+    console.error("❌ Error fetching staff:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+Paso 3: Verificar query en el frontend
+En client/src/components/bookings/weekly-slot-picker.tsx, asegurar que la petición envía los parámetros correctamente:
+typescriptconst { data: slotsData, isLoading } = useQuery({
+  queryKey: [
+    "/api/calendar/available-slots",
+    serviceId,
+    staffId,
+    selectedDay.toISOString().split("T")[0],
+    locationId,
+  ],
+  enabled: !!serviceId && !!staffId && !!locationId,
+  queryFn: async () => {
+    const dateStr = selectedDay.toISOString().split("T")[0];
+    
+    const params = new URLSearchParams({
+      serviceId,
+      staffId,
+      date: dateStr,
+      locationId,
+      public: 'true'
+    });
+
+    const res = await fetch(`/api/calendar/available-slots?${params.toString()}`, {
+      credentials: "include",
+    });
+
+    if (!res.ok) {
+      throw new Error("Failed to fetch slots");
+    }
+
+    return res.json();
+  },
+});
+
+TESTING
+Después de implementar:
+
+✅ Ir a Personal → Editar "Prueba Personal 2 horarios"
+✅ Verificar que tiene: Madrid 1, Lunes 09:00-12:00 y 15:00-17:30
+✅ Abrir modal Nueva Cita
+✅ Seleccionar: Madrid 1 → Corte de pelo → Prueba Personal 2 horarios
+✅ Seleccionar Lunes 6 octubre
+✅ DEBE mostrar slots: 09:00, 09:30, 10:00, 10:30, 11:00, 11:30, 15:00, 15:30, 16:00, 16:30, 17:00

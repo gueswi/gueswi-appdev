@@ -3219,13 +3219,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const { serviceId, staffId, date, locationId } = req.query;
 
-      console.log("🔍 Available Slots Request:", {
-        serviceId,
-        staffId,
-        date,
-        locationId,
-      });
-
       if (!serviceId || !staffId || !date || !locationId) {
         return res.status(400).json({ error: "Missing required parameters" });
       }
@@ -3239,7 +3232,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(404).json({ error: "Service not found" });
       }
 
-      // Obtener staff con schedules
+      // Obtener staff
       const staff = await db.query.staffMembers.findFirst({
         where: eq(schema.staffMembers.id, staffId as string),
       });
@@ -3248,50 +3241,32 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(404).json({ error: "Staff not found" });
       }
 
-      console.log("🔍 Staff schedulesByLocation RAW:", staff.schedulesByLocation);
-      console.log("🔍 Type:", typeof staff.schedulesByLocation);
-
-      // CRÍTICO: Parsear si es string
+      // CRÍTICO: Parsear schedulesByLocation si es string
       let staffSchedules = staff.schedulesByLocation as any;
       if (typeof staffSchedules === "string") {
         try {
           staffSchedules = JSON.parse(staffSchedules);
-          console.log("🔍 Parsed from string to object");
         } catch (e) {
-          console.error("❌ Failed to parse schedulesByLocation:", e);
-          staffSchedules = {};
+          console.error("❌ Failed to parse staff schedules:", e);
+          return res.json({ slots: [] });
         }
       }
 
-      console.log("🔍 Staff schedules PARSED:", staffSchedules);
-
+      // Verificar que el staff trabaja en esta ubicación
       const staffScheduleForLocation = staffSchedules?.[locationId as string];
-
-      console.log("🔍 Schedule for location:", staffScheduleForLocation);
-
       if (!staffScheduleForLocation) {
-        console.log("❌ Staff does not work at this location");
-        return res.json({ slots: [] }); // No trabaja en esta ubicación
-      }
-
-      // Obtener día de la semana
-      const requestedDate = new Date(date as string);
-      const dayOfWeek = requestedDate.getDay();
-
-      console.log("🔍 Requested date:", requestedDate);
-      console.log("🔍 Day of week:", dayOfWeek, "(0=Sun, 1=Mon, ..., 6=Sat)");
-
-      const staffDaySchedule = staffScheduleForLocation[dayOfWeek];
-
-      console.log("🔍 Staff schedule for day:", staffDaySchedule);
-
-      // VALIDACIÓN CRÍTICA: Si el staff no trabaja este día, retornar vacío
-      if (!staffDaySchedule || !staffDaySchedule.enabled) {
-        console.log("❌ Staff does not work on this day");
         return res.json({ slots: [] });
       }
 
-      console.log("✅ Staff works on this day, generating slots...");
+      // Parsear fecha solicitada - CRÍTICO: agregar hora 00:00:00 para timezone
+      const requestedDate = new Date(date as string + "T00:00:00");
+      const dayOfWeek = requestedDate.getDay();
+
+      // Verificar que el staff trabaja este día
+      const staffDaySchedule = staffScheduleForLocation[dayOfWeek];
+      if (!staffDaySchedule || !staffDaySchedule.enabled || !staffDaySchedule.blocks) {
+        return res.json({ slots: [] });
+      }
 
       // Obtener citas existentes para este día
       const startOfDay = new Date(requestedDate);
@@ -3309,36 +3284,31 @@ export async function registerRoutes(app: Express): Promise<Server> {
         ),
       });
 
-      console.log("🔍 Existing appointments:", existingAppointments.length);
-
-      // Generar slots basados en los BLOQUES del STAFF (no de la ubicación)
+      // Generar slots basados en los bloques del personal
       const slots: any[] = [];
       const slotDuration = service.duration;
+      const now = new Date();
 
-      console.log("🔍 Service duration:", slotDuration, "minutes");
-      console.log("🔍 Number of blocks:", staffDaySchedule.blocks?.length);
-
-      staffDaySchedule.blocks.forEach((block: any, blockIndex: number) => {
-        console.log(`🔍 Processing block ${blockIndex}:`, block);
-
+      staffDaySchedule.blocks.forEach((block: any) => {
         const [startH, startM] = block.start.split(":").map(Number);
         const [endH, endM] = block.end.split(":").map(Number);
 
+        // Crear fecha/hora de inicio del bloque
         let currentTime = new Date(requestedDate);
         currentTime.setHours(startH, startM, 0, 0);
 
+        // Crear fecha/hora de fin del bloque
         const blockEnd = new Date(requestedDate);
         blockEnd.setHours(endH, endM, 0, 0);
 
-        console.log(`🔍 Block range: ${currentTime.toLocaleTimeString()} to ${blockEnd.toLocaleTimeString()}`);
-
+        // Generar slots cada 30 minutos
         while (currentTime < blockEnd) {
           const slotEnd = new Date(currentTime);
           slotEnd.setMinutes(slotEnd.getMinutes() + slotDuration);
 
-          // Verificar que el slot completo cabe dentro del bloque
+          // Verificar que el slot completo cabe en el bloque
           if (slotEnd <= blockEnd) {
-            // Verificar si el slot no está ocupado
+            // Verificar que el slot no está ocupado
             const isOccupied = existingAppointments.some((apt) => {
               const aptStart = new Date(apt.startTime);
               const aptEnd = new Date(apt.endTime);
@@ -3349,27 +3319,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
               );
             });
 
-            // Solo slots futuros
-            const now = new Date();
+            // Solo agregar si es futuro y no está ocupado
             if (currentTime > now && !isOccupied) {
               slots.push({
                 startTime: currentTime.toISOString(),
                 endTime: slotEnd.toISOString(),
               });
-              console.log(`✅ Added slot: ${currentTime.toLocaleTimeString()}`);
-            } else if (currentTime <= now) {
-              console.log(`⏰ Skipped past slot: ${currentTime.toLocaleTimeString()}`);
-            } else if (isOccupied) {
-              console.log(`🚫 Skipped occupied slot: ${currentTime.toLocaleTimeString()}`);
             }
           }
 
-          // Avanzar al siguiente slot (intervalo de 30 min)
+          // Avanzar al siguiente slot (intervalos de 30 min)
           currentTime.setMinutes(currentTime.getMinutes() + 30);
         }
       });
-
-      console.log(`🔍 Total slots generated: ${slots.length}`);
 
       res.json({ slots });
     } catch (error: any) {
