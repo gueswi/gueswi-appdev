@@ -1,0 +1,529 @@
+🐛 PARTE 1: BUG FIXES
+BUG #1: Eliminar servicio - Reemplazar alert nativo
+En client/src/components/bookings/services-manager.tsx:
+typescriptimport { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
+
+// Dentro del componente, agregar estados:
+const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+const [serviceToDelete, setServiceToDelete] = useState<string | null>(null);
+
+// Modificar el botón de eliminar en el DialogFooter:
+<DialogFooter className="flex justify-between">
+  <div>
+    {editingService && (
+      <Button
+        type="button"
+        variant="destructive"
+        onClick={() => {
+          setServiceToDelete(editingService.id);
+          setDeleteDialogOpen(true);
+        }}
+      >
+        Eliminar Servicio
+      </Button>
+    )}
+  </div>
+  <div className="flex gap-2">
+    <Button variant="outline" onClick={handleCloseDialog}>
+      Cancelar
+    </Button>
+    <Button onClick={handleSubmit} disabled={saveMutation.isPending}>
+      {saveMutation.isPending ? "Guardando..." : "Guardar"}
+    </Button>
+  </div>
+</DialogFooter>
+
+// Al final del componente, FUERA del Dialog principal, agregar:
+<AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+  <AlertDialogContent>
+    <AlertDialogHeader>
+      <AlertDialogTitle>¿Eliminar este servicio?</AlertDialogTitle>
+      <AlertDialogDescription>
+        Esta acción no se puede deshacer. El servicio será eliminado permanentemente.
+      </AlertDialogDescription>
+    </AlertDialogHeader>
+    <AlertDialogFooter>
+      <AlertDialogCancel onClick={() => setServiceToDelete(null)}>
+        Cancelar
+      </AlertDialogCancel>
+      <AlertDialogAction
+        className="bg-red-600 hover:bg-red-700"
+        onClick={() => {
+          if (serviceToDelete) {
+            deleteMutation.mutate(serviceToDelete);
+          }
+          setDeleteDialogOpen(false);
+          setServiceToDelete(null);
+        }}
+      >
+        Eliminar
+      </AlertDialogAction>
+    </AlertDialogFooter>
+  </AlertDialogContent>
+</AlertDialog>
+Backend: Verificar endpoint DELETE de services
+En server/routes.ts, asegurarse de que existe:
+typescriptapp.delete("/api/calendar/services/:id", async (req, res) => {
+  if (!req.isAuthenticated() || !req.user.tenantId) {
+    return res.sendStatus(401);
+  }
+
+  try {
+    const serviceId = req.params.id;
+
+    // Eliminar relaciones primero
+    await db.delete(schema.serviceLocations)
+      .where(eq(schema.serviceLocations.serviceId, serviceId));
+
+    await db.delete(schema.staffServices)
+      .where(eq(schema.staffServices.serviceId, serviceId));
+
+    // Luego eliminar el servicio
+    await db.delete(schema.services)
+      .where(and(
+        eq(schema.services.id, serviceId),
+        eq(schema.services.tenantId, req.user.tenantId)
+      ));
+
+    console.log("🛎️ Service deleted:", serviceId);
+    res.json({ success: true });
+  } catch (error: any) {
+    console.error("❌ Error deleting service:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+BUG #2: Vista Mes - No validar horario
+En client/src/components/bookings/calendar-view.tsx:
+typescriptdateClick={(info) => {
+  const clickedDate = info.date;
+  const view = info.view.type;
+
+  if (clickedDate < new Date()) {
+    toast({
+      title: "Fecha no disponible",
+      description: "No puedes crear citas en el pasado",
+      variant: "destructive",
+    });
+    return;
+  }
+
+  // SOLO validar horario en vistas de TIEMPO (week/day), NO en vista mes
+  if (view !== 'dayGridMonth' && selectedLocationFilter) {
+    const location = locations?.find((l: any) => l.id === selectedLocationFilter);
+    const dayOfWeek = clickedDate.getDay();
+    const daySchedule = location?.operatingHours?.[dayOfWeek];
+
+    if (!daySchedule?.enabled) {
+      const dayName = ["Domingo", "Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado"][dayOfWeek];
+      toast({
+        title: "Ubicación cerrada",
+        description: `Esta ubicación no opera los ${dayName}`,
+        variant: "destructive",
+      });
+      return;
+    }
+
+    const clickMinutes = clickedDate.getHours() * 60 + clickedDate.getMinutes();
+    const isInSchedule = daySchedule.blocks?.some((block: any) => {
+      const [startH, startM] = block.start.split(":").map(Number);
+      const [endH, endM] = block.end.split(":").map(Number);
+      const blockStart = startH * 60 + startM;
+      const blockEnd = endH * 60 + endM;
+      return clickMinutes >= blockStart && clickMinutes < blockEnd;
+    });
+
+    if (!isInSchedule) {
+      toast({
+        title: "Horario no disponible",
+        description: "Esta ubicación no opera en este horario",
+        variant: "destructive",
+      });
+      return;
+    }
+  }
+
+  setSelectedDate(clickedDate);
+  setSelectedAppointment(null);
+  setDialogOpen(true);
+}}
+
+BUG #3: Pre-setear fecha en modal
+Verificar en calendar-view.tsx que se pasa correctamente:
+typescript<AppointmentDialog
+  open={dialogOpen}
+  onOpenChange={setDialogOpen}
+  appointment={selectedAppointment}
+  defaultDate={selectedDate}
+  preSelectedLocationId={selectedLocationFilter}
+/>
+Y en appointment-dialog.tsx ya debe funcionar con el defaultValue existente.
+
+🎨 PARTE 2: NUEVA UI DE CALENDARIO CON SLOTS VISUALES
+Paso 1: Crear componente WeeklyCalendarPicker
+Crear archivo client/src/components/bookings/weekly-calendar-picker.tsx:
+typescriptimport { useState, useEffect } from "react";
+import { Card } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { ChevronLeft, ChevronRight } from "lucide-react";
+import { useQuery } from "@tanstack/react-query";
+import { cn } from "@/lib/utils";
+
+interface WeeklyCalendarPickerProps {
+  locationId: string;
+  serviceId: string;
+  staffId: string;
+  onSlotSelect: (datetime: Date) => void;
+  selectedSlot?: Date | null;
+}
+
+export default function WeeklyCalendarPicker({
+  locationId,
+  serviceId,
+  staffId,
+  onSlotSelect,
+  selectedSlot,
+}: WeeklyCalendarPickerProps) {
+  const [currentWeekStart, setCurrentWeekStart] = useState<Date>(() => {
+    const today = new Date();
+    const day = today.getDay();
+    const diff = today.getDate() - day + (day === 0 ? -6 : 1); // Ajustar al lunes
+    return new Date(today.setDate(diff));
+  });
+
+  // Generar array de 7 días de la semana
+  const weekDays = Array.from({ length: 7 }, (_, i) => {
+    const date = new Date(currentWeekStart);
+    date.setDate(currentWeekStart.getDate() + i);
+    return date;
+  });
+
+  const [selectedDayIndex, setSelectedDayIndex] = useState<number>(
+    new Date().getDay() === 0 ? 6 : new Date().getDay() - 1
+  );
+
+  const selectedDay = weekDays[selectedDayIndex];
+
+  // Fetch slots disponibles para el día seleccionado
+  const { data: slotsData, isLoading } = useQuery({
+    queryKey: [
+      "/api/calendar/available-slots",
+      serviceId,
+      staffId,
+      selectedDay.toISOString().split("T")[0],
+    ],
+    enabled: !!serviceId && !!staffId && !!selectedDay,
+    queryFn: async () => {
+      const dateStr = selectedDay.toISOString().split("T")[0];
+      const res = await fetch(
+        `/api/calendar/available-slots?serviceId=${serviceId}&staffId=${staffId}&date=${dateStr}&locationId=${locationId}&public=true`,
+        { credentials: "include" }
+      );
+      if (!res.ok) throw new Error("Failed");
+      return res.json();
+    },
+  });
+
+  const dayNames = ["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"];
+
+  const goToPreviousWeek = () => {
+    const newDate = new Date(currentWeekStart);
+    newDate.setDate(newDate.getDate() - 7);
+    setCurrentWeekStart(newDate);
+  };
+
+  const goToNextWeek = () => {
+    const newDate = new Date(currentWeekStart);
+    newDate.setDate(newDate.getDate() + 7);
+    setCurrentWeekStart(newDate);
+  };
+
+  const isToday = (date: Date) => {
+    const today = new Date();
+    return (
+      date.getDate() === today.getDate() &&
+      date.getMonth() === today.getMonth() &&
+      date.getFullYear() === today.getFullYear()
+    );
+  };
+
+  const isPast = (date: Date) => {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    return date < today;
+  };
+
+  const hasSlots = (dayIndex: number) => {
+    // Verificar si hay slots para este día
+    // Por ahora retornamos true, pero se puede optimizar consultando todos los días de la semana
+    return true;
+  };
+
+  return (
+    <div className="space-y-4">
+      {/* Header con navegación */}
+      <div className="flex items-center justify-between">
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          onClick={goToPreviousWeek}
+        >
+          <ChevronLeft className="h-4 w-4" />
+        </Button>
+        <span className="font-medium">
+          {currentWeekStart.toLocaleDateString("es", { month: "long", year: "numeric" })}
+        </span>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          onClick={goToNextWeek}
+        >
+          <ChevronRight className="h-4 w-4" />
+        </Button>
+      </div>
+
+      {/* Días de la semana */}
+      <div className="grid grid-cols-7 gap-2">
+        {weekDays.map((day, index) => {
+          const past = isPast(day);
+          const today = isToday(day);
+          const selected = selectedDayIndex === index;
+          const hasAvailableSlots = hasSlots(index);
+
+          return (
+            <button
+              key={index}
+              type="button"
+              onClick={() => !past && setSelectedDayIndex(index)}
+              disabled={past}
+              className={cn(
+                "p-3 rounded-lg border-2 text-center transition-all",
+                past && "opacity-40 cursor-not-allowed bg-gray-100",
+                !past && !selected && hasAvailableSlots && "border-gray-200 hover:border-blue-400 bg-white",
+                !past && !selected && !hasAvailableSlots && "border-gray-200 bg-gray-50",
+                selected && "border-blue-600 bg-blue-50",
+                today && !selected && "border-blue-300"
+              )}
+            >
+              <div className="text-xs text-gray-600 mb-1">{dayNames[index]}</div>
+              <div className={cn(
+                "text-lg font-semibold",
+                selected && "text-blue-600",
+                today && !selected && "text-blue-500"
+              )}>
+                {day.getDate()}
+              </div>
+              {today && (
+                <div className="text-xs text-blue-500 font-medium mt-1">Hoy</div>
+              )}
+            </button>
+          );
+        })}
+      </div>
+
+      {/* Slots del día seleccionado */}
+      <Card className="p-4">
+        <h3 className="font-semibold mb-3">
+          Horarios disponibles - {selectedDay.toLocaleDateString("es", { 
+            weekday: "long", 
+            day: "numeric", 
+            month: "long" 
+          })}
+        </h3>
+
+        {isLoading ? (
+          <div className="text-center py-8 text-gray-500">Cargando horarios...</div>
+        ) : !slotsData?.slots || slotsData.slots.length === 0 ? (
+          <div className="text-center py-8 text-gray-500">
+            No hay horarios disponibles para este día
+          </div>
+        ) : (
+          <div className="grid grid-cols-4 gap-2">
+            {slotsData.slots.map((slot: any, idx: number) => {
+              const slotDate = new Date(slot.startTime);
+              const isSelected =
+                selectedSlot &&
+                slotDate.getTime() === selectedSlot.getTime();
+
+              return (
+                <Button
+                  key={idx}
+                  type="button"
+                  variant={isSelected ? "default" : "outline"}
+                  size="sm"
+                  onClick={() => onSlotSelect(slotDate)}
+                  className={cn(
+                    "font-mono",
+                    isSelected && "bg-blue-600 hover:bg-blue-700"
+                  )}
+                >
+                  {slotDate.toLocaleTimeString("es", {
+                    hour: "2-digit",
+                    minute: "2-digit",
+                  })}
+                </Button>
+              );
+            })}
+          </div>
+        )}
+      </Card>
+    </div>
+  );
+}
+
+Paso 2: Integrar WeeklyCalendarPicker en AppointmentDialog
+En client/src/components/bookings/appointment-dialog.tsx:
+typescriptimport WeeklyCalendarPicker from "./weekly-calendar-picker";
+
+// Dentro del componente, agregar estado:
+const [selectedSlotDate, setSelectedSlotDate] = useState<Date | null>(null);
+
+// Reemplazar el input datetime-local con el nuevo componente:
+
+{/* ANTES de la sección de datos del cliente, agregar: */}
+
+{/* Selector de fecha y hora con calendario semanal */}
+{selectedLocationId && selectedServiceId && selectedStaffId ? (
+  <WeeklyCalendarPicker
+    locationId={selectedLocationId}
+    serviceId={selectedServiceId}
+    staffId={selectedStaffId}
+    onSlotSelect={(datetime) => {
+      setSelectedSlotDate(datetime);
+    }}
+    selectedSlot={selectedSlotDate}
+  />
+) : (
+  <div className="bg-orange-50 border border-orange-200 rounded-lg p-4 text-center">
+    <p className="text-sm text-orange-700">
+      Selecciona ubicación, servicio y personal para ver horarios disponibles
+    </p>
+  </div>
+)}
+
+{/* Input oculto para enviar la fecha en el form */}
+<input
+  type="hidden"
+  name="startTime"
+  value={selectedSlotDate ? selectedSlotDate.toISOString() : ""}
+/>
+Modificar la validación del handleSubmit:
+typescriptconst handleSubmit = (e: React.FormEvent) => {
+  e.preventDefault();
+  const formData = new FormData(e.currentTarget as HTMLFormElement);
+
+  if (!selectedLocationId) {
+    toast({ title: "Error", description: "Selecciona una ubicación", variant: "destructive" });
+    return;
+  }
+
+  if (!selectedServiceId) {
+    toast({ title: "Error", description: "Selecciona un servicio", variant: "destructive" });
+    return;
+  }
+
+  if (!selectedStaffId) {
+    toast({ title: "Error", description: "Selecciona personal", variant: "destructive" });
+    return;
+  }
+
+  if (!selectedSlotDate) {
+    toast({ 
+      title: "Error", 
+      description: "Selecciona una fecha y hora del calendario", 
+      variant: "destructive" 
+    });
+    return;
+  }
+
+  const service = allServices?.find((s: any) => s.id === selectedServiceId);
+  if (!service) {
+    toast({ title: "Error", description: "Servicio no encontrado", variant: "destructive" });
+    return;
+  }
+
+  const startTime = selectedSlotDate;
+  const endTime = new Date(startTime);
+  endTime.setMinutes(endTime.getMinutes() + service.duration);
+
+  const appointmentData = {
+    locationId: selectedLocationId,
+    serviceId: selectedServiceId,
+    staffId: selectedStaffId,
+    customerName: formData.get("customerName"),
+    customerEmail: formData.get("customerEmail"),
+    customerPhone: formData.get("customerPhone"),
+    startTime: startTime.toISOString(),
+    endTime: endTime.toISOString(),
+    timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+    notes: formData.get("notes"),
+  };
+
+  if (appointment) {
+    updateMutation.mutate({ id: appointment.id, data: appointmentData });
+  } else {
+    createMutation.mutate(appointmentData);
+  }
+};
+
+Paso 3: Pre-setear fecha seleccionada del calendario principal
+En appointment-dialog.tsx, usar defaultDate para inicializar el calendario semanal:
+typescript// Al inicio del componente, cuando se abre el modal:
+useEffect(() => {
+  if (open && defaultDate && !appointment) {
+    // Si hay defaultDate del calendario principal, usarla
+    setSelectedSlotDate(defaultDate);
+  } else if (open && appointment) {
+    // Si es edición, usar la fecha del appointment
+    setSelectedSlotDate(new Date(appointment.startTime));
+  }
+}, [open, defaultDate, appointment]);
+
+🎨 PARTE 3: MEJORAS DE UX FINALES
+Mostrar horarios disponibles del staff
+En appointment-dialog.tsx, después de seleccionar staff:
+typescript{selectedStaffId && selectedLocationId && (
+  <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 text-sm">
+    <p className="font-medium text-blue-900 mb-2">
+      Horario de trabajo
+    </p>
+    {(() => {
+      const staff = allStaff?.find((s: any) => s.id === selectedStaffId);
+      const staffSchedule = staff?.schedulesByLocation?.[selectedLocationId];
+      
+      if (!staffSchedule) {
+        return <p className="text-red-600">Este personal no trabaja en esta ubicación</p>;
+      }
+
+      const workingDays = Object.entries(staffSchedule)
+        .filter(([_, schedule]: any) => schedule?.enabled)
+        .map(([day, schedule]: any) => {
+          const dayNames = ["Dom", "Lun", "Mar", "Mié", "Jue", "Vie", "Sáb"];
+          const blocks = schedule.blocks.map((b: any) => `${b.start}-${b.end}`).join(", ");
+          return `${dayNames[day]}: ${blocks}`;
+        });
+
+      return (
+        <ul className="text-xs text-blue-700 space-y-1">
+          {workingDays.map((day, i) => (
+            <li key={i}>• {day}</li>
+          ))}
+        </ul>
+      );
+    })()}
+  </div>
+)}
+
+✅ CHECKLIST FINAL DE IMPLEMENTACIÓN
+
+✅ Bug #1: Dialog de shadcn para eliminar servicio (no alert nativo)
+✅ Bug #1: Endpoint DELETE de services con eliminación de relaciones
+✅ Bug #2: Vista mes no valida horario, solo día
+✅ Bug #3: Fecha pre-seteada cuando se selecciona en calendario
+✅ Mejora UI: Componente WeeklyCalendarPicker creado
+✅ Mejora UI: Integrado en AppointmentDialog
+✅ Mejora UX: Calendario deshabilitado hasta seleccionar ubicación/staff
+✅ Mejora UX: Mostrar horarios de trabajo del staff
+✅ Validaciones: Solo permitir seleccionar slots disponibles

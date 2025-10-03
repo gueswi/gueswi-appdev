@@ -3171,6 +3171,36 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  app.delete("/api/calendar/services/:id", async (req, res) => {
+    if (!req.isAuthenticated() || !req.user.tenantId) {
+      return res.sendStatus(401);
+    }
+
+    try {
+      const serviceId = req.params.id;
+
+      // Eliminar relaciones primero
+      await db.delete(schema.serviceLocations)
+        .where(eq(schema.serviceLocations.serviceId, serviceId));
+
+      await db.delete(schema.staffServices)
+        .where(eq(schema.staffServices.serviceId, serviceId));
+
+      // Luego eliminar el servicio
+      await db.delete(schema.services)
+        .where(and(
+          eq(schema.services.id, serviceId),
+          eq(schema.services.tenantId, req.user.tenantId)
+        ));
+
+      console.log("🛎️ Service deleted:", serviceId);
+      res.json({ success: true });
+    } catch (error: any) {
+      console.error("❌ Error deleting service:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
   // ============================================================================
   // Authenticated appointments endpoints
   // ============================================================================
