@@ -182,6 +182,11 @@ export function CalendarView({
     const locationId = appointment.locationId;
     const staffId = appointment.staffId;
 
+    // Detectar vista actual
+    const calendarApi = calendarRef.current?.getApi();
+    const currentView = calendarApi?.view.type || "";
+    const isMonthView = currentView.includes("dayGrid");
+
     // Validar fecha pasada
     if (newStart < new Date()) {
       info.revert();
@@ -232,75 +237,78 @@ export function CalendarView({
       return;
     }
 
-    // Validar ubicación - horario específico
-    const startMinutesForLocation = newStart.getHours() * 60 + newStart.getMinutes();
-    const endMinutesForLocation = newEnd.getHours() * 60 + newEnd.getMinutes();
+    // SOLO validar horarios en vistas de tiempo (week/day), NO en vista month
+    if (!isMonthView) {
+      // Validar ubicación - horario específico
+      const startMinutesForLocation = newStart.getHours() * 60 + newStart.getMinutes();
+      const endMinutesForLocation = newEnd.getHours() * 60 + newEnd.getMinutes();
 
-    const isInLocationSchedule = locationDaySchedule.blocks?.some((block: any) => {
-      const [startH, startM] = block.start.split(":").map(Number);
-      const [endH, endM] = block.end.split(":").map(Number);
-      const blockStart = startH * 60 + startM;
-      const blockEnd = endH * 60 + endM;
-      return startMinutesForLocation >= blockStart && endMinutesForLocation <= blockEnd;
-    });
-
-    if (!isInLocationSchedule) {
-      const locationBlocks = locationDaySchedule.blocks?.map((b: any) => `${b.start}-${b.end}`).join(", ") || "";
-      info.revert();
-      toast({
-        title: "Horario no disponible",
-        description: `${location.name} solo opera: ${locationBlocks} los ${dayName}`,
-        variant: "destructive",
-      });
-      return;
-    }
-
-    // Validar staff
-    const staffSchedule = staffMember.schedulesByLocation?.[locationId]?.[dayOfWeek];
-    if (!staffSchedule?.enabled) {
-      // Obtener días que SÍ trabaja el staff
-      const workingDays = [];
-      const staffScheduleForLocation = staffMember?.schedulesByLocation?.[locationId] || {};
-      
-      Object.keys(staffScheduleForLocation).forEach((day) => {
-        const daySchedule = staffScheduleForLocation[day];
-        if (daySchedule?.enabled) {
-          const dayNames = ["Dom", "Lun", "Mar", "Mié", "Jue", "Vie", "Sáb"];
-          const blocks = daySchedule.blocks.map((b: any) => `${b.start}-${b.end}`).join(", ");
-          workingDays.push(`${dayNames[day]} (${blocks})`);
-        }
+      const isInLocationSchedule = locationDaySchedule.blocks?.some((block: any) => {
+        const [startH, startM] = block.start.split(":").map(Number);
+        const [endH, endM] = block.end.split(":").map(Number);
+        const blockStart = startH * 60 + startM;
+        const blockEnd = endH * 60 + endM;
+        return startMinutesForLocation >= blockStart && endMinutesForLocation <= blockEnd;
       });
 
-      info.revert();
-      toast({
-        title: "Staff no disponible",
-        description: `${staffMember?.name} no trabaja los ${dayName}. Solo trabaja: ${workingDays.join(" • ")}`,
-        variant: "destructive",
+      if (!isInLocationSchedule) {
+        const locationBlocks = locationDaySchedule.blocks?.map((b: any) => `${b.start}-${b.end}`).join(", ") || "";
+        info.revert();
+        toast({
+          title: "Horario no disponible",
+          description: `${location.name} solo opera: ${locationBlocks} los ${dayName}`,
+          variant: "destructive",
+        });
+        return;
+      }
+
+      // Validar staff
+      const staffSchedule = staffMember.schedulesByLocation?.[locationId]?.[dayOfWeek];
+      if (!staffSchedule?.enabled) {
+        // Obtener días que SÍ trabaja el staff
+        const workingDays = [];
+        const staffScheduleForLocation = staffMember?.schedulesByLocation?.[locationId] || {};
+        
+        Object.keys(staffScheduleForLocation).forEach((day) => {
+          const daySchedule = staffScheduleForLocation[day];
+          if (daySchedule?.enabled) {
+            const dayNames = ["Dom", "Lun", "Mar", "Mié", "Jue", "Vie", "Sáb"];
+            const blocks = daySchedule.blocks.map((b: any) => `${b.start}-${b.end}`).join(", ");
+            workingDays.push(`${dayNames[day]} (${blocks})`);
+          }
+        });
+
+        info.revert();
+        toast({
+          title: "Staff no disponible",
+          description: `${staffMember?.name} no trabaja los ${dayName}. Solo trabaja: ${workingDays.join(" • ")}`,
+          variant: "destructive",
+        });
+        return;
+      }
+
+      // Validar horario específico del staff
+      const startMinutes = newStart.getHours() * 60 + newStart.getMinutes();
+      const endMinutes = newEnd.getHours() * 60 + newEnd.getMinutes();
+
+      const isInStaffSchedule = staffSchedule.blocks?.some((block: any) => {
+        const [startH, startM] = block.start.split(":").map(Number);
+        const [endH, endM] = block.end.split(":").map(Number);
+        const blockStart = startH * 60 + startM;
+        const blockEnd = endH * 60 + endM;
+        return startMinutes >= blockStart && endMinutes <= blockEnd;
       });
-      return;
-    }
 
-    // Validar horario específico del staff
-    const startMinutes = newStart.getHours() * 60 + newStart.getMinutes();
-    const endMinutes = newEnd.getHours() * 60 + newEnd.getMinutes();
-
-    const isInStaffSchedule = staffSchedule.blocks?.some((block: any) => {
-      const [startH, startM] = block.start.split(":").map(Number);
-      const [endH, endM] = block.end.split(":").map(Number);
-      const blockStart = startH * 60 + startM;
-      const blockEnd = endH * 60 + endM;
-      return startMinutes >= blockStart && endMinutes <= blockEnd;
-    });
-
-    if (!isInStaffSchedule) {
-      const staffBlocks = staffSchedule.blocks.map((b: any) => `${b.start}-${b.end}`).join(", ");
-      info.revert();
-      toast({
-        title: "Horario no disponible",
-        description: `${staffMember?.name} solo trabaja: ${staffBlocks} los ${dayName}`,
-        variant: "destructive",
-      });
-      return;
+      if (!isInStaffSchedule) {
+        const staffBlocks = staffSchedule.blocks.map((b: any) => `${b.start}-${b.end}`).join(", ");
+        info.revert();
+        toast({
+          title: "Horario no disponible",
+          description: `${staffMember?.name} solo trabaja: ${staffBlocks} los ${dayName}`,
+          variant: "destructive",
+        });
+        return;
+      }
     }
 
     // Si pasa todas las validaciones, actualizar
