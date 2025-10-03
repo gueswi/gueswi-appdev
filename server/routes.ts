@@ -42,7 +42,7 @@ import {
 } from "@shared/schema";
 import * as schema from "@shared/schema";
 import { db } from "./db";
-import { eq, and, desc, sql, inArray } from "drizzle-orm";
+import { eq, and, desc, sql, inArray, gte, lte, ne } from "drizzle-orm";
 import multer from "multer";
 
 // Stripe setup with config loader

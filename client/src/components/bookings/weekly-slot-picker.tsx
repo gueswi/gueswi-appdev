@@ -49,7 +49,7 @@ export function WeeklySlotPicker({
   const [selectedDayIndex, setSelectedDayIndex] = useState<number | null>(null);
 
   // Obtener staff completo para validar horarios
-  const { data: allStaff } = useQuery({
+  const { data: allStaff } = useQuery<any[]>({
     queryKey: ["/api/calendar/staff"],
   });
 
@@ -96,17 +96,38 @@ export function WeeklySlotPicker({
   // Obtener slots reales desde el backend para el día seleccionado
   const selectedDay = selectedDayIndex !== null ? weekDays[selectedDayIndex] : null;
   
-  const { data: slotsData } = useQuery({
-    queryKey: ["/api/calendar/available-slots", serviceId, staffId, selectedDay?.toISOString(), locationId],
-    enabled: !!selectedDay && !!staffId && doesStaffWorkOnDay(selectedDay),
+  const { data: slotsData } = useQuery<{ slots: any[] }>({
+    queryKey: [
+      "/api/calendar/available-slots",
+      {
+        serviceId,
+        staffId,
+        date: selectedDay?.toISOString(),
+        locationId,
+      },
+    ],
+    enabled: !!selectedDay && !!staffId && !!serviceId && doesStaffWorkOnDay(selectedDay),
   });
 
   const availableSlots = slotsData?.slots || [];
 
   const dayNames = ["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"];
 
+  // Validar si el staff tiene horarios configurados para esta ubicación
+  const hasScheduleForLocation = !!staffScheduleForLocation;
+
   return (
     <div className="space-y-4" data-testid="weekly-slot-picker">
+      {/* Mensaje de error si no hay horarios configurados */}
+      {!hasScheduleForLocation && (
+        <div className="bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-lg p-4">
+          <p className="text-sm text-yellow-800 dark:text-yellow-200">
+            ⚠️ El personal seleccionado no tiene horarios configurados para esta ubicación. 
+            Por favor, configura los horarios en la sección de Personal.
+          </p>
+        </div>
+      )}
+
       {/* Navegación de semana */}
       <div className="flex items-center justify-between">
         <Button
