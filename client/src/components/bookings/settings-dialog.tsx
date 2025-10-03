@@ -42,14 +42,6 @@ interface ReminderSettings {
   hoursBeforeSecond: number;
 }
 
-interface GeneralSettings {
-  defaultDuration: number;
-  workingHoursStart: string;
-  workingHoursEnd: string;
-  slotDuration: number;
-  maxAdvanceBooking: number;
-}
-
 export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
   const { toast } = useToast();
 
@@ -71,15 +63,6 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
     hoursBeforeSecond: 2,
   });
 
-  // General settings state
-  const [general, setGeneral] = useState<GeneralSettings>({
-    defaultDuration: 60,
-    workingHoursStart: "09:00",
-    workingHoursEnd: "18:00",
-    slotDuration: 30,
-    maxAdvanceBooking: 30,
-  });
-
   const handleSaveSettings = () => {
     // TODO: Implement API call to save settings
     toast({
@@ -98,12 +81,12 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
             Configuración del Calendario
           </DialogTitle>
           <DialogDescription>
-            Personaliza las preferencias de notificaciones, recordatorios y configuración general
+            Personaliza las preferencias de notificaciones y recordatorios automáticos
           </DialogDescription>
         </DialogHeader>
 
         <Tabs defaultValue="notifications" className="w-full">
-          <TabsList className="grid w-full grid-cols-3">
+          <TabsList className="grid w-full grid-cols-2">
             <TabsTrigger value="notifications" data-testid="tab-notifications">
               <Bell className="h-4 w-4 mr-2" />
               Notificaciones
@@ -111,10 +94,6 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
             <TabsTrigger value="reminders" data-testid="tab-reminders">
               <Clock className="h-4 w-4 mr-2" />
               Recordatorios
-            </TabsTrigger>
-            <TabsTrigger value="general" data-testid="tab-general">
-              <Settings className="h-4 w-4 mr-2" />
-              General
             </TabsTrigger>
           </TabsList>
 
@@ -294,101 +273,6 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
                   </div>
                 </>
               )}
-            </div>
-          </TabsContent>
-
-          {/* General Tab */}
-          <TabsContent value="general" className="space-y-6 pt-4">
-            <div className="space-y-4">
-              <div className="space-y-2">
-                <Label htmlFor="default-duration">Duración predeterminada de citas (minutos)</Label>
-                <Select
-                  value={general.defaultDuration.toString()}
-                  onValueChange={(value) =>
-                    setGeneral({ ...general, defaultDuration: parseInt(value) })
-                  }
-                >
-                  <SelectTrigger id="default-duration" data-testid="select-default-duration">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="15">15 minutos</SelectItem>
-                    <SelectItem value="30">30 minutos</SelectItem>
-                    <SelectItem value="45">45 minutos</SelectItem>
-                    <SelectItem value="60">60 minutos</SelectItem>
-                    <SelectItem value="90">90 minutos</SelectItem>
-                    <SelectItem value="120">120 minutos</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label htmlFor="working-start">Hora de inicio laboral</Label>
-                  <Input
-                    id="working-start"
-                    type="time"
-                    value={general.workingHoursStart}
-                    onChange={(e) =>
-                      setGeneral({ ...general, workingHoursStart: e.target.value })
-                    }
-                    data-testid="input-working-start"
-                  />
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="working-end">Hora de fin laboral</Label>
-                  <Input
-                    id="working-end"
-                    type="time"
-                    value={general.workingHoursEnd}
-                    onChange={(e) =>
-                      setGeneral({ ...general, workingHoursEnd: e.target.value })
-                    }
-                    data-testid="input-working-end"
-                  />
-                </div>
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="slot-duration">Duración de slots del calendario (minutos)</Label>
-                <Select
-                  value={general.slotDuration.toString()}
-                  onValueChange={(value) =>
-                    setGeneral({ ...general, slotDuration: parseInt(value) })
-                  }
-                >
-                  <SelectTrigger id="slot-duration" data-testid="select-slot-duration">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="15">15 minutos</SelectItem>
-                    <SelectItem value="30">30 minutos</SelectItem>
-                    <SelectItem value="60">60 minutos</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="max-advance">Reservas anticipadas máximas (días)</Label>
-                <Select
-                  value={general.maxAdvanceBooking.toString()}
-                  onValueChange={(value) =>
-                    setGeneral({ ...general, maxAdvanceBooking: parseInt(value) })
-                  }
-                >
-                  <SelectTrigger id="max-advance" data-testid="select-max-advance">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="7">7 días</SelectItem>
-                    <SelectItem value="14">14 días</SelectItem>
-                    <SelectItem value="30">30 días</SelectItem>
-                    <SelectItem value="60">60 días</SelectItem>
-                    <SelectItem value="90">90 días</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
             </div>
           </TabsContent>
         </Tabs>

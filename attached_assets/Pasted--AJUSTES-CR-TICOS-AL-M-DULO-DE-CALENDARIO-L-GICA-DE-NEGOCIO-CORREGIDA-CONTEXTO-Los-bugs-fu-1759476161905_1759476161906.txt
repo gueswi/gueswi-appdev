@@ -1,0 +1,1126 @@
+# AJUSTES CRÍTICOS AL MÓDULO DE CALENDARIO - LÓGICA DE NEGOCIO CORREGIDA
+
+## ⚠️ CONTEXTO
+Los bugs fueron corregidos exitosamente, pero la lógica de ubicaciones/personal/servicios necesita ajustes fundamentales en el flujo de datos y UI.
+
+---
+
+## 🔧 PARTE 1: ELIMINAR CONFIGURACIÓN GLOBAL DE HORARIOS
+
+### CAMBIO #1: Settings Dialog - Eliminar pestaña "General"
+
+**Problema:** La pestaña "General" en el modal de Configuración tiene horarios globales, pero los horarios deben ser POR UBICACIÓN.
+
+**Solución:**
+
+En `client/src/components/bookings/bookings.tsx`, dentro del componente `SettingsDialog`:
+
+1. **Eliminar completamente la pestaña "General"** que contiene "Horario laboral general"
+
+2. **Mantener solo 2 tabs:**
+   - Notificaciones
+   - Recordatorios
+
+3. El código del Dialog debe quedar así:
+```typescript
+<Tabs defaultValue="notifications" className="mt-4">
+  <TabsList className="grid w-full grid-cols-2">
+    <TabsTrigger value="notifications">Notificaciones</TabsTrigger>
+    <TabsTrigger value="reminders">Recordatorios</TabsTrigger>
+  </TabsList>
+  
+  <TabsContent value="notifications" className="space-y-4">
+    {/* ... mantener contenido existente ... */}
+  </TabsContent>
+  
+  <TabsContent value="reminders" className="space-y-4">
+    {/* ... mantener contenido existente ... */}
+  </TabsContent>
+</Tabs>
+
+🏢 PARTE 2: NUEVA UI PARA UBICACIONES (LocationsManager)
+CAMBIO #2: Formulario de Ubicación con días + bloques horarios
+Objetivo: Implementar UI como la imagen de referencia donde:
+
+Toggle para activar días
+Por cada día activo, agregar bloques "desde-hasta"
+Validación: nuevo bloque debe iniciar después del fin del anterior
+
+Implementar en client/src/components/bookings/locations-manager.tsx:
+typescriptimport { useState } from "react";
+import { Plus, Trash2, MapPin } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Switch } from "@/components/ui/switch";
+import { Card } from "@/components/ui/card";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { useToast } from "@/hooks/use-toast";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+
+interface TimeBlock {
+  start: string;
+  end: string;
+}
+
+interface DaySchedule {
+  enabled: boolean;
+  blocks: TimeBlock[];
+}
+
+const DAYS = ["Domingo", "Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado"];
+
+export default function LocationsManager() {
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [editingLocation, setEditingLocation] = useState<any>(null);
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+
+  // Estado para el formulario
+  const [formData, setFormData] = useState({
+    name: "",
+    address: "",
+    city: "",
+    phone: "",
+    email: "",
+  });
+
+  // Estado para horarios por día
+  const [operatingHours, setOperatingHours] = useState<Record<number, DaySchedule>>({
+    0: { enabled: false, blocks: [] },
+    1: { enabled: false, blocks: [] },
+    2: { enabled: false, blocks: [] },
+    3: { enabled: false, blocks: [] },
+    4: { enabled: false, blocks: [] },
+    5: { enabled: false, blocks: [] },
+    6: { enabled: false, blocks: [] },
+  });
+
+  // Fetch locations
+  const { data: locations } = useQuery({
+    queryKey: ["/api/calendar/locations"],
+    queryFn: async () => {
+      const res = await fetch("/api/calendar/locations", { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to fetch");
+      return res.json();
+    },
+  });
+
+  // Create/Update mutation
+  const saveMutation = useMutation({
+    mutationFn: async (data: any) => {
+      const url = editingLocation
+        ? `/api/calendar/locations/${editingLocation.id}`
+        : "/api/calendar/locations";
+      const method = editingLocation ? "PATCH" : "POST";
+
+      const res = await fetch(url, {
+        method,
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify(data),
+      });
+      if (!res.ok) throw new Error("Failed to save");
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/calendar/locations"] });
+      toast({ title: editingLocation ? "Ubicación actualizada" : "Ubicación creada" });
+      handleCloseDialog();
+    },
+  });
+
+  const handleOpenDialog = (location?: any) => {
+    if (location) {
+      setEditingLocation(location);
+      setFormData({
+        name: location.name,
+        address: location.address || "",
+        city: location.city || "",
+        phone: location.phone || "",
+        email: location.email || "",
+      });
+      setOperatingHours(location.operatingHours || getDefaultHours());
+    } else {
+      setEditingLocation(null);
+      setFormData({ name: "", address: "", city: "", phone: "", email: "" });
+      setOperatingHours(getDefaultHours());
+    }
+    setDialogOpen(true);
+  };
+
+  const handleCloseDialog = () => {
+    setDialogOpen(false);
+    setEditingLocation(null);
+  };
+
+  const getDefaultHours = () => ({
+    0: { enabled: false, blocks: [] },
+    1: { enabled: false, blocks: [] },
+    2: { enabled: false, blocks: [] },
+    3: { enabled: false, blocks: [] },
+    4: { enabled: false, blocks: [] },
+    5: { enabled: false, blocks: [] },
+    6: { enabled: false, blocks: [] },
+  });
+
+  const toggleDay = (dayIndex: number) => {
+    const newHours = { ...operatingHours };
+    if (newHours[dayIndex].enabled) {
+      // Deshabilitar día
+      newHours[dayIndex] = { enabled: false, blocks: [] };
+    } else {
+      // Habilitar día con un bloque por defecto
+      newHours[dayIndex] = {
+        enabled: true,
+        blocks: [{ start: "09:00", end: "17:00" }],
+      };
+    }
+    setOperatingHours(newHours);
+  };
+
+  const addBlock = (dayIndex: number) => {
+    const newHours = { ...operatingHours };
+    const currentBlocks = newHours[dayIndex].blocks;
+
+    // Calcular hora de inicio del nuevo bloque (después del último)
+    let newStart = "09:00";
+    if (currentBlocks.length > 0) {
+      const lastBlock = currentBlocks[currentBlocks.length - 1];
+      const [hours, minutes] = lastBlock.end.split(":").map(Number);
+
+      let newMinutes = minutes + 1;
+      let newHours = hours;
+      if (newMinutes >= 60) {
+        newHours += 1;
+        newMinutes = 0;
+      }
+
+      if (newHours >= 24) {
+        toast({
+          title: "No se puede agregar más bloques",
+          description: "Ya no hay horario disponible en el día",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      newStart = `${String(newHours).padStart(2, "0")}:${String(newMinutes).padStart(2, "0")}`;
+    }
+
+    newHours[dayIndex].blocks.push({ start: newStart, end: "18:00" });
+    setOperatingHours(newHours);
+  };
+
+  const removeBlock = (dayIndex: number, blockIndex: number) => {
+    const newHours = { ...operatingHours };
+    newHours[dayIndex].blocks = newHours[dayIndex].blocks.filter((_, i) => i !== blockIndex);
+    
+    // Si no quedan bloques, deshabilitar el día
+    if (newHours[dayIndex].blocks.length === 0) {
+      newHours[dayIndex].enabled = false;
+    }
+    
+    setOperatingHours(newHours);
+  };
+
+  const updateBlock = (dayIndex: number, blockIndex: number, field: "start" | "end", value: string) => {
+    const newHours = { ...operatingHours };
+    const block = newHours[dayIndex].blocks[blockIndex];
+    block[field] = value;
+
+    // Validar que start < end
+    if (block.start >= block.end) {
+      toast({
+        title: "Horario inválido",
+        description: "La hora de inicio debe ser menor que la hora de fin",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    // Validar que no se solape con bloques anteriores
+    if (blockIndex > 0) {
+      const prevBlock = newHours[dayIndex].blocks[blockIndex - 1];
+      if (block.start <= prevBlock.end) {
+        toast({
+          title: "Horario inválido",
+          description: "Los bloques no pueden solaparse",
+          variant: "destructive",
+        });
+        return;
+      }
+    }
+
+    // Validar que no se solape con bloques posteriores
+    if (blockIndex < newHours[dayIndex].blocks.length - 1) {
+      const nextBlock = newHours[dayIndex].blocks[blockIndex + 1];
+      if (block.end >= nextBlock.start) {
+        toast({
+          title: "Horario inválido",
+          description: "Los bloques no pueden solaparse",
+          variant: "destructive",
+        });
+        return;
+      }
+    }
+
+    setOperatingHours(newHours);
+  };
+
+  const handleSubmit = () => {
+    if (!formData.name) {
+      toast({ title: "Error", description: "El nombre es obligatorio", variant: "destructive" });
+      return;
+    }
+
+    // Validar que al menos un día esté activo
+    const hasActiveDay = Object.values(operatingHours).some(day => day.enabled);
+    if (!hasActiveDay) {
+      toast({
+        title: "Error",
+        description: "Debes activar al menos un día de operación",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    saveMutation.mutate({
+      ...formData,
+      operatingHours,
+      timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+    });
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="flex justify-between items-center">
+        <h2 className="text-2xl font-bold">Ubicaciones</h2>
+        <Button onClick={() => handleOpenDialog()}>
+          <Plus className="h-4 w-4 mr-2" />
+          Nueva Ubicación
+        </Button>
+      </div>
+
+      {/* Lista de ubicaciones */}
+      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+        {locations?.map((location: any) => (
+          <Card
+            key={location.id}
+            className="p-4 cursor-pointer hover:shadow-lg transition-shadow"
+            onClick={() => handleOpenDialog(location)}
+          >
+            <div className="flex items-start gap-3">
+              <MapPin className="h-5 w-5 text-blue-600 mt-1" />
+              <div className="flex-1">
+                <h3 className="font-semibold">{location.name}</h3>
+                <p className="text-sm text-muted-foreground">{location.address}</p>
+                <p className="text-xs text-muted-foreground mt-2">
+                  {Object.values(location.operatingHours || {}).filter((d: any) => d?.enabled).length} días activos
+                </p>
+              </div>
+            </div>
+          </Card>
+        ))}
+      </div>
+
+      {/* Dialog */}
+      <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>
+              {editingLocation ? "Editar Ubicación" : "Nueva Ubicación"}
+            </DialogTitle>
+          </DialogHeader>
+
+          <div className="space-y-6">
+            {/* Datos básicos */}
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium mb-2">Nombre *</label>
+                <Input
+                  value={formData.name}
+                  onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                  placeholder="Centro Principal"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium mb-2">Ciudad</label>
+                <Input
+                  value={formData.city}
+                  onChange={(e) => setFormData({ ...formData, city: e.target.value })}
+                  placeholder="Caracas"
+                />
+              </div>
+              <div className="col-span-2">
+                <label className="block text-sm font-medium mb-2">Dirección</label>
+                <Input
+                  value={formData.address}
+                  onChange={(e) => setFormData({ ...formData, address: e.target.value })}
+                  placeholder="Av. Principal, Edificio..."
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium mb-2">Teléfono</label>
+                <Input
+                  value={formData.phone}
+                  onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
+                  placeholder="+58 424 1234567"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium mb-2">Email</label>
+                <Input
+                  value={formData.email}
+                  onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+                  placeholder="contacto@ubicacion.com"
+                />
+              </div>
+            </div>
+
+            {/* Horarios de operación */}
+            <div>
+              <h3 className="font-semibold mb-3">Horario de Operación</h3>
+              <div className="space-y-3">
+                {DAYS.map((dayName, dayIndex) => (
+                  <Card
+                    key={dayIndex}
+                    className={`p-4 ${
+                      operatingHours[dayIndex].enabled
+                        ? "border-blue-300 bg-blue-50"
+                        : "border-gray-200"
+                    }`}
+                  >
+                    <div className="flex items-center justify-between mb-3">
+                      <div className="flex items-center gap-3">
+                        <Switch
+                          checked={operatingHours[dayIndex].enabled}
+                          onCheckedChange={() => toggleDay(dayIndex)}
+                        />
+                        <span className="font-medium">{dayName}</span>
+                      </div>
+
+                      {operatingHours[dayIndex].enabled && (
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          onClick={() => addBlock(dayIndex)}
+                        >
+                          <Plus className="h-3 w-3 mr-1" />
+                          Agregar turno
+                        </Button>
+                      )}
+                    </div>
+
+                    {operatingHours[dayIndex].enabled && (
+                      <div className="space-y-2 ml-8">
+                        {operatingHours[dayIndex].blocks.map((block, blockIndex) => (
+                          <div key={blockIndex} className="flex items-center gap-2">
+                            <Input
+                              type="time"
+                              value={block.start}
+                              onChange={(e) =>
+                                updateBlock(dayIndex, blockIndex, "start", e.target.value)
+                              }
+                              className="w-32"
+                            />
+                            <span className="text-muted-foreground">a</span>
+                            <Input
+                              type="time"
+                              value={block.end}
+                              onChange={(e) =>
+                                updateBlock(dayIndex, blockIndex, "end", e.target.value)
+                              }
+                              className="w-32"
+                            />
+
+                            {operatingHours[dayIndex].blocks.length > 1 && (
+                              <Button
+                                type="button"
+                                size="sm"
+                                variant="ghost"
+                                onClick={() => removeBlock(dayIndex, blockIndex)}
+                              >
+                                <Trash2 className="h-4 w-4 text-red-500" />
+                              </Button>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </Card>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={handleCloseDialog}>
+              Cancelar
+            </Button>
+            <Button onClick={handleSubmit} disabled={saveMutation.isPending}>
+              {saveMutation.isPending ? "Guardando..." : "Guardar"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
+
+👥 PARTE 3: NUEVA UI PARA PERSONAL (StaffManager)
+CAMBIO #3: Formulario de Personal con validación de horarios por ubicación
+Objetivo:
+
+Seleccionar ubicación(es)
+Por cada ubicación, solo permitir días/horas que estén dentro del horario de esa ubicación
+Seleccionar servicios filtrados por ubicaciones asignadas
+
+Implementar en client/src/components/bookings/staff-manager.tsx:
+typescriptimport { useState, useEffect } from "react";
+import { Plus, Trash2, Users } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Switch } from "@/components/ui/switch";
+import { Card } from "@/components/ui/card";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { Checkbox } from "@/components/ui/checkbox";
+import { useToast } from "@/hooks/use-toast";
+import { useMutation, useQuery, useQueryClient } from "@tantml/react-query";
+
+interface TimeBlock {
+  start: string;
+  end: string;
+}
+
+interface DaySchedule {
+  enabled: boolean;
+  blocks: TimeBlock[];
+}
+
+const DAYS = ["Domingo", "Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado"];
+
+export default function StaffManager() {
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [editingStaff, setEditingStaff] = useState<any>(null);
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+
+  const [formData, setFormData] = useState({
+    name: "",
+    email: "",
+    phone: "",
+    role: "",
+  });
+
+  const [selectedLocations, setSelectedLocations] = useState<string[]>([]);
+  const [schedulesByLocation, setSchedulesByLocation] = useState<Record<string, Record<number, DaySchedule>>>({});
+  const [selectedServices, setSelectedServices] = useState<string[]>([]);
+
+  // Fetch data
+  const { data: locations } = useQuery({
+    queryKey: ["/api/calendar/locations"],
+    queryFn: async () => {
+      const res = await fetch("/api/calendar/locations", { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to fetch");
+      return res.json();
+    },
+  });
+
+  const { data: services } = useQuery({
+    queryKey: ["/api/calendar/services"],
+    queryFn: async () => {
+      const res = await fetch("/api/calendar/services", { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to fetch");
+      return res.json();
+    },
+  });
+
+  const { data: staff } = useQuery({
+    queryKey: ["/api/calendar/staff"],
+    queryFn: async () => {
+      const res = await fetch("/api/calendar/staff", { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to fetch");
+      return res.json();
+    },
+  });
+
+  // Servicios filtrados: solo los que están en las ubicaciones seleccionadas
+  const filteredServices = services?.filter((service: any) => {
+    const serviceLocationIds = service.serviceLocations?.map((sl: any) => sl.locationId) || [];
+    return selectedLocations.some(locId => serviceLocationIds.includes(locId));
+  });
+
+  const handleLocationToggle = (locationId: string) => {
+    if (selectedLocations.includes(locationId)) {
+      // Remover ubicación
+      setSelectedLocations(selectedLocations.filter(id => id !== locationId));
+      const newSchedules = { ...schedulesByLocation };
+      delete newSchedules[locationId];
+      setSchedulesByLocation(newSchedules);
+    } else {
+      // Agregar ubicación con horario vacío por defecto
+      setSelectedLocations([...selectedLocations, locationId]);
+      const newSchedules = { ...schedulesByLocation };
+      newSchedules[locationId] = {
+        0: { enabled: false, blocks: [] },
+        1: { enabled: false, blocks: [] },
+        2: { enabled: false, blocks: [] },
+        3: { enabled: false, blocks: [] },
+        4: { enabled: false, blocks: [] },
+        5: { enabled: false, blocks: [] },
+        6: { enabled: false, blocks: [] },
+      };
+      setSchedulesByLocation(newSchedules);
+    }
+  };
+
+  const toggleDay = (locationId: string, dayIndex: number) => {
+    const location = locations?.find((l: any) => l.id === locationId);
+    const locationDaySchedule = location?.operatingHours?.[dayIndex];
+
+    if (!locationDaySchedule?.enabled) {
+      toast({
+        title: "Día no disponible",
+        description: `Esta ubicación no opera los ${DAYS[dayIndex]}`,
+        variant: "destructive",
+      });
+      return;
+    }
+
+    const newSchedules = { ...schedulesByLocation };
+    if (newSchedules[locationId][dayIndex].enabled) {
+      // Deshabilitar
+      newSchedules[locationId][dayIndex] = { enabled: false, blocks: [] };
+    } else {
+      // Habilitar con primer bloque de la ubicación como referencia
+      const firstLocationBlock = locationDaySchedule.blocks[0];
+      newSchedules[locationId][dayIndex] = {
+        enabled: true,
+        blocks: [{ start: firstLocationBlock.start, end: firstLocationBlock.end }],
+      };
+    }
+    setSchedulesByLocation(newSchedules);
+  };
+
+  const addBlock = (locationId: string, dayIndex: number) => {
+    const location = locations?.find((l: any) => l.id === locationId);
+    const locationDaySchedule = location?.operatingHours?.[dayIndex];
+
+    const newSchedules = { ...schedulesByLocation };
+    const currentBlocks = newSchedules[locationId][dayIndex].blocks;
+
+    // Calcular hora de inicio del nuevo bloque
+    let newStart = locationDaySchedule.blocks[0].start;
+    if (currentBlocks.length > 0) {
+      const lastBlock = currentBlocks[currentBlocks.length - 1];
+      const [hours, minutes] = lastBlock.end.split(":").map(Number);
+
+      let newMinutes = minutes + 1;
+      let newHours = hours;
+      if (newMinutes >= 60) {
+        newHours += 1;
+        newMinutes = 0;
+      }
+
+      // Validar que no exceda el horario de la ubicación
+      const locationMaxEnd = locationDaySchedule.blocks[locationDaySchedule.blocks.length - 1].end;
+      const [maxH, maxM] = locationMaxEnd.split(":").map(Number);
+      if (newHours > maxH || (newHours === maxH && newMinutes >= maxM)) {
+        toast({
+          title: "No se puede agregar más bloques",
+          description: "Has alcanzado el límite del horario de la ubicación",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      newStart = `${String(newHours).padStart(2, "0")}:${String(newMinutes).padStart(2, "0")}`;
+    }
+
+    newSchedules[locationId][dayIndex].blocks.push({ start: newStart, end: locationDaySchedule.blocks[0].end });
+    setSchedulesByLocation(newSchedules);
+  };
+
+  const removeBlock = (locationId: string, dayIndex: number, blockIndex: number) => {
+    const newSchedules = { ...schedulesByLocation };
+    newSchedules[locationId][dayIndex].blocks = newSchedules[locationId][dayIndex].blocks.filter((_, i) => i !== blockIndex);
+
+    if (newSchedules[locationId][dayIndex].blocks.length === 0) {
+      newSchedules[locationId][dayIndex].enabled = false;
+    }
+
+    setSchedulesByLocation(newSchedules);
+  };
+
+  const updateBlock = (locationId: string, dayIndex: number, blockIndex: number, field: "start" | "end", value: string) => {
+    const location = locations?.find((l: any) => l.id === locationId);
+    const locationDaySchedule = location?.operatingHours?.[dayIndex];
+
+    // Validar que esté dentro del horario de la ubicación
+    const isWithinLocationHours = locationDaySchedule.blocks.some((lb: any) => {
+      return value >= lb.start && value <= lb.end;
+    });
+
+    if (!isWithinLocationHours) {
+      toast({
+        title: "Horario fuera de rango",
+        description: "El horario debe estar dentro del horario de operación de la ubicación",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    const newSchedules = { ...schedulesByLocation };
+    const block = newSchedules[locationId][dayIndex].blocks[blockIndex];
+    block[field] = value;
+
+    // Validar start < end
+    if (block.start >= block.end) {
+      toast({
+        title: "Horario inválido",
+        description: "La hora de inicio debe ser menor que la de fin",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setSchedulesByLocation(newSchedules);
+  };
+
+  const saveMutation = useMutation({
+    mutationFn: async (data: any) => {
+      const url = editingStaff ? `/api/calendar/staff/${editingStaff.id}` : "/api/calendar/staff";
+      const method = editingStaff ? "PATCH" : "POST";
+
+      const res = await fetch(url, {
+        method,
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify(data),
+      });
+      if (!res.ok) throw new Error("Failed to save");
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/calendar/staff"] });
+      toast({ title: editingStaff ? "Personal actualizado" : "Personal creado" });
+      handleCloseDialog();
+    },
+  });
+
+  const handleOpenDialog = (staffMember?: any) => {
+    if (staffMember) {
+      setEditingStaff(staffMember);
+      setFormData({
+        name: staffMember.name,
+        email: staffMember.email || "",
+        phone: staffMember.phone || "",
+        role: staffMember.role || "",
+      });
+      // TODO: cargar selectedLocations y schedulesByLocation desde staffMember
+    } else {
+      setEditingStaff(null);
+      setFormData({ name: "", email: "", phone: "", role: "" });
+      setSelectedLocations([]);
+      setSchedulesByLocation({});
+      setSelectedServices([]);
+    }
+    setDialogOpen(true);
+  };
+
+  const handleCloseDialog = () => {
+    setDialogOpen(false);
+    setEditingStaff(null);
+  };
+
+  const handleSubmit = () => {
+    if (!formData.name) {
+      toast({ title: "Error", description: "El nombre es obligatorio", variant: "destructive" });
+      return;
+    }
+
+    if (selectedLocations.length === 0) {
+      toast({ title: "Error", description: "Debes seleccionar al menos una ubicación", variant: "destructive" });
+      return;
+    }
+
+    if (selectedServices.length === 0) {
+      toast({ title: "Error", description: "Debes seleccionar al menos un servicio", variant: "destructive" });
+      return;
+    }
+
+    saveMutation.mutate({
+      ...formData,
+      locationIds: selectedLocations,
+      schedulesByLocation,
+      serviceIds: selectedServices,
+    });
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="flex justify-between items-center">
+        <h2 className="text-2xl font-bold">Personal</h2>
+        <Button onClick={() => handleOpenDialog()}>
+          <Plus className="h-4 w-4 mr-2" />
+          Agregar Personal
+        </Button>
+      </div>
+
+      {/* Lista de staff */}
+      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+        {staff?.map((member: any) => (
+          <Card
+            key={member.id}
+            className="p-4 cursor-pointer hover:shadow-lg transition-shadow"
+            onClick={() => handleOpenDialog(member)}
+          >
+            <div className="flex items-start gap-3">
+              <Users className="h-5 w-5 text-green-600 mt-1" />
+              <div className="flex-1">
+                <h3 className="font-semibold">{member.name}</h3>
+                <p className="text-sm text-muted-foreground">{member.role || "Staff"}</p>
+                <p className="text-xs text-muted-foreground mt-2">
+                  {member.staffServices?.length || 0} servicios
+                </p>
+              </div>
+            </div>
+          </Card>
+        ))}
+      </div>
+
+      {/* Dialog */}
+      <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+        <DialogContent className="max-w-5xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>
+              {editingStaff ? "Editar Personal" : "Agregar Personal"}
+            </DialogTitle>
+          </DialogHeader>
+
+          <div className="space-y-6">
+            {/* Datos básicos */}
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium mb-2">Nombre *</label>
+                <Input
+                  value={formData.name}
+                  onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                  placeholder="María García"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium mb-2">Rol</label>
+                <Input
+                  value={formData.role}
+                  onChange={(e) => setFormData({ ...formData, role: e.target.value })}
+                  placeholder="Estilista, Doctor, etc."
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium mb-2">Email</label>
+                <Input
+                  value={formData.email}
+                  onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+                  placeholder="maria@ejemplo.com"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium mb-2">Teléfono</label>
+                <Input
+                  value={formData.phone}
+                  onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
+                  placeholder="+58 424 1234567"
+                />
+              </div>
+            </div>
+
+            {/* Selección de ubicaciones */}
+            <div>
+              <h3 className="font-semibold mb-3">Ubicaciones donde trabaja *</h3>
+              <div className="grid grid-cols-2 gap-2">
+                {locations?.map((location: any) => (
+                  <div key={location.id} className="flex items-center gap-2">
+                    <Checkbox
+                      checked={selectedLocations.includes(location.id)}
+                      onCheckedChange={() => handleLocationToggle(location.id)}
+                    />
+                    <label className="text-sm">{location.name}</label>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Horarios por ubicación */}
+            {selectedLocations.map(locationId => {
+              const location = locations?.find((l: any) => l.id === locationId);
+              return (
+                <Card key={locationId} className="p-4 bg-blue-50">
+                  <h4 className="font-semibold mb-3">Horario en: {location?.name}</h4>
+                  
+                  <div className="space-y-3">
+                    {DAYS.map((dayName, dayIndex) => {
+                      const locationDaySchedule = location?.operatingHours?.[dayIndex];
+                      const isLocationDayActive = locationDaySchedule?.enabled;
+
+                      return (
+                        <Card
+                          key={dayIndex}
+                          className={`p-3 ${
+                            !isLocationDayActive
+                              ? "bg-gray-100 opacity-50"
+                              : schedulesByLocation[locationId]?.[dayIndex]?.enabled
+                              ? "border-green-300 bg-green-50"
+                              : "border-gray-200"
+                          }`}
+                        >
+                          <div className="flex items-center justify-between mb-2">
+                            <div className="flex items-center gap-3">
+                              <Switch
+                                checked={schedulesByLocation[locationId]?.[dayIndex]?.enabled || false}
+                                onCheckedChange={() => toggleDay(locationId, dayIndex)}
+                                disabled={!isLocationDayActive}
+                              />
+                              <span className="font-medium text-sm">{dayName}</span>
+                              {!isLocationDayActive && (
+                                <span className="text-xs text-red-500">(Cerrado en ubicación)</span>
+                              )}
+                            </div>
+
+                            {schedulesByLocation[locationId]?.[dayIndex]?.enabled && (
+                              <Button
+                                type="button"
+                                size="sm"
+                                variant="outline"
+                                onClick={() => addBlock(locationId, dayIndex)}
+                              >
+                                <Plus className="h-3 w-3 mr-1" />
+                                Turno
+                              </Button>
+                            )}
+                          </div>
+
+                          {schedulesByLocation[locationId]?.[dayIndex]?.enabled && (
+                            <div className="space-y-2 ml-8">
+                              {schedulesByLocation[locationId][dayIndex].blocks.map((block, blockIndex) => (
+                                <div key={blockIndex} className="flex items-center gap-2">
+                                  <Input
+                                    type="time"
+                                    value={block.start}
+                                    onChange={(e) =>
+                                      updateBlock(locationId, dayIndex, blockIndex, "start", e.target.value)
+                                    }
+                                    className="w-28 text-sm"
+                                  />
+                                  <span className="text-xs text-muted-foreground">a</span>
+                                  <Input
+                                    type="time"
+                                    value={block.end}
+                                    onChange={(e) =>
+                                      updateBlock(locationId, dayIndex, blockIndex, "end", e.target.value)
+                                    }
+                                    className="w-28 text-sm"
+                                  />
+
+                                  {schedulesByLocation[locationId][dayIndex].blocks.length > 1 && (
+                                    <Button
+                                      type="button"
+                                      size="sm"
+                                      variant="ghost"
+                                      onClick={() => removeBlock(locationId, dayIndex, blockIndex)}
+                                    >
+                                      <Trash2 className="h-3 w-3 text-red-500" />
+                                    </Button>
+                                  )}
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </Card>
+                      );
+                    })}
+                  </div>
+                </Card>
+              );
+            })}
+
+            {/* Selección de servicios */}
+            <div>
+              <h3 className="font-semibold mb-3">Servicios que ofrece *</h3>
+              <p className="text-sm text-muted-foreground mb-3">
+                Solo se muestran servicios disponibles en las ubicaciones seleccionadas
+              </p>
+              <div className="grid grid-cols-2 gap-2">
+                {filteredServices?.map((service: any) => (
+                  <div key={service.id} className="flex items-center gap-2">
+                    <Checkbox
+                      checked={selectedServices.includes(service.id)}
+                      onCheckedChange={(checked) => {
+                        if (checked) {
+                          setSelectedServices([...selectedServices, service.id]);
+                        } else {
+                          setSelectedServices(selectedServices.filter(id => id !== service.id));
+                        }
+                      }}
+                    />
+                    <label className="text-sm">{service.name} ({service.duration}min)</label>
+                  </div>
+                ))}
+              </div>
+              {filteredServices?.length === 0 && (
+                <p className="text-sm text-red-500">
+                  No hay servicios disponibles para las ubicaciones seleccionadas
+                </p>
+              )}
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={handleCloseDialog}>
+              Cancelar
+            </Button>
+            <Button onClick={handleSubmit} disabled={saveMutation.isPending}>
+              {saveMutation.isPending ? "Guardando..." : "Guardar"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
+
+🛎️ PARTE 4: ACTUALIZAR SERVICIOS (ServicesManager)
+CAMBIO #4: Selección múltiple de ubicaciones para servicios
+Implementar en client/src/components/bookings/services-manager.tsx:
+typescript// En el formulario de crear/editar servicio, agregar:
+
+const [selectedLocationIds, setSelectedLocationIds] = useState<string[]>([]);
+
+<div>
+  <label className="block text-sm font-medium mb-2">
+    Disponible en ubicaciones *
+  </label>
+  <p className="text-xs text-muted-foreground mb-2">
+    Selecciona en qué ubicaciones estará disponible este servicio
+  </p>
+  <div className="grid grid-cols-2 gap-2">
+    {locations?.map((location: any) => (
+      <div key={location.id} className="flex items-center gap-2">
+        <Checkbox
+          checked={selectedLocationIds.includes(location.id)}
+          onCheckedChange={(checked) => {
+            if (checked) {
+              setSelectedLocationIds([...selectedLocationIds, location.id]);
+            } else {
+              setSelectedLocationIds(selectedLocationIds.filter(id => id !== location.id));
+            }
+          }}
+        />
+        <label className="text-sm">{location.name}</label>
+      </div>
+    ))}
+  </div>
+</div>
+
+// En el handleSubmit:
+if (selectedLocationIds.length === 0) {
+  toast({
+    title: "Error",
+    description: "Debes seleccionar al menos una ubicación",
+    variant: "destructive",
+  });
+  return;
+}
+
+saveMutation.mutate({
+  ...formData,
+  locationIds: selectedLocationIds,
+});
+
+🔌 PARTE 5: ACTUALIZAR ENDPOINTS BACKEND
+CAMBIO #5: Endpoints para manejar nueva estructura de datos
+En server/routes.ts, actualizar estos endpoints:
+typescript// POST /api/calendar/locations
+app.post("/api/calendar/locations", async (req, res) => {
+  // ... validaciones ...
+  
+  const [location] = await db.insert(schema.locations).values({
+    ...req.body,
+    tenantId: req.user.tenantId,
+    operatingHours: req.body.operatingHours, // JSON con estructura de días + bloques
+  }).returning();
+  
+  res.json(location);
+});
+
+// POST /api/calendar/staff
+app.post("/api/calendar/staff", async (req, res) => {
+  // ... validaciones ...
+  
+  const { locationIds, schedulesByLocation, serviceIds, ...staffData } = req.body;
+  
+  const [staff] = await db.insert(schema.staffMembers).values({
+    ...staffData,
+    tenantId: req.user.tenantId,
+    schedulesByLocation, // JSON: { "loc-uuid": { "0": { enabled, blocks }, ... } }
+  }).returning();
+  
+  // Insertar relaciones staff-services
+  if (serviceIds && serviceIds.length > 0) {
+    await db.insert(schema.staffServices).values(
+      serviceIds.map((svcId: string) => ({
+        staffId: staff.id,
+        serviceId: svcId,
+      }))
+    );
+  }
+  
+  res.json(staff);
+});
+
+// POST /api/calendar/services
+app.post("/api/calendar/services", async (req, res) => {
+  // ... validaciones ...
+  
+  const { locationIds, ...serviceData } = req.body;
+  
+  if (!locationIds || locationIds.length === 0) {
+    return res.status(400).json({ error: "At least one location is required" });
+  }
+  
+  const [service] = await db.insert(schema.services).values({
+    ...serviceData,
+    tenantId: req.user.tenantId,
+  }).returning();
+  
+  // Insertar relaciones service-locations
+  await db.insert(schema.serviceLocations).values(
+    locationIds.map((locId: string) => ({
+      serviceId: service.id,
+      locationId: locId,
+    }))
+  );
+  
+  res.json(service);
+});
+
+✅ CHECKLIST DE IMPLEMENTACIÓN
+
+✅ CAMBIO #1: Eliminar pestaña "General" del Settings Dialog
+✅ CAMBIO #2: Nueva UI de LocationsManager con días + bloques horarios
+✅ CAMBIO #3: Nueva UI de StaffManager con validación por ubicación
+✅ CAMBIO #4: ServicesManager con selección múltiple de ubicaciones
+✅ CAMBIO #5: Actualizar endpoints backend para nueva estructura
+✅ Testing completo del flujo: Location → Staff → Service → Appointment
+
+
+🧪 TESTING CRÍTICO
+
+✅ Crear Location "Spa Premium": Lun-Vie 9-18h, Sáb 10-20h, Dom cerrado
+✅ Crear Location "Spa Express": Lun-Dom 8-22h
+✅ Crear Servicio "Masaje" disponible solo en "Spa Premium"
+✅ Crear Staff "María" que trabaja en ambas ubicaciones con horarios distintos
+✅ Verificar que María solo pueda seleccionar días activos de cada ubicación
+✅ Verificar que María solo pueda asignar horarios dentro del rango de cada ubicación
+✅ Verificar que María solo vea servicios disponibles en sus ubicaciones asignadas
