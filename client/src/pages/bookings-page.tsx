@@ -23,15 +23,13 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Calendar, MapPin, Users, Briefcase, Plus, Settings } from "lucide-react";
+import { Calendar, MapPin, Plus, Settings } from "lucide-react";
 import type { Location, Service, StaffMember, Appointment } from "@shared/schema";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { CalendarView } from "@/components/bookings/calendar-view";
 import { AppointmentDialog } from "@/components/bookings/appointment-dialog";
-import { LocationManagerDialog } from "@/components/bookings/location-manager-dialog";
-import { ServiceManagerDialog } from "@/components/bookings/service-manager-dialog";
-import { StaffManagerDialog } from "@/components/bookings/staff-manager-dialog";
+import LocationsManager from "@/components/bookings/locations-manager";
+import ServicesManager from "@/components/bookings/services-manager";
+import StaffManager from "@/components/bookings/staff-manager";
 import { SettingsDialog } from "@/components/bookings/settings-dialog";
 
 export default function BookingsPage() {
@@ -41,27 +39,21 @@ export default function BookingsPage() {
   // Dialog states
   const [appointmentDialogOpen, setAppointmentDialogOpen] = useState(false);
   const [selectedAppointment, setSelectedAppointment] = useState<Appointment | null>(null);
-  const [locationDialogOpen, setLocationDialogOpen] = useState(false);
-  const [selectedLocation, setSelectedLocation] = useState<Location | null>(null);
-  const [serviceDialogOpen, setServiceDialogOpen] = useState(false);
-  const [selectedService, setSelectedService] = useState<Service | null>(null);
-  const [staffDialogOpen, setStaffDialogOpen] = useState(false);
-  const [selectedStaff, setSelectedStaff] = useState<StaffMember | null>(null);
   const [settingsDialogOpen, setSettingsDialogOpen] = useState(false);
 
   // Fetch locations
   const { data: locations = [], isLoading: locationsLoading } = useQuery<Location[]>({
-    queryKey: ["/api/locations"],
+    queryKey: ["/api/calendar/locations"],
   });
 
   // Fetch services
   const { data: services = [], isLoading: servicesLoading } = useQuery<Service[]>({
-    queryKey: ["/api/services"],
+    queryKey: ["/api/calendar/services"],
   });
 
   // Fetch staff
   const { data: staff = [], isLoading: staffLoading } = useQuery<StaffMember[]>({
-    queryKey: ["/api/staff"],
+    queryKey: ["/api/calendar/staff"],
   });
 
   // Fetch appointments
@@ -205,286 +197,17 @@ export default function BookingsPage() {
 
           {/* Services View */}
           <TabsContent value="services" className="mt-0 p-6">
-            <Card>
-              <CardHeader className="flex flex-row items-center justify-between">
-                <div>
-                  <CardTitle>Servicios</CardTitle>
-                  <CardDescription>
-                    Gestiona los servicios disponibles para reserva
-                  </CardDescription>
-                </div>
-                <Button
-                  size="sm"
-                  data-testid="button-add-service"
-                  onClick={() => {
-                    setSelectedService(null);
-                    setServiceDialogOpen(true);
-                  }}
-                >
-                  <Plus className="h-4 w-4 mr-2" />
-                  Agregar Servicio
-                </Button>
-              </CardHeader>
-              <CardContent>
-                {servicesLoading ? (
-                  <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-                    {[1, 2, 3].map((i) => (
-                      <div key={i} className="border border-border rounded-lg p-4 animate-pulse">
-                        <div className="h-5 bg-muted rounded w-2/3 mb-2"></div>
-                        <div className="h-4 bg-muted rounded w-full mb-2"></div>
-                        <div className="h-4 bg-muted rounded w-1/3"></div>
-                      </div>
-                    ))}
-                  </div>
-                ) : (
-                  <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-                    {services.map((service) => (
-                      <div
-                        key={service.id}
-                        className="border border-border rounded-lg p-4 cursor-pointer hover:border-primary/50 transition-colors"
-                        data-testid={`service-${service.id}`}
-                        onClick={() => {
-                          setSelectedService(service);
-                          setServiceDialogOpen(true);
-                        }}
-                      >
-                        <div className="flex items-start justify-between">
-                          <div className="flex-1">
-                            <h3 className="font-medium">{service.name}</h3>
-                            <p className="text-sm text-muted-foreground mt-1">
-                              {service.description}
-                            </p>
-                            <div className="flex items-center gap-4 mt-3">
-                              <span className="text-sm">
-                                {service.duration} min
-                              </span>
-                              {service.price && (
-                                <span className="text-sm font-medium">
-                                  {service.currency} {service.price}
-                                </span>
-                              )}
-                            </div>
-                          </div>
-                          {service.color && (
-                            <div
-                              className="w-4 h-4 rounded-full"
-                              style={{ backgroundColor: service.color }}
-                            />
-                          )}
-                        </div>
-                      </div>
-                    ))}
-                    {services.length === 0 && (
-                      <div className="col-span-full text-center py-12">
-                        <Briefcase className="h-12 w-12 mx-auto text-muted-foreground mb-3" />
-                        <p className="text-muted-foreground">
-                          No hay servicios configurados
-                        </p>
-                        <p className="text-sm text-muted-foreground mt-1">
-                          Crea un servicio para que los clientes puedan reservar citas
-                        </p>
-                      </div>
-                    )}
-                  </div>
-                )}
-              </CardContent>
-            </Card>
+            <ServicesManager />
           </TabsContent>
 
           {/* Staff View */}
           <TabsContent value="staff" className="mt-0 p-6">
-            <Card>
-              <CardHeader className="flex flex-row items-center justify-between">
-                <div>
-                  <CardTitle>Personal</CardTitle>
-                  <CardDescription>
-                    Gestiona el personal y su disponibilidad
-                  </CardDescription>
-                </div>
-                <Button
-                  size="sm"
-                  data-testid="button-add-staff"
-                  onClick={() => {
-                    setSelectedStaff(null);
-                    setStaffDialogOpen(true);
-                  }}
-                >
-                  <Plus className="h-4 w-4 mr-2" />
-                  Agregar Personal
-                </Button>
-              </CardHeader>
-              <CardContent>
-                {staffLoading ? (
-                  <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-                    {[1, 2, 3].map((i) => (
-                      <div key={i} className="border border-border rounded-lg p-4 animate-pulse">
-                        <div className="flex items-start gap-3">
-                          <div className="w-10 h-10 rounded-full bg-muted"></div>
-                          <div className="flex-1">
-                            <div className="h-5 bg-muted rounded w-2/3 mb-2"></div>
-                            <div className="h-4 bg-muted rounded w-1/3"></div>
-                          </div>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                ) : (
-                  <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-                    {filteredStaff.map((member) => (
-                      <div
-                        key={member.id}
-                        className="border border-border rounded-lg p-4 cursor-pointer hover:border-primary/50 transition-colors"
-                        data-testid={`staff-${member.id}`}
-                        onClick={() => {
-                          setSelectedStaff(member);
-                          setStaffDialogOpen(true);
-                        }}
-                      >
-                        <div className="flex items-start gap-3">
-                          <div
-                            className="w-10 h-10 rounded-full flex items-center justify-center text-white font-medium"
-                            style={{ backgroundColor: member.color || '#6366f1' }}
-                          >
-                            {member.name.charAt(0).toUpperCase()}
-                          </div>
-                          <div className="flex-1">
-                            <h3 className="font-medium">{member.name}</h3>
-                            {member.role && (
-                              <p className="text-sm text-muted-foreground">{member.role}</p>
-                            )}
-                            {member.email && (
-                              <p className="text-xs text-muted-foreground mt-1">{member.email}</p>
-                            )}
-                            <div className="mt-2">
-                              <span className={`text-xs px-2 py-1 rounded-full ${
-                                member.isActive 
-                                  ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200' 
-                                  : 'bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-200'
-                              }`}>
-                                {member.isActive ? 'Activo' : 'Inactivo'}
-                              </span>
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-                    ))}
-                    {filteredStaff.length === 0 && (
-                      <div className="col-span-full text-center py-12">
-                        <Users className="h-12 w-12 mx-auto text-muted-foreground mb-3" />
-                        <p className="text-muted-foreground">
-                          {selectedLocationId !== "all"
-                            ? "No hay personal en esta ubicación"
-                            : "No hay personal configurado"}
-                        </p>
-                        <p className="text-sm text-muted-foreground mt-1">
-                          {selectedLocationId !== "all"
-                            ? "Prueba con otra ubicación o asigna personal a esta ubicación"
-                            : "Agrega miembros del personal para gestionar citas"}
-                        </p>
-                      </div>
-                    )}
-                  </div>
-                )}
-              </CardContent>
-            </Card>
+            <StaffManager />
           </TabsContent>
 
           {/* Locations View */}
           <TabsContent value="locations" className="mt-0 p-6">
-            <Card>
-              <CardHeader className="flex flex-row items-center justify-between">
-                <div>
-                  <CardTitle>Ubicaciones</CardTitle>
-                  <CardDescription>
-                    Gestiona las ubicaciones donde se ofrecen servicios
-                  </CardDescription>
-                </div>
-                <Button
-                  size="sm"
-                  data-testid="button-add-location"
-                  onClick={() => {
-                    setSelectedLocation(null);
-                    setLocationDialogOpen(true);
-                  }}
-                >
-                  <Plus className="h-4 w-4 mr-2" />
-                  Agregar Ubicación
-                </Button>
-              </CardHeader>
-              <CardContent>
-                {locationsLoading ? (
-                  <div className="grid gap-4 md:grid-cols-2">
-                    {[1, 2].map((i) => (
-                      <div key={i} className="border border-border rounded-lg p-4 animate-pulse">
-                        <div className="h-5 bg-muted rounded w-1/2 mb-2"></div>
-                        <div className="h-4 bg-muted rounded w-full mb-1"></div>
-                        <div className="h-4 bg-muted rounded w-2/3"></div>
-                      </div>
-                    ))}
-                  </div>
-                ) : (
-                  <div className="grid gap-4 md:grid-cols-2">
-                    {locations.map((location) => (
-                      <div
-                        key={location.id}
-                        className="border border-border rounded-lg p-4 cursor-pointer hover:border-primary/50 transition-colors"
-                        data-testid={`location-${location.id}`}
-                        onClick={() => {
-                          setSelectedLocation(location);
-                          setLocationDialogOpen(true);
-                        }}
-                      >
-                        <div className="flex items-start justify-between">
-                          <div className="flex-1">
-                            <h3 className="font-medium flex items-center gap-2">
-                              <MapPin className="h-4 w-4" />
-                              {location.name}
-                            </h3>
-                            {location.address && (
-                              <p className="text-sm text-muted-foreground mt-2">
-                                {location.address}
-                                {location.city && `, ${location.city}`}
-                                {location.state && `, ${location.state}`}
-                              </p>
-                            )}
-                            {location.phone && (
-                              <p className="text-sm text-muted-foreground mt-1">
-                                📞 {location.phone}
-                              </p>
-                            )}
-                            {location.email && (
-                              <p className="text-sm text-muted-foreground">
-                                ✉️ {location.email}
-                              </p>
-                            )}
-                            <div className="mt-3">
-                              <span className={`text-xs px-2 py-1 rounded-full ${
-                                location.isActive 
-                                  ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200' 
-                                  : 'bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-200'
-                              }`}>
-                                {location.isActive ? 'Activa' : 'Inactiva'}
-                              </span>
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-                    ))}
-                    {locations.length === 0 && (
-                      <div className="col-span-full text-center py-12">
-                        <MapPin className="h-12 w-12 mx-auto text-muted-foreground mb-3" />
-                        <p className="text-muted-foreground">
-                          No hay ubicaciones configuradas
-                        </p>
-                        <p className="text-sm text-muted-foreground mt-1">
-                          Crea al menos una ubicación donde se ofrezcan los servicios
-                        </p>
-                      </div>
-                    )}
-                  </div>
-                )}
-              </CardContent>
-            </Card>
+            <LocationsManager />
           </TabsContent>
         </Tabs>
       </div>
@@ -497,24 +220,6 @@ export default function BookingsPage() {
         services={services}
         staff={staff}
         locations={locations}
-      />
-
-      <LocationManagerDialog
-        open={locationDialogOpen}
-        onOpenChange={setLocationDialogOpen}
-        location={selectedLocation}
-      />
-
-      <ServiceManagerDialog
-        open={serviceDialogOpen}
-        onOpenChange={setServiceDialogOpen}
-        service={selectedService}
-      />
-
-      <StaffManagerDialog
-        open={staffDialogOpen}
-        onOpenChange={setStaffDialogOpen}
-        staff={selectedStaff}
       />
 
       <SettingsDialog
