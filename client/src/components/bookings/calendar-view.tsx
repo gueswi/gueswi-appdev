@@ -176,13 +176,14 @@ export function CalendarView({
 
   // Handle event drop (drag and drop)
   const handleEventDrop = (info: EventDropArg) => {
-    const { event } = info;
-    const newStart = event.start!;
-    const now = new Date();
-    const locationId = event.extendedProps?.appointment?.locationId;
+    const newStart = info.event.start!;
+    const newEnd = info.event.end!;
+    const appointment = info.event.extendedProps.appointment;
+    const locationId = appointment.locationId;
+    const staffId = appointment.staffId;
 
     // Validar fecha pasada
-    if (newStart < now) {
+    if (newStart < new Date()) {
       info.revert();
       toast({
         title: "Operación no permitida",
@@ -192,22 +193,99 @@ export function CalendarView({
       return;
     }
 
-    // Validar horario de ubicación
-    if (locationId && !isWithinBusinessHours(newStart, locationId)) {
+    // Obtener datos de ubicación y staff
+    const location = locations?.find((l: any) => l.id === locationId);
+    const staffMember = staff.find((s: any) => s.id === staffId);
+    const dayOfWeek = newStart.getDay();
+    const dayName = ["Domingo", "Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado"][dayOfWeek];
+
+    // Validación defensiva: verificar que location y staff existan
+    if (!location) {
       info.revert();
       toast({
-        title: "Horario no disponible",
-        description: "Esta ubicación no opera en ese horario",
+        title: "Error",
+        description: "No se encontró la ubicación de esta cita",
         variant: "destructive",
       });
       return;
     }
-    
+
+    if (!staffMember) {
+      info.revert();
+      toast({
+        title: "Error",
+        description: "No se encontró el personal asignado a esta cita",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    // Validar ubicación
+    const locationDaySchedule = location?.operatingHours?.[dayOfWeek];
+    if (!locationDaySchedule?.enabled) {
+      info.revert();
+      toast({
+        title: "Ubicación cerrada",
+        description: `${location.name} no opera los ${dayName}`,
+        variant: "destructive",
+      });
+      return;
+    }
+
+    // Validar staff
+    const staffSchedule = staffMember.schedulesByLocation?.[locationId]?.[dayOfWeek];
+    if (!staffSchedule?.enabled) {
+      // Obtener días que SÍ trabaja el staff
+      const workingDays = [];
+      const staffScheduleForLocation = staffMember?.schedulesByLocation?.[locationId] || {};
+      
+      Object.keys(staffScheduleForLocation).forEach((day) => {
+        const daySchedule = staffScheduleForLocation[day];
+        if (daySchedule?.enabled) {
+          const dayNames = ["Dom", "Lun", "Mar", "Mié", "Jue", "Vie", "Sáb"];
+          const blocks = daySchedule.blocks.map((b: any) => `${b.start}-${b.end}`).join(", ");
+          workingDays.push(`${dayNames[day]} (${blocks})`);
+        }
+      });
+
+      info.revert();
+      toast({
+        title: "Staff no disponible",
+        description: `${staffMember?.name} no trabaja los ${dayName}. Solo trabaja: ${workingDays.join(" • ")}`,
+        variant: "destructive",
+      });
+      return;
+    }
+
+    // Validar horario específico del staff
+    const startMinutes = newStart.getHours() * 60 + newStart.getMinutes();
+    const endMinutes = newEnd.getHours() * 60 + newEnd.getMinutes();
+
+    const isInStaffSchedule = staffSchedule.blocks?.some((block: any) => {
+      const [startH, startM] = block.start.split(":").map(Number);
+      const [endH, endM] = block.end.split(":").map(Number);
+      const blockStart = startH * 60 + startM;
+      const blockEnd = endH * 60 + endM;
+      return startMinutes >= blockStart && endMinutes <= blockEnd;
+    });
+
+    if (!isInStaffSchedule) {
+      const staffBlocks = staffSchedule.blocks.map((b: any) => `${b.start}-${b.end}`).join(", ");
+      info.revert();
+      toast({
+        title: "Horario no disponible",
+        description: `${staffMember?.name} solo trabaja: ${staffBlocks} los ${dayName}`,
+        variant: "destructive",
+      });
+      return;
+    }
+
+    // Si pasa todas las validaciones, actualizar
     updateAppointmentTime.mutate(
       {
-        id: event.id,
-        startTime: event.start!.toISOString(),
-        endTime: event.end!.toISOString(),
+        id: info.event.id,
+        startTime: newStart.toISOString(),
+        endTime: newEnd.toISOString(),
       },
       {
         onError: () => {
