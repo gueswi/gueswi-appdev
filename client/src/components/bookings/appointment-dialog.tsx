@@ -471,6 +471,7 @@ export default function AppointmentDialog({
                     duration={selectedService.duration}
                     onSelectSlot={handleSlotSelect}
                     staffMembers={filteredStaff}
+                    staffId={selectedStaffId}
                   />
                 </div>
               </div>

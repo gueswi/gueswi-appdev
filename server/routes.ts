@@ -3214,6 +3214,119 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Endpoint para obtener slots disponibles basados en horario del PERSONAL
+  app.get("/api/calendar/available-slots", async (req, res) => {
+    try {
+      const { serviceId, staffId, date, locationId } = req.query;
+
+      if (!serviceId || !staffId || !date || !locationId) {
+        return res.status(400).json({ error: "Missing required parameters" });
+      }
+
+      // Obtener servicio
+      const service = await db.query.services.findFirst({
+        where: eq(schema.services.id, serviceId as string),
+      });
+
+      if (!service) {
+        return res.status(404).json({ error: "Service not found" });
+      }
+
+      // Obtener staff con schedules
+      const staff = await db.query.staffMembers.findFirst({
+        where: eq(schema.staffMembers.id, staffId as string),
+      });
+
+      if (!staff) {
+        return res.status(404).json({ error: "Staff not found" });
+      }
+
+      const staffSchedules = staff.schedulesByLocation as any;
+      const staffScheduleForLocation = staffSchedules?.[locationId as string];
+
+      if (!staffScheduleForLocation) {
+        return res.json({ slots: [] }); // No trabaja en esta ubicación
+      }
+
+      // Obtener día de la semana
+      const requestedDate = new Date(date as string);
+      const dayOfWeek = requestedDate.getDay();
+      const staffDaySchedule = staffScheduleForLocation[dayOfWeek];
+
+      // VALIDACIÓN CRÍTICA: Si el staff no trabaja este día, retornar vacío
+      if (!staffDaySchedule || !staffDaySchedule.enabled) {
+        return res.json({ slots: [] });
+      }
+
+      // Obtener citas existentes para este día
+      const startOfDay = new Date(requestedDate);
+      startOfDay.setHours(0, 0, 0, 0);
+      const endOfDay = new Date(requestedDate);
+      endOfDay.setHours(23, 59, 59, 999);
+
+      const existingAppointments = await db.query.appointments.findMany({
+        where: and(
+          eq(schema.appointments.staffId, staffId as string),
+          eq(schema.appointments.locationId, locationId as string),
+          gte(schema.appointments.startTime, startOfDay),
+          lte(schema.appointments.startTime, endOfDay),
+          ne(schema.appointments.status, "cancelled")
+        ),
+      });
+
+      // Generar slots basados en los BLOQUES del STAFF (no de la ubicación)
+      const slots: any[] = [];
+      const slotDuration = service.duration;
+
+      staffDaySchedule.blocks.forEach((block: any) => {
+        const [startH, startM] = block.start.split(":").map(Number);
+        const [endH, endM] = block.end.split(":").map(Number);
+
+        let currentTime = new Date(requestedDate);
+        currentTime.setHours(startH, startM, 0, 0);
+
+        const blockEnd = new Date(requestedDate);
+        blockEnd.setHours(endH, endM, 0, 0);
+
+        while (currentTime < blockEnd) {
+          const slotEnd = new Date(currentTime);
+          slotEnd.setMinutes(slotEnd.getMinutes() + slotDuration);
+
+          // Verificar que el slot completo cabe dentro del bloque
+          if (slotEnd <= blockEnd) {
+            // Verificar si el slot no está ocupado
+            const isOccupied = existingAppointments.some((apt) => {
+              const aptStart = new Date(apt.startTime);
+              const aptEnd = new Date(apt.endTime);
+              return (
+                (currentTime >= aptStart && currentTime < aptEnd) ||
+                (slotEnd > aptStart && slotEnd <= aptEnd) ||
+                (currentTime <= aptStart && slotEnd >= aptEnd)
+              );
+            });
+
+            // Solo slots futuros
+            const now = new Date();
+            if (currentTime > now && !isOccupied) {
+              slots.push({
+                startTime: currentTime.toISOString(),
+                endTime: slotEnd.toISOString(),
+              });
+            }
+          }
+
+          // Avanzar al siguiente slot (intervalo de 30 min)
+          currentTime.setMinutes(currentTime.getMinutes() + 30);
+        }
+      });
+
+      res.json({ slots });
+    } catch (error: any) {
+      console.error("❌ Error fetching available slots:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
   // ============================================================================
   // Authenticated appointments endpoints
   // ============================================================================

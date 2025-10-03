@@ -1,0 +1,202 @@
+# CORRECCIÓN CRÍTICA: Filtrar slots por horario del PERSONAL
+
+## Problema
+El componente `WeeklySlotPicker` está consultando slots disponibles pero el backend o frontend no está filtrando correctamente por el horario específico del personal seleccionado.
+
+**Ejemplo del bug:**
+- Personal trabaja: Lunes 9-12h y 15-18h
+- Calendario muestra: Lunes 9-17h (horario de ubicación)
+- También muestra días donde el personal NO trabaja
+
+---
+
+## SOLUCIÓN #1: Validar en el componente frontend
+
+En `client/src/components/bookings/weekly-slot-picker.tsx`, agregar validación de días habilitados:
+```typescript
+// Dentro del componente, agregar query para obtener el staff completo
+const { data: allStaff } = useQuery({
+  queryKey: ["/api/calendar/staff"],
+});
+
+const selectedStaff = allStaff?.find((s: any) => s.id === staffId);
+const staffScheduleForLocation = selectedStaff?.schedulesByLocation?.[locationId];
+
+// Función para verificar si el personal trabaja un día específico
+const doesStaffWorkOnDay = (date: Date): boolean => {
+  if (!staffScheduleForLocation) return false;
+  
+  const dayOfWeek = date.getDay();
+  const daySchedule = staffScheduleForLocation[dayOfWeek];
+  
+  return daySchedule?.enabled || false;
+};
+
+// En el grid de días, deshabilitar visualmente los días donde NO trabaja
+<div className="grid grid-cols-7 gap-2">
+  {weekDays.map((day, index) => {
+    const past = isPast(day);
+    const today = isToday(day);
+    const selected = selectedDayIndex === index;
+    const staffWorksThisDay = doesStaffWorkOnDay(day); // NUEVA VALIDACIÓN
+
+    return (
+      <button
+        key={index}
+        type="button"
+        onClick={() => !past && staffWorksThisDay && setSelectedDayIndex(index)}
+        disabled={past || !staffWorksThisDay} // DESHABILITAR si no trabaja
+        className={cn(
+          "p-4 rounded-xl border-2 text-center transition-all relative",
+          (past || !staffWorksThisDay) && "opacity-30 cursor-not-allowed bg-gray-100", // GRIS si no trabaja
+          !past && staffWorksThisDay && !selected && "border-gray-200 hover:border-blue-400 hover:bg-blue-50/30 bg-white",
+          !past && staffWorksThisDay && selected && "border-blue-600 bg-blue-50 shadow-md",
+          today && !selected && staffWorksThisDay && "border-blue-300 bg-blue-50/20"
+        )}
+      >
+        <div className="text-xs font-medium text-gray-600 mb-1">
+          {dayNames[index]}
+        </div>
+        <div
+          className={cn(
+            "text-2xl font-bold",
+            selected && staffWorksThisDay && "text-blue-600",
+            today && !selected && staffWorksThisDay && "text-blue-500",
+            !staffWorksThisDay && "text-gray-400"
+          )}
+        >
+          {day.getDate()}
+        </div>
+        {today && (
+          <div className="text-[10px] text-blue-600 font-semibold mt-1 uppercase">
+            Hoy
+          </div>
+        )}
+      </button>
+    );
+  })}
+</div>
+
+SOLUCIÓN #2: Validar endpoint de slots disponibles
+El endpoint /api/calendar/available-slots debe verificar que los slots generados estén dentro del horario del PERSONAL, no solo de la ubicación.
+En server/routes.ts, modificar el endpoint:
+typescriptapp.get("/api/calendar/available-slots", async (req, res) => {
+  try {
+    const { serviceId, staffId, date, locationId, public: isPublic } = req.query;
+
+    if (!serviceId || !staffId || !date || !locationId) {
+      return res.status(400).json({ error: "Missing required parameters" });
+    }
+
+    // Obtener servicio
+    const service = await db.query.services.findFirst({
+      where: eq(schema.services.id, serviceId as string),
+    });
+
+    if (!service) {
+      return res.status(404).json({ error: "Service not found" });
+    }
+
+    // Obtener staff con schedules
+    const staff = await db.query.staffMembers.findFirst({
+      where: eq(schema.staffMembers.id, staffId as string),
+    });
+
+    if (!staff) {
+      return res.status(404).json({ error: "Staff not found" });
+    }
+
+    const staffSchedules = staff.schedulesByLocation as any;
+    const staffScheduleForLocation = staffSchedules?.[locationId as string];
+
+    if (!staffScheduleForLocation) {
+      return res.json({ slots: [] }); // No trabaja en esta ubicación
+    }
+
+    // Obtener día de la semana
+    const requestedDate = new Date(date as string);
+    const dayOfWeek = requestedDate.getDay();
+    const staffDaySchedule = staffScheduleForLocation[dayOfWeek];
+
+    // VALIDACIÓN CRÍTICA: Si el staff no trabaja este día, retornar vacío
+    if (!staffDaySchedule || !staffDaySchedule.enabled) {
+      return res.json({ slots: [] });
+    }
+
+    // Obtener citas existentes para este día
+    const startOfDay = new Date(requestedDate);
+    startOfDay.setHours(0, 0, 0, 0);
+    const endOfDay = new Date(requestedDate);
+    endOfDay.setHours(23, 59, 59, 999);
+
+    const existingAppointments = await db.query.appointments.findMany({
+      where: and(
+        eq(schema.appointments.staffId, staffId as string),
+        eq(schema.appointments.locationId, locationId as string),
+        gte(schema.appointments.startTime, startOfDay),
+        lte(schema.appointments.startTime, endOfDay),
+        ne(schema.appointments.status, "cancelled")
+      ),
+    });
+
+    // Generar slots basados en los BLOQUES del STAFF (no de la ubicación)
+    const slots: any[] = [];
+    const slotDuration = service.duration;
+
+    staffDaySchedule.blocks.forEach((block: any) => {
+      const [startH, startM] = block.start.split(":").map(Number);
+      const [endH, endM] = block.end.split(":").map(Number);
+
+      let currentTime = new Date(requestedDate);
+      currentTime.setHours(startH, startM, 0, 0);
+
+      const blockEnd = new Date(requestedDate);
+      blockEnd.setHours(endH, endM, 0, 0);
+
+      while (currentTime < blockEnd) {
+        const slotEnd = new Date(currentTime);
+        slotEnd.setMinutes(slotEnd.getMinutes() + slotDuration);
+
+        // Verificar que el slot completo cabe dentro del bloque
+        if (slotEnd <= blockEnd) {
+          // Verificar si el slot no está ocupado
+          const isOccupied = existingAppointments.some((apt) => {
+            const aptStart = new Date(apt.startTime);
+            const aptEnd = new Date(apt.endTime);
+            return (
+              (currentTime >= aptStart && currentTime < aptEnd) ||
+              (slotEnd > aptStart && slotEnd <= aptEnd) ||
+              (currentTime <= aptStart && slotEnd >= aptEnd)
+            );
+          });
+
+          // Solo slots futuros
+          const now = new Date();
+          if (currentTime > now && !isOccupied) {
+            slots.push({
+              startTime: currentTime.toISOString(),
+              endTime: slotEnd.toISOString(),
+            });
+          }
+        }
+
+        // Avanzar al siguiente slot (intervalo de 30 min o 1 hora)
+        currentTime.setMinutes(currentTime.getMinutes() + 30);
+      }
+    });
+
+    res.json({ slots });
+  } catch (error: any) {
+    console.error("❌ Error fetching available slots:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+✅ RESULTADO ESPERADO
+Después de estos cambios:
+
+✅ Personal "Nombre Personal TEST" → Solo trabaja Lunes
+✅ Calendario semanal → Solo el Lunes está habilitado (azul)
+✅ Martes a Domingo → Aparecen deshabilitados (gris, no clickeables)
+✅ Slots del Lunes → Solo muestra 9:00-12:00 y 15:00-18:00
+✅ NO aparecen slots 12:30, 13:00, 13:30, 14:00, 14:30 (porque no trabaja en ese horario)
