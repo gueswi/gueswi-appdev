@@ -71,6 +71,29 @@ export default function LocationsManager() {
     },
   });
 
+  const deleteMutation = useMutation({
+    mutationFn: async (id: string) => {
+      const res = await fetch(`/api/calendar/locations/${id}`, {
+        method: "DELETE",
+        credentials: "include",
+      });
+      if (!res.ok) throw new Error("Failed to delete");
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/calendar/locations"] });
+      toast({ title: "Ubicación eliminada" });
+      handleCloseDialog();
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Error al eliminar",
+        description: error.message,
+        variant: "destructive",
+      });
+    },
+  });
+
   const handleOpenDialog = (location?: any) => {
     if (location) {
       setEditingLocation(location);
@@ -395,13 +418,31 @@ export default function LocationsManager() {
             </div>
           </div>
 
-          <DialogFooter>
-            <Button variant="outline" onClick={handleCloseDialog} data-testid="button-cancel-location">
-              Cancelar
-            </Button>
-            <Button onClick={handleSubmit} disabled={saveMutation.isPending} data-testid="button-save-location">
-              {saveMutation.isPending ? "Guardando..." : "Guardar"}
-            </Button>
+          <DialogFooter className="flex justify-between">
+            <div>
+              {editingLocation && (
+                <Button
+                  type="button"
+                  variant="destructive"
+                  onClick={() => {
+                    if (confirm("¿Estás seguro de eliminar esta ubicación? Esta acción no se puede deshacer.")) {
+                      deleteMutation.mutate(editingLocation.id);
+                    }
+                  }}
+                  data-testid="button-delete-location"
+                >
+                  Eliminar Ubicación
+                </Button>
+              )}
+            </div>
+            <div className="flex gap-2">
+              <Button variant="outline" onClick={handleCloseDialog} data-testid="button-cancel-location">
+                Cancelar
+              </Button>
+              <Button onClick={handleSubmit} disabled={saveMutation.isPending} data-testid="button-save-location">
+                {saveMutation.isPending ? "Guardando..." : "Guardar"}
+              </Button>
+            </div>
           </DialogFooter>
         </DialogContent>
       </Dialog>
