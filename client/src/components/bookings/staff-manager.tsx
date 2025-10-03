@@ -161,10 +161,27 @@ export default function StaffManager() {
       // Deshabilitar
       newSchedules[locationId][dayIndex] = { enabled: false, blocks: [] };
     } else {
-      // Habilitar con horario VACÍO para que el usuario defina su propio horario
+      // Calcular el rango de la ubicación para inicializar con valores válidos
+      const locationMinStart = Math.min(
+        ...locationDaySchedule.blocks.map((b: any) => {
+          const [h, m] = b.start.split(":").map(Number);
+          return h * 60 + m;
+        })
+      );
+      const locationMaxEnd = Math.max(
+        ...locationDaySchedule.blocks.map((b: any) => {
+          const [h, m] = b.end.split(":").map(Number);
+          return h * 60 + m;
+        })
+      );
+      
+      const defaultStart = `${String(Math.floor(locationMinStart / 60)).padStart(2, "0")}:${String(locationMinStart % 60).padStart(2, "0")}`;
+      const defaultEnd = `${String(Math.floor(locationMaxEnd / 60)).padStart(2, "0")}:${String(locationMaxEnd % 60).padStart(2, "0")}`;
+      
+      // Habilitar con horario dentro del rango de la ubicación
       newSchedules[locationId][dayIndex] = {
         enabled: true,
-        blocks: [{ start: "09:00", end: "17:00" }], // Valores por defecto editables
+        blocks: [{ start: defaultStart, end: defaultEnd }], // Valores dentro del rango de ubicación
       };
     }
     setSchedulesByLocation(newSchedules);
@@ -255,12 +272,12 @@ export default function StaffManager() {
       return;
     }
 
-    const newSchedules = { ...schedulesByLocation };
-    const block = newSchedules[locationId][dayIndex].blocks[blockIndex];
-    block[field] = value;
+    // Crear una copia profunda del bloque para validar antes de mutar el estado
+    const currentBlock = schedulesByLocation[locationId][dayIndex].blocks[blockIndex];
+    const testBlock = { ...currentBlock, [field]: value };
 
     // Validar start < end
-    if (block.start >= block.end) {
+    if (testBlock.start >= testBlock.end) {
       toast({
         title: "Horario inválido",
         description: "La hora de inicio debe ser menor que la de fin",
@@ -270,7 +287,12 @@ export default function StaffManager() {
     }
 
     // Validar que no se solape con otros bloques del mismo staff
-    const blocks = newSchedules[locationId][dayIndex].blocks;
+    const blocks = schedulesByLocation[locationId][dayIndex].blocks;
+    const [testStartH, testStartM] = testBlock.start.split(":").map(Number);
+    const [testEndH, testEndM] = testBlock.end.split(":").map(Number);
+    const testStart = testStartH * 60 + testStartM;
+    const testEnd = testEndH * 60 + testEndM;
+
     for (let i = 0; i < blocks.length; i++) {
       if (i === blockIndex) continue;
       
@@ -280,13 +302,8 @@ export default function StaffManager() {
       const otherStart = otherStartH * 60 + otherStartM;
       const otherEnd = otherEndH * 60 + otherEndM;
       
-      const [currStartH, currStartM] = block.start.split(":").map(Number);
-      const [currEndH, currEndM] = block.end.split(":").map(Number);
-      const currStart = currStartH * 60 + currStartM;
-      const currEnd = currEndH * 60 + currEndM;
-      
       // Verificar solapamiento
-      if ((currStart < otherEnd && currEnd > otherStart)) {
+      if ((testStart < otherEnd && testEnd > otherStart)) {
         toast({
           title: "Horario inválido",
           description: "Los bloques de horario no pueden solaparse",
@@ -296,6 +313,9 @@ export default function StaffManager() {
       }
     }
 
+    // Si todas las validaciones pasan, ahora sí actualizar el estado
+    const newSchedules = { ...schedulesByLocation };
+    newSchedules[locationId][dayIndex].blocks[blockIndex][field] = value;
     setSchedulesByLocation(newSchedules);
   };
 
