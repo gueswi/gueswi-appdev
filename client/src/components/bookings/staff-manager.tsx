@@ -223,14 +223,33 @@ export default function StaffManager() {
     const location = (locations || []).find((l: any) => l.id === locationId);
     const locationDaySchedule = location?.operatingHours?.[dayIndex];
 
-    const isWithinLocationHours = locationDaySchedule.blocks.some((lb: any) => {
-      return value >= lb.start && value <= lb.end;
-    });
+    // Convertir el valor ingresado a minutos
+    const [inputH, inputM] = value.split(":").map(Number);
+    const inputMinutes = inputH * 60 + inputM;
 
-    if (!isWithinLocationHours) {
+    // Obtener el rango completo de la ubicación (de todos sus bloques)
+    const locationMinStart = Math.min(
+      ...locationDaySchedule.blocks.map((b: any) => {
+        const [h, m] = b.start.split(":").map(Number);
+        return h * 60 + m;
+      })
+    );
+
+    const locationMaxEnd = Math.max(
+      ...locationDaySchedule.blocks.map((b: any) => {
+        const [h, m] = b.end.split(":").map(Number);
+        return h * 60 + m;
+      })
+    );
+
+    // NUEVA VALIDACIÓN: Verificar que esté DENTRO del rango de la ubicación
+    if (inputMinutes < locationMinStart || inputMinutes > locationMaxEnd) {
+      const minTime = `${String(Math.floor(locationMinStart / 60)).padStart(2, "0")}:${String(locationMinStart % 60).padStart(2, "0")}`;
+      const maxTime = `${String(Math.floor(locationMaxEnd / 60)).padStart(2, "0")}:${String(locationMaxEnd % 60).padStart(2, "0")}`;
+      
       toast({
         title: "Horario fuera de rango",
-        description: "El horario debe estar dentro del horario de operación de la ubicación",
+        description: `El horario debe estar entre ${minTime} y ${maxTime} (horario de la ubicación)`,
         variant: "destructive",
       });
       return;
@@ -240,6 +259,7 @@ export default function StaffManager() {
     const block = newSchedules[locationId][dayIndex].blocks[blockIndex];
     block[field] = value;
 
+    // Validar start < end
     if (block.start >= block.end) {
       toast({
         title: "Horario inválido",
@@ -247,6 +267,33 @@ export default function StaffManager() {
         variant: "destructive",
       });
       return;
+    }
+
+    // Validar que no se solape con otros bloques del mismo staff
+    const blocks = newSchedules[locationId][dayIndex].blocks;
+    for (let i = 0; i < blocks.length; i++) {
+      if (i === blockIndex) continue;
+      
+      const otherBlock = blocks[i];
+      const [otherStartH, otherStartM] = otherBlock.start.split(":").map(Number);
+      const [otherEndH, otherEndM] = otherBlock.end.split(":").map(Number);
+      const otherStart = otherStartH * 60 + otherStartM;
+      const otherEnd = otherEndH * 60 + otherEndM;
+      
+      const [currStartH, currStartM] = block.start.split(":").map(Number);
+      const [currEndH, currEndM] = block.end.split(":").map(Number);
+      const currStart = currStartH * 60 + currStartM;
+      const currEnd = currEndH * 60 + currEndM;
+      
+      // Verificar solapamiento
+      if ((currStart < otherEnd && currEnd > otherStart)) {
+        toast({
+          title: "Horario inválido",
+          description: "Los bloques de horario no pueden solaparse",
+          variant: "destructive",
+        });
+        return;
+      }
     }
 
     setSchedulesByLocation(newSchedules);
@@ -376,7 +423,25 @@ export default function StaffManager() {
               const location = (locations || []).find((l: any) => l.id === locationId);
               return (
                 <Card key={locationId} className="p-4 bg-blue-50 dark:bg-blue-950">
-                  <h4 className="font-semibold mb-3">Horario en: {location?.name}</h4>
+                  <h4 className="font-semibold mb-1">Horario en: {location?.name}</h4>
+                  
+                  {/* Mostrar horario de la ubicación como referencia */}
+                  <p className="text-xs text-muted-foreground mb-2">
+                    📍 Horario de la ubicación: {" "}
+                    {Object.entries(location?.operatingHours || {})
+                      .filter(([_, schedule]: any) => schedule?.enabled)
+                      .map(([day, schedule]: any) => {
+                        const dayName = DAYS[parseInt(day)].substring(0, 3);
+                        const blocks = schedule.blocks
+                          .map((b: any) => `${b.start}-${b.end}`)
+                          .join(", ");
+                        return `${dayName}: ${blocks}`;
+                      })
+                      .join(" • ")}
+                  </p>
+                  <p className="text-xs text-blue-600 dark:text-blue-400 mb-3">
+                    💡 Puedes definir cualquier horario dentro del rango de la ubicación
+                  </p>
                   
                   <div className="space-y-3">
                     {DAYS.map((dayName, dayIndex) => {
