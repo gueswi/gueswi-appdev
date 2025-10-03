@@ -226,11 +226,10 @@ export function CalendarView({
 
   // Handle date select (for creating new appointments)
   const handleDateSelect = (selectInfo: DateSelectArg) => {
-    const selectedDate = selectInfo.start;
-    const now = new Date();
-
+    const clickedDate = selectInfo.start;
+    
     // Validar fecha pasada
-    if (selectedDate < now) {
+    if (clickedDate < new Date()) {
       toast({
         title: "Fecha no disponible",
         description: "No puedes crear citas en el pasado",
@@ -239,16 +238,43 @@ export function CalendarView({
       return;
     }
 
-    // Validar horario de ubicación
-    if (selectedLocationId && selectedLocationId !== "all" && !isWithinBusinessHours(selectedDate, selectedLocationId)) {
-      toast({
-        title: "Horario no disponible",
-        description: "Esta ubicación no opera en ese horario",
-        variant: "destructive",
+    // Validar horario de ubicación SI hay filtro activo
+    if (selectedLocationId && selectedLocationId !== "all") {
+      const location = locations?.find((l: any) => l.id === selectedLocationId);
+      const dayOfWeek = clickedDate.getDay();
+      const daySchedule = location?.operatingHours?.[dayOfWeek];
+
+      if (!daySchedule?.enabled) {
+        const dayName = ["Domingo", "Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado"][dayOfWeek];
+        toast({
+          title: "Ubicación cerrada",
+          description: `Esta ubicación no opera los ${dayName}`,
+          variant: "destructive",
+        });
+        return;
+      }
+
+      // Validar que la hora clickeada esté en horario
+      const clickMinutes = clickedDate.getHours() * 60 + clickedDate.getMinutes();
+      const isInSchedule = daySchedule.blocks?.some((block: any) => {
+        const [startH, startM] = block.start.split(":").map(Number);
+        const [endH, endM] = block.end.split(":").map(Number);
+        const blockStart = startH * 60 + startM;
+        const blockEnd = endH * 60 + endM;
+        return clickMinutes >= blockStart && clickMinutes < blockEnd;
       });
-      return;
+
+      if (!isInSchedule) {
+        toast({
+          title: "Horario no disponible",
+          description: "Esta ubicación no opera en este horario",
+          variant: "destructive",
+        });
+        return;
+      }
     }
 
+    // Si pasa todas las validaciones, abrir modal
     if (onCreateAppointment) {
       onCreateAppointment(selectInfo);
     }
