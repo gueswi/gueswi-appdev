@@ -135,3 +135,13 @@
 html {
   font-size: var(--font-size);
 }
+
+/* FullCalendar - Allow clicks through overlays for testing */
+.fc-non-business,
+.fc-timegrid-bg-harness {
+  pointer-events: none !important;
+}
+
+.fc-timegrid-slot {
+  pointer-events: auto !important;
+}

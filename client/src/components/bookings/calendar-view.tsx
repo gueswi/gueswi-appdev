@@ -220,13 +220,36 @@ export function CalendarView({
       return;
     }
 
-    // Validar ubicación
+    // Validar ubicación - día cerrado
     const locationDaySchedule = location?.operatingHours?.[dayOfWeek];
     if (!locationDaySchedule?.enabled) {
       info.revert();
       toast({
         title: "Ubicación cerrada",
         description: `${location.name} no opera los ${dayName}`,
+        variant: "destructive",
+      });
+      return;
+    }
+
+    // Validar ubicación - horario específico
+    const startMinutesForLocation = newStart.getHours() * 60 + newStart.getMinutes();
+    const endMinutesForLocation = newEnd.getHours() * 60 + newEnd.getMinutes();
+
+    const isInLocationSchedule = locationDaySchedule.blocks?.some((block: any) => {
+      const [startH, startM] = block.start.split(":").map(Number);
+      const [endH, endM] = block.end.split(":").map(Number);
+      const blockStart = startH * 60 + startM;
+      const blockEnd = endH * 60 + endM;
+      return startMinutesForLocation >= blockStart && endMinutesForLocation <= blockEnd;
+    });
+
+    if (!isInLocationSchedule) {
+      const locationBlocks = locationDaySchedule.blocks?.map((b: any) => `${b.start}-${b.end}`).join(", ") || "";
+      info.revert();
+      toast({
+        title: "Horario no disponible",
+        description: `${location.name} solo opera: ${locationBlocks} los ${dayName}`,
         variant: "destructive",
       });
       return;
@@ -551,17 +574,6 @@ export function CalendarView({
                   day: "Día",
                 }}
                 businessHours={businessHours}
-                selectConstraint={businessHours.length > 0 ? "businessHours" : undefined}
-                eventConstraint={businessHours.length > 0 ? "businessHours" : undefined}
-                selectAllow={(selectInfo) => {
-                  if (!selectedLocationId || selectedLocationId === "all") return true;
-                  return isWithinBusinessHours(selectInfo.start, selectedLocationId);
-                }}
-                eventAllow={(dropInfo, draggedEvent) => {
-                  const locationId = draggedEvent.extendedProps?.appointment?.locationId || selectedLocationId;
-                  if (!locationId || locationId === "all") return true;
-                  return isWithinBusinessHours(dropInfo.start, locationId);
-                }}
                 slotLaneClassNames={(arg) => {
                   if (!selectedLocation) return "";
 
