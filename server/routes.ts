@@ -3093,32 +3093,46 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
 
     try {
-      const { locationIds, ...serviceData } = req.body;
+      const { name, description, duration, price, locationIds } = req.body;
 
-      if (!locationIds || locationIds.length === 0) {
-        return res.status(400).json({ error: "At least one location is required" });
+      // Validaciones básicas
+      if (!name || !duration || !locationIds || locationIds.length === 0) {
+        return res.status(400).json({
+          error: "Nombre, duración y al menos una ubicación son requeridos",
+        });
       }
-      
+
+      // CRÍTICO: Price es OPCIONAL - usar 0 como default si no viene
+      const servicePrice = price && price !== "" ? parseFloat(price) : 0;
+
       const [service] = await db
         .insert(schema.services)
         .values({
-          ...serviceData,
+          id: generateId(),
           tenantId: req.user.tenantId,
+          name,
+          description: description || null,
+          duration: parseInt(duration),
+          price: servicePrice, // Puede ser 0
         })
         .returning();
 
-      // Insert service-location relations
-      await db.insert(schema.serviceLocations).values(
-        locationIds.map((locationId: string) => ({
-          serviceId: service.id,
-          locationId,
-          tenantId: req.user.tenantId,
-        }))
+      // Crear relaciones con ubicaciones
+      await Promise.all(
+        locationIds.map((locationId: string) =>
+          db.insert(schema.serviceLocations).values({
+            id: generateId(),
+            serviceId: service.id,
+            locationId,
+          })
+        )
       );
 
-      res.status(201).json(service);
+      console.log("🛎️ Service created:", service.id);
+      res.json(service);
     } catch (error: any) {
-      res.status(400).json({ error: error.message });
+      console.error("❌ Error creating service:", error);
+      res.status(500).json({ error: error.message });
     }
   });
 
