@@ -3229,16 +3229,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
       throw new Error("Staff member does not work on this day at this location");
     }
 
+    // Verificar que la cita esté dentro de ALGUNO de los bloques del staff
     const staffWorksInTimeRange = staffDaySchedule.blocks?.some((block: any) => {
       const [startH, startM] = block.start.split(":").map(Number);
       const [endH, endM] = block.end.split(":").map(Number);
       const blockStart = startH * 60 + startM;
       const blockEnd = endH * 60 + endM;
+      
+      // La cita debe estar COMPLETAMENTE dentro del bloque del staff
       return startMinutes >= blockStart && endMinutes <= blockEnd;
     });
 
     if (!staffWorksInTimeRange) {
-      throw new Error("Staff member is not available at this time");
+      throw new Error("Staff member is not available at this time. Check their schedule.");
     }
 
     return true;
