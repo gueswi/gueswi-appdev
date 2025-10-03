@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useMutation } from "@tanstack/react-query";
@@ -49,7 +50,6 @@ const formSchema = z.object({
   customerEmail: z.string().nullable().optional(),
   customerPhone: z.string().min(1, "Teléfono requerido"),
   startTime: z.union([z.date(), z.string()]),
-  endTime: z.union([z.date(), z.string()]),
   status: z.string().nullable().optional(),
   notes: z.string().nullable().optional(),
 });
@@ -72,9 +72,15 @@ export function AppointmentDialog({
     resolver: zodResolver(formSchema),
     defaultValues: appointment
       ? {
-          ...appointment,
+          serviceId: appointment.serviceId,
+          staffId: appointment.staffId,
+          locationId: appointment.locationId,
+          customerName: appointment.customerName,
+          customerEmail: appointment.customerEmail,
+          customerPhone: appointment.customerPhone,
           startTime: new Date(appointment.startTime),
-          endTime: new Date(appointment.endTime),
+          status: appointment.status,
+          notes: appointment.notes,
         }
       : {
           serviceId: "",
@@ -84,7 +90,6 @@ export function AppointmentDialog({
           customerEmail: "",
           customerPhone: "",
           startTime: prefilledDate?.start || new Date(),
-          endTime: prefilledDate?.end || new Date(Date.now() + 60 * 60 * 1000),
           status: "pending",
           notes: "",
         },
@@ -92,10 +97,21 @@ export function AppointmentDialog({
 
   const createMutation = useMutation({
     mutationFn: async (data: FormData) => {
+      // Get selected service to calculate duration
+      const service = services.find((s) => s.id === data.serviceId);
+      if (!service) {
+        throw new Error("Servicio no encontrado");
+      }
+
+      // Calculate endTime automatically
+      const startTime = new Date(data.startTime);
+      const endTime = new Date(startTime);
+      endTime.setMinutes(endTime.getMinutes() + service.duration);
+
       const payload = {
         ...data,
-        startTime: new Date(data.startTime).toISOString(),
-        endTime: new Date(data.endTime).toISOString(),
+        startTime: startTime.toISOString(),
+        endTime: endTime.toISOString(),
         timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
       };
       return await apiRequest("POST", "/api/appointments", payload);
@@ -109,10 +125,10 @@ export function AppointmentDialog({
       onOpenChange(false);
       form.reset();
     },
-    onError: () => {
+    onError: (error: any) => {
       toast({
         title: "Error",
-        description: "No se pudo crear la cita",
+        description: error.message || "No se pudo crear la cita",
         variant: "destructive",
       });
     },
@@ -120,10 +136,21 @@ export function AppointmentDialog({
 
   const updateMutation = useMutation({
     mutationFn: async (data: FormData) => {
+      // Get selected service to calculate duration
+      const service = services.find((s) => s.id === data.serviceId);
+      if (!service) {
+        throw new Error("Servicio no encontrado");
+      }
+
+      // Calculate endTime automatically
+      const startTime = new Date(data.startTime);
+      const endTime = new Date(startTime);
+      endTime.setMinutes(endTime.getMinutes() + service.duration);
+
       const payload = {
         ...data,
-        startTime: new Date(data.startTime).toISOString(),
-        endTime: new Date(data.endTime).toISOString(),
+        startTime: startTime.toISOString(),
+        endTime: endTime.toISOString(),
         timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
       };
       return await apiRequest("PATCH", `/api/appointments/${appointment!.id}`, payload);
@@ -136,31 +163,84 @@ export function AppointmentDialog({
       });
       onOpenChange(false);
     },
-    onError: () => {
+    onError: (error: any) => {
       toast({
         title: "Error",
-        description: "No se pudo actualizar la cita",
+        description: error.message || "No se pudo actualizar la cita",
         variant: "destructive",
       });
     },
   });
 
+  // Reset form when appointment changes or dialog opens
+  useEffect(() => {
+    if (open) {
+      if (appointment) {
+        // Editing existing appointment
+        form.reset({
+          serviceId: appointment.serviceId,
+          staffId: appointment.staffId,
+          locationId: appointment.locationId,
+          customerName: appointment.customerName,
+          customerEmail: appointment.customerEmail,
+          customerPhone: appointment.customerPhone,
+          startTime: new Date(appointment.startTime),
+          status: appointment.status,
+          notes: appointment.notes,
+        });
+      } else {
+        // Creating new appointment
+        form.reset({
+          serviceId: "",
+          staffId: "",
+          locationId: locations[0]?.id || "",
+          customerName: "",
+          customerEmail: "",
+          customerPhone: "",
+          startTime: prefilledDate?.start || new Date(),
+          status: "pending",
+          notes: "",
+        });
+      }
+    }
+  }, [open, appointment, form, locations, prefilledDate]);
+
   const onSubmit = (data: FormData) => {
+    const startTime = new Date(data.startTime);
+    const now = new Date();
+    
+    // Only validate past dates for new appointments or when moving an existing appointment to the past
+    if (!isEditing) {
+      // Creating new appointment - block past dates
+      if (startTime < now) {
+        toast({
+          title: "Error: fecha en el pasado",
+          description: "No puedes crear citas en fechas pasadas",
+          variant: "destructive",
+        });
+        return;
+      }
+    } else {
+      // Editing existing appointment - only block if moving to a different past date
+      const originalStartTime = appointment ? new Date(appointment.startTime) : null;
+      const isMovingToThePast = originalStartTime && 
+                                startTime.getTime() !== originalStartTime.getTime() && 
+                                startTime < now;
+      
+      if (isMovingToThePast) {
+        toast({
+          title: "Operación no permitida",
+          description: "No puedes mover citas al pasado",
+          variant: "destructive",
+        });
+        return;
+      }
+    }
+
     if (isEditing) {
       updateMutation.mutate(data);
     } else {
       createMutation.mutate(data);
-    }
-  };
-
-  // Auto-calculate end time when service changes
-  const handleServiceChange = (serviceId: string) => {
-    const service = services.find((s) => s.id === serviceId);
-    if (service && service.duration) {
-      const startTime = form.getValues("startTime");
-      const start = new Date(startTime);
-      const end = new Date(start.getTime() + service.duration * 60 * 1000);
-      form.setValue("endTime", end);
     }
   };
 
@@ -188,10 +268,7 @@ export function AppointmentDialog({
                 <FormItem>
                   <FormLabel>Servicio *</FormLabel>
                   <Select
-                    onValueChange={(value) => {
-                      field.onChange(value);
-                      handleServiceChange(value);
-                    }}
+                    onValueChange={field.onChange}
                     value={field.value}
                   >
                     <FormControl>
@@ -325,55 +402,59 @@ export function AppointmentDialog({
               )}
             />
 
-            <div className="grid grid-cols-2 gap-4">
-              {/* Start Time */}
-              <FormField
-                control={form.control}
-                name="startTime"
-                render={({ field }) => {
-                  const dateValue = field.value instanceof Date ? field.value : new Date(field.value);
-                  const isValidDate = !isNaN(dateValue.getTime());
-                  return (
-                    <FormItem>
-                      <FormLabel>Fecha y Hora de Inicio *</FormLabel>
-                      <FormControl>
-                        <Input
-                          type="datetime-local"
-                          value={isValidDate ? dateValue.toISOString().slice(0, 16) : ""}
-                          onChange={(e) => field.onChange(new Date(e.target.value))}
-                          data-testid="input-start-time"
-                        />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  );
-                }}
-              />
+            {/* Start Time */}
+            <FormField
+              control={form.control}
+              name="startTime"
+              render={({ field }) => {
+                // Function to format date without timezone conversion
+                const formatDateTimeLocal = (value: Date | string) => {
+                  if (!value) return "";
+                  const date = value instanceof Date ? value : new Date(value);
+                  if (isNaN(date.getTime())) return "";
+                  
+                  // Get components in local timezone
+                  const year = date.getFullYear();
+                  const month = String(date.getMonth() + 1).padStart(2, '0');
+                  const day = String(date.getDate()).padStart(2, '0');
+                  const hours = String(date.getHours()).padStart(2, '0');
+                  const minutes = String(date.getMinutes()).padStart(2, '0');
+                  
+                  // Format for datetime-local input: "2025-10-14T14:00"
+                  return `${year}-${month}-${day}T${hours}:${minutes}`;
+                };
 
-              {/* End Time */}
-              <FormField
-                control={form.control}
-                name="endTime"
-                render={({ field }) => {
-                  const dateValue = field.value instanceof Date ? field.value : new Date(field.value);
-                  const isValidDate = !isNaN(dateValue.getTime());
-                  return (
-                    <FormItem>
-                      <FormLabel>Fecha y Hora de Fin *</FormLabel>
-                      <FormControl>
-                        <Input
-                          type="datetime-local"
-                          value={isValidDate ? dateValue.toISOString().slice(0, 16) : ""}
-                          onChange={(e) => field.onChange(new Date(e.target.value))}
-                          data-testid="input-end-time"
-                        />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  );
-                }}
-              />
-            </div>
+                return (
+                  <FormItem>
+                    <FormLabel>Fecha y Hora de Inicio *</FormLabel>
+                    <FormControl>
+                      <Input
+                        type="datetime-local"
+                        value={formatDateTimeLocal(field.value)}
+                        onChange={(e) => field.onChange(new Date(e.target.value))}
+                        data-testid="input-start-time"
+                      />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                );
+              }}
+            />
+
+            {/* Duration Info */}
+            {form.watch("serviceId") && (() => {
+              const selectedService = services.find((s) => s.id === form.watch("serviceId"));
+              return selectedService ? (
+                <div className="bg-blue-50 dark:bg-blue-950 border border-blue-200 dark:border-blue-800 rounded-lg p-3">
+                  <p className="text-sm text-blue-700 dark:text-blue-300">
+                    <strong>Duración:</strong> {selectedService.duration} minutos
+                  </p>
+                  <p className="text-xs text-blue-600 dark:text-blue-400 mt-1">
+                    La hora de finalización se calculará automáticamente
+                  </p>
+                </div>
+              ) : null;
+            })()}
 
             {/* Status */}
             {isEditing && (

@@ -1,0 +1,1226 @@
+# CORRECCIONES Y MEJORAS AL MÓDULO DE CALENDARIO - GUESWI
+
+## ⚠️ CONTEXTO
+El módulo de Calendario ya está implementado pero necesita estas correcciones críticas y mejoras de UX/lógica de negocio.
+
+---
+
+## 🐛 PARTE 1: CORRECCIONES DE BUGS
+
+### BUG #1: Drag & Drop con efecto de "rebote"
+
+**Problema:** Al arrastrar una cita en el calendario, visualmente vuelve a su posición original antes de moverse a la nueva posición.
+
+**Solución:** Usar optimistic updates en React Query.
+
+En `client/src/components/bookings/calendar-view.tsx`, modifica la mutación:
+```typescript
+const updateAppointmentMutation = useMutation({
+  mutationFn: async ({ id, data }: any) => {
+    const res = await fetch(`/api/calendar/appointments/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
+      body: JSON.stringify(data),
+    });
+    if (!res.ok) throw new Error("Failed to update appointment");
+    return res.json();
+  },
+  onMutate: async ({ id, data }) => {
+    // Cancelar refetch automático
+    await queryClient.cancelQueries({ queryKey: ["/api/calendar/appointments"] });
+
+    // Snapshot del estado anterior
+    const previousAppointments = queryClient.getQueryData(["/api/calendar/appointments"]);
+
+    // Actualizar optimísticamente
+    queryClient.setQueryData(["/api/calendar/appointments"], (old: any) =>
+      old?.map((apt: any) =>
+        apt.id === id ? { ...apt, ...data, updatedAt: new Date() } : apt
+      )
+    );
+
+    return { previousAppointments };
+  },
+  onError: (err, variables, context) => {
+    // Rollback en caso de error
+    if (context?.previousAppointments) {
+      queryClient.setQueryData(["/api/calendar/appointments"], context.previousAppointments);
+    }
+    toast({ title: "Error al actualizar", variant: "destructive" });
+  },
+  onSuccess: () => {
+    toast({ title: "Cita actualizada" });
+  },
+  onSettled: () => {
+    // Refetch para sincronizar con servidor
+    queryClient.invalidateQueries({ queryKey: ["/api/calendar/appointments"] });
+  },
+});
+
+BUG #2: Eliminar campo "Fecha y Hora de Fin"
+Problema: El formulario pide hora de fin manualmente cuando debería calcularse automáticamente.
+Solución:
+
+En client/src/components/bookings/appointment-dialog.tsx, elimina el campo "Fecha y Hora de Fin" del formulario.
+Modifica la función de submit para calcular endTime automáticamente:
+
+typescriptconst handleSubmit = async (e: React.FormEvent) => {
+  e.preventDefault();
+  const formData = new FormData(e.currentTarget as HTMLFormElement);
+
+  // Obtener servicio seleccionado
+  const serviceId = formData.get("serviceId");
+  const service = services?.find((s: any) => s.id === serviceId);
+  
+  if (!service) {
+    toast({ title: "Error: servicio no encontrado", variant: "destructive" });
+    return;
+  }
+
+  // Calcular endTime automáticamente
+  const startTime = new Date(formData.get("startTime") as string);
+  const endTime = new Date(startTime);
+  endTime.setMinutes(endTime.getMinutes() + service.duration);
+
+  const appointmentData = {
+    serviceId: formData.get("serviceId"),
+    staffId: formData.get("staffId"),
+    locationId: formData.get("locationId"),
+    customerName: formData.get("customerName"),
+    customerEmail: formData.get("customerEmail"),
+    customerPhone: formData.get("customerPhone"),
+    startTime: startTime.toISOString(),
+    endTime: endTime.toISOString(),
+    timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+    notes: formData.get("notes"),
+  };
+
+  if (appointment) {
+    // Actualizar
+    await updateMutation.mutateAsync({ id: appointment.id, data: appointmentData });
+  } else {
+    // Crear
+    await createMutation.mutateAsync(appointmentData);
+  }
+
+  onOpenChange(false);
+};
+
+En el formulario, muestra la duración del servicio como información y elimina el input de fecha fin:
+
+typescript{/* Mostrar duración calculada automáticamente */}
+{selectedService && (
+  <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 mt-4">
+    <p className="text-sm text-blue-700">
+      <strong>Duración:</strong> {selectedService.duration} minutos
+    </p>
+    <p className="text-xs text-blue-600 mt-1">
+      La hora de finalización se calculará automáticamente
+    </p>
+  </div>
+)}
+
+BUG #3: Timezone -2 horas en el input
+Problema: Al seleccionar 14:00, se muestra 12:00 por conversión UTC.
+Solución: Usar formato correcto para datetime-local input sin conversión UTC.
+En client/src/components/bookings/appointment-dialog.tsx:
+typescriptimport { format } from "date-fns";
+
+// Función para formatear fecha sin conversión timezone
+const formatDateTimeLocal = (isoDate: string) => {
+  if (!isoDate) return "";
+  const date = new Date(isoDate);
+  
+  // Obtener componentes en zona horaria local
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  const hours = String(date.getHours()).padStart(2, '0');
+  const minutes = String(date.getMinutes()).padStart(2, '0');
+  
+  // Formato para datetime-local input: "2025-10-14T14:00"
+  return `${year}-${month}-${day}T${hours}:${minutes}`;
+};
+
+// En el input:
+<div>
+  <label className="block text-sm font-medium mb-2">
+    Fecha y Hora de Inicio *
+  </label>
+  <input
+    type="datetime-local"
+    name="startTime"
+    defaultValue={appointment ? formatDateTimeLocal(appointment.startTime) : ""}
+    required
+    className="w-full px-4 py-2 border rounded-lg"
+  />
+</div>
+
+BUG #4: Validar citas en el pasado
+Solución: Agregar validaciones en frontend y backend.
+Frontend (appointment-dialog.tsx):
+typescript// En el handleSubmit, agregar validación:
+const startTime = new Date(formData.get("startTime") as string);
+const now = new Date();
+
+if (startTime < now) {
+  toast({
+    title: "Error: fecha en el pasado",
+    description: "No puedes crear citas en fechas pasadas",
+    variant: "destructive",
+  });
+  return;
+}
+Frontend (calendar-view.tsx) - Prevenir drag al pasado:
+typescriptconst handleEventDrop = (info: any) => {
+  const newStart = info.event.start;
+  const now = new Date();
+
+  if (newStart < now) {
+    info.revert(); // Revertir drag
+    toast({
+      title: "Operación no permitida",
+      description: "No puedes mover citas al pasado",
+      variant: "destructive",
+    });
+    return;
+  }
+
+  updateAppointmentMutation.mutate({
+    id: info.event.id,
+    data: {
+      startTime: info.event.start.toISOString(),
+      endTime: info.event.end.toISOString(),
+    },
+  });
+};
+
+// También prevenir dateClick en el pasado:
+const handleDateClick = (info: any) => {
+  if (info.date < new Date()) {
+    toast({
+      title: "Fecha no disponible",
+      description: "No puedes crear citas en el pasado",
+      variant: "destructive",
+    });
+    return;
+  }
+  
+  setSelectedDate(info.date);
+  setSelectedAppointment(null);
+  setDialogOpen(true);
+};
+Backend (server/routes.ts) - en POST y PATCH de appointments:
+typescript// Agregar validación al crear:
+app.post("/api/calendar/appointments", async (req, res) => {
+  // ... código existente ...
+  
+  const { startTime } = req.body;
+  
+  if (new Date(startTime) < new Date()) {
+    return res.status(400).json({ error: "Cannot create appointments in the past" });
+  }
+  
+  // ... resto del código ...
+});
+
+// También en PATCH:
+app.patch("/api/calendar/appointments/:id", async (req, res) => {
+  // ... código existente ...
+  
+  if (req.body.startTime && new Date(req.body.startTime) < new Date()) {
+    return res.status(400).json({ error: "Cannot move appointments to the past" });
+  }
+  
+  // ... resto del código ...
+});
+
+BUG #5: Modal "Editar Cita" muestra campos vacíos
+Problema: El modal no mapea correctamente los datos de FullCalendar.
+Solución: En calendar-view.tsx, corrige el handleEventClick:
+typescriptconst handleEventClick = (info: any) => {
+  // FullCalendar guarda data en extendedProps
+  const appointmentData = {
+    id: info.event.id,
+    ...info.event.extendedProps, // Aquí está toda la data del appointment
+    startTime: info.event.start.toISOString(),
+    endTime: info.event.end.toISOString(),
+  };
+  
+  console.log("📅 Opening appointment:", appointmentData); // Debug
+  
+  setSelectedAppointment(appointmentData);
+  setDialogOpen(true);
+};
+Y en appointment-dialog.tsx, asegúrate de usar los datos correctamente:
+typescript// Al inicio del componente, extraer los datos:
+const [selectedService, setSelectedService] = useState(
+  appointment?.service?.id || appointment?.serviceId || ""
+);
+const [selectedStaff, setSelectedStaff] = useState(
+  appointment?.staff?.id || appointment?.staffId || ""
+);
+const [selectedLocation, setSelectedLocation] = useState(
+  appointment?.location?.id || appointment?.locationId || ""
+);
+
+// En los Select components:
+<Select
+  value={selectedService}
+  onValueChange={setSelectedService}
+>
+  <SelectTrigger>
+    <SelectValue placeholder="Seleccionar servicio" />
+  </SelectTrigger>
+  <SelectContent>
+    {services?.map((service: any) => (
+      <SelectItem key={service.id} value={service.id}>
+        {service.name} ({service.duration} min)
+      </SelectItem>
+    ))}
+  </SelectContent>
+</Select>
+
+<input
+  name="customerName"
+  defaultValue={appointment?.customerName || ""}
+  placeholder="Juan Pérez"
+  required
+  className="w-full px-4 py-2 border rounded-lg"
+/>
+
+<input
+  name="customerPhone"
+  type="tel"
+  defaultValue={appointment?.customerPhone || ""}
+  placeholder="+58 424 1234567"
+  required
+  className="w-full px-4 py-2 border rounded-lg"
+/>
+
+<input
+  name="customerEmail"
+  type="email"
+  defaultValue={appointment?.customerEmail || ""}
+  placeholder="juan@ejemplo.com"
+  className="w-full px-4 py-2 border rounded-lg"
+/>
+
+<textarea
+  name="notes"
+  defaultValue={appointment?.notes || ""}
+  placeholder="Notas adicionales sobre la cita..."
+  rows={3}
+  className="w-full px-4 py-2 border rounded-lg"
+/>
+
+BUG #6: Botón Settings (engranaje) no funciona
+Solución: Agregar funcionalidad completa al botón en bookings.tsx:
+typescriptimport { useState } from "react";
+import { Settings } from "lucide-react";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+
+export default function BookingsPage() {
+  const [showSettings, setShowSettings] = useState(false);
+  
+  // ... resto del código ...
+
+  return (
+    <div className="p-6 space-y-6">
+      {/* Header */}
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-3xl font-bold flex items-center gap-2">
+            <Calendar className="h-8 w-8" />
+            Calendario y Reservas
+          </h1>
+          <p className="text-muted-foreground mt-1">
+            Gestiona tus servicios, personal y citas
+          </p>
+        </div>
+        
+        <Button
+          onClick={() => setShowSettings(true)}
+          variant="outline"
+        >
+          <Settings className="h-4 w-4 mr-2" />
+          Configuración
+        </Button>
+      </div>
+
+      {/* ... resto del contenido ... */}
+
+      {/* Dialog de configuración */}
+      <Dialog open={showSettings} onOpenChange={setShowSettings}>
+        <DialogContent className="max-w-3xl max-h-[80vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Configuración de Calendario</DialogTitle>
+            <DialogDescription>
+              Configura notificaciones, recordatorios y preferencias generales
+            </DialogDescription>
+          </DialogHeader>
+          
+          <Tabs defaultValue="notifications" className="mt-4">
+            <TabsList className="grid w-full grid-cols-3">
+              <TabsTrigger value="notifications">Notificaciones</TabsTrigger>
+              <TabsTrigger value="reminders">Recordatorios</TabsTrigger>
+              <TabsTrigger value="general">General</TabsTrigger>
+            </TabsList>
+            
+            <TabsContent value="notifications" className="space-y-4">
+              <Card className="p-4">
+                <h3 className="font-semibold mb-4">Templates de Notificación</h3>
+                <p className="text-sm text-muted-foreground mb-4">
+                  Personaliza los mensajes que se envían automáticamente a tus clientes
+                </p>
+                
+                {/* Lista de templates */}
+                <div className="space-y-3">
+                  {["confirmation", "reminder_24h", "reminder_1h", "followup", "cancellation"].map((type) => (
+                    <div key={type} className="border rounded-lg p-3">
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="font-medium capitalize">
+                          {type.replace("_", " ")}
+                        </span>
+                        <Button size="sm" variant="outline">
+                          Editar
+                        </Button>
+                      </div>
+                      <p className="text-xs text-muted-foreground">
+                        Canales: Email, SMS, WhatsApp
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              </Card>
+            </TabsContent>
+            
+            <TabsContent value="reminders" className="space-y-4">
+              <Card className="p-4">
+                <h3 className="font-semibold mb-4">Recordatorios Automáticos</h3>
+                
+                <div className="space-y-4">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="font-medium">Recordatorio 24 horas antes</p>
+                      <p className="text-sm text-muted-foreground">
+                        Se envía 24 horas antes de la cita
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Select defaultValue="email">
+                        <SelectTrigger className="w-32">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="email">Email</SelectItem>
+                          <SelectItem value="sms">SMS</SelectItem>
+                          <SelectItem value="whatsapp">WhatsApp</SelectItem>
+                          <SelectItem value="all">Todos</SelectItem>
+                        </SelectContent>
+                      </Select>
+                      <Switch defaultChecked />
+                    </div>
+                  </div>
+
+                  <Separator />
+
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="font-medium">Recordatorio 1 hora antes</p>
+                      <p className="text-sm text-muted-foreground">
+                        Se envía 1 hora antes de la cita
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Select defaultValue="sms">
+                        <SelectTrigger className="w-32">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="email">Email</SelectItem>
+                          <SelectItem value="sms">SMS</SelectItem>
+                          <SelectItem value="whatsapp">WhatsApp</SelectItem>
+                          <SelectItem value="all">Todos</SelectItem>
+                        </SelectContent>
+                      </Select>
+                      <Switch defaultChecked />
+                    </div>
+                  </div>
+
+                  <Separator />
+
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="font-medium">Seguimiento post-servicio</p>
+                      <p className="text-sm text-muted-foreground">
+                        Se envía después de completar la cita
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Select defaultValue="email">
+                        <SelectTrigger className="w-32">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="email">Email</SelectItem>
+                          <SelectItem value="sms">SMS</SelectItem>
+                          <SelectItem value="whatsapp">WhatsApp</SelectItem>
+                        </SelectContent>
+                      </Select>
+                      <Switch />
+                    </div>
+                  </div>
+                </div>
+              </Card>
+            </TabsContent>
+            
+            <TabsContent value="general" className="space-y-4">
+              <Card className="p-4">
+                <h3 className="font-semibold mb-4">Preferencias Generales</h3>
+                
+                <div className="space-y-4">
+                  <div>
+                    <label className="block text-sm font-medium mb-2">
+                      Zona Horaria por Defecto
+                    </label>
+                    <Select defaultValue="America/Caracas">
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="America/Caracas">Caracas (VET)</SelectItem>
+                        <SelectItem value="America/New_York">New York (EST)</SelectItem>
+                        <SelectItem value="America/Los_Angeles">Los Angeles (PST)</SelectItem>
+                        <SelectItem value="Europe/Madrid">Madrid (CET)</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium mb-2">
+                      Formato de Fecha
+                    </label>
+                    <Select defaultValue="dd/MM/yyyy">
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="dd/MM/yyyy">DD/MM/YYYY</SelectItem>
+                        <SelectItem value="MM/dd/yyyy">MM/DD/YYYY</SelectItem>
+                        <SelectItem value="yyyy-MM-dd">YYYY-MM-DD</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium mb-2">
+                      Formato de Hora
+                    </label>
+                    <Select defaultValue="24h">
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="12h">12 horas (AM/PM)</SelectItem>
+                        <SelectItem value="24h">24 horas</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  <Separator />
+
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="font-medium">Confirmación automática</p>
+                      <p className="text-sm text-muted-foreground">
+                        Las citas se confirman automáticamente al crearlas
+                      </p>
+                    </div>
+                    <Switch defaultChecked />
+                  </div>
+
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="font-medium">Permitir reservas el mismo día</p>
+                      <p className="text-sm text-muted-foreground">
+                        Los clientes pueden reservar para el día actual
+                      </p>
+                    </div>
+                    <Switch defaultChecked />
+                  </div>
+                </div>
+              </Card>
+            </TabsContent>
+          </Tabs>
+
+          <DialogFooter className="mt-6">
+            <Button variant="outline" onClick={() => setShowSettings(false)}>
+              Cancelar
+            </Button>
+            <Button onClick={() => {
+              toast({ title: "Configuración guardada" });
+              setShowSettings(false);
+            }}>
+              Guardar Cambios
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
+
+🎯 PARTE 2: MEJORAS DE LÓGICA DE NEGOCIO
+MEJORA #1: Sistema de horarios con bloques múltiples y validación
+Modificar el schema (shared/schema.ts):
+typescript// Actualizar availabilityRules para soportar múltiples bloques por día:
+export const availabilityRules = pgTable("availability_rules", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  staffId: uuid("staff_id").notNull().references(() => staffMembers.id, { onDelete: "cascade" }),
+  locationId: uuid("location_id").references(() => locations.id),
+  dayOfWeek: integer("day_of_week").notNull(), // 0=domingo, 6=sábado
+  timeBlocks: jsonb("time_blocks").notNull(), 
+  // Formato: [{ start: "09:00", end: "14:00" }, { start: "16:00", end: "22:00" }]
+  serviceId: uuid("service_id").references(() => services.id),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+// Actualizar locations para horarios de operación:
+export const locations = pgTable("locations", {
+  // ... campos existentes ...
+  
+  operatingHours: jsonb("operating_hours"),
+  // Formato: { 
+  //   "0": { enabled: false }, // domingo cerrado
+  //   "1": { enabled: true, blocks: [{ start: "09:00", end: "13:00" }, { start: "16:00", end: "22:00" }] },
+  //   ...
+  // }
+});
+Crear componente reutilizable TimeBlocksEditor.tsx:
+typescript// client/src/components/bookings/time-blocks-editor.tsx
+
+import { useState } from "react";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Card } from "@/components/ui/card";
+import { Plus, Trash2 } from "lucide-react";
+import { useToast } from "@/hooks/use-toast";
+
+interface TimeBlock {
+  start: string;
+  end: string;
+}
+
+interface DaySchedule {
+  enabled: boolean;
+  blocks: TimeBlock[];
+}
+
+interface TimeBlocksEditorProps {
+  value: Record<number, DaySchedule>; // 0-6 para días de semana
+  onChange: (value: Record<number, DaySchedule>) => void;
+  title?: string;
+}
+
+const DAYS = ["Domingo", "Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado"];
+
+export default function TimeBlocksEditor({ value, onChange, title }: TimeBlocksEditorProps) {
+  const { toast } = useToast();
+
+  const handleDayToggle = (dayIndex: number) => {
+    const newValue = { ...value };
+    newValue[dayIndex] = {
+      enabled: !newValue[dayIndex]?.enabled,
+      blocks: newValue[dayIndex]?.blocks || [{ start: "09:00", end: "17:00" }],
+    };
+    onChange(newValue);
+  };
+
+  const handleAddBlock = (dayIndex: number) => {
+    const currentBlocks = value[dayIndex]?.blocks || [];
+    
+    // Validar: el nuevo bloque debe empezar después del último
+    let newStartTime = "09:00";
+    if (currentBlocks.length > 0) {
+      const lastBlock = currentBlocks[currentBlocks.length - 1];
+      const [hours, minutes] = lastBlock.end.split(':').map(Number);
+      
+      // Agregar 1 minuto al final del último bloque
+      let newMinutes = minutes + 1;
+      let newHours = hours;
+      if (newMinutes >= 60) {
+        newHours += 1;
+        newMinutes = 0;
+      }
+      
+      if (newHours >= 24) {
+        toast({
+          title: "No se puede agregar más bloques",
+          description: "Ya no hay horario disponible en el día",
+          variant: "destructive",
+        });
+        return;
+      }
+      
+      newStartTime = `${String(newHours).padStart(2, '0')}:${String(newMinutes).padStart(2, '0')}`;
+    }
+
+    const newValue = { ...value };
+    newValue[dayIndex] = {
+      enabled: true,
+      blocks: [
+        ...currentBlocks,
+        { start: newStartTime, end: "18:00" },
+      ],
+    };
+    onChange(newValue);
+  };
+
+  const handleRemoveBlock = (dayIndex: number, blockIndex: number) => {
+    const newValue = { ...value };
+    newValue[dayIndex].blocks = newValue[dayIndex].blocks.filter((_, i) => i !== blockIndex);
+    
+    // Si no quedan bloques, deshabilitar el día
+    if (newValue[dayIndex].blocks.length === 0) {
+      newValue[dayIndex].enabled = false;
+    }
+    
+    onChange(newValue);
+  };
+
+  const handleBlockChange = (dayIndex: number, blockIndex: number, field: 'start' | 'end', newValue: string) => {
+    const updated = { ...value };
+    const blocks = [...updated[dayIndex].blocks];
+    blocks[blockIndex][field] = newValue;
+
+    // Validar que start < end
+    if (field === 'start' || field === 'end') {
+      const block = blocks[blockIndex];
+      if (block.start >= block.end) {
+        toast({
+          title: "Horario inválido",
+          description: "La hora de inicio debe ser menor que la hora de fin",
+          variant: "destructive",
+        });
+        return;
+      }
+    }
+
+    // Validar que no se solape con bloques anteriores
+    if (blockIndex > 0) {
+      const prevBlock = blocks[blockIndex - 1];
+      if (blocks[blockIndex].start <= prevBlock.end) {
+        toast({
+          title: "Horario inválido",
+          description: "Los bloques no pueden solaparse. El inicio debe ser después del fin del bloque anterior.",
+          variant: "destructive",
+        });
+        return;
+      }
+    }
+
+    // Validar que no se solape con bloques posteriores
+    if (blockIndex < blocks.length - 1) {
+      const nextBlock = blocks[blockIndex + 1];
+      if (blocks[blockIndex].end >= nextBlock.start) {
+        toast({
+          title: "Horario inválido",
+          description: "Los bloques no pueden solaparse. El fin debe ser antes del inicio del siguiente bloque.",
+          variant: "destructive",
+        });
+        return;
+      }
+    }
+
+    updated[dayIndex].blocks = blocks;
+    onChange(updated);
+  };
+
+  return (
+    <Card className="p-4">
+      {title && <h3 className="font-semibold mb-4">{title}</h3>}
+      
+      <div className="space-y-3">
+        {DAYS.map((dayName, dayIndex) => (
+          <div key={dayIndex} className="border rounded-lg p-3">
+            <div className="flex items-center gap-3 mb-2">
+              <Checkbox
+                checked={value[dayIndex]?.enabled || false}
+                onCheckedChange={() => handleDayToggle(dayIndex)}
+              />
+              <span className="font-medium w-24">{dayName}</span>
+              
+              {value[dayIndex]?.enabled && (
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  onClick={() => handleAddBlock(dayIndex)}
+                >
+                  <Plus className="h-3 w-3 mr-1" />
+                  Agregar turno
+                </Button>
+              )}
+            </div>
+
+            {value[dayIndex]?.enabled && (
+              <div className="ml-8 space-y-2">
+                {value[dayIndex].blocks.map((block, blockIndex) => (
+                  <div key={blockIndex} className="flex items-center gap-2">
+                    <Input
+                      type="time"
+                      value={block.start}
+                      onChange={(e) => handleBlockChange(dayIndex, blockIndex, 'start', e.target.value)}
+                      className="w-32"
+                    />
+                    <span className="text-muted-foreground">a</span>
+                    <Input
+                      type="time"
+                      value={block.end}
+                      onChange={(e) => handleBlockChange(dayIndex, blockIndex, 'end', e.target.value)}
+                      className="w-32"
+                    />
+                    
+                    {value[dayIndex].blocks.length > 1 && (
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => handleRemoveBlock(dayIndex, blockIndex)}
+                      >
+                        <Trash2 className="h-4 w-4 text-red-500" />
+                      </Button>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+    </Card>
+  );
+}
+Usar TimeBlocksEditor en LocationsManager:
+typescript// client/src/components/bookings/locations-manager.tsx
+
+import TimeBlocksEditor from "./time-blocks-editor";
+
+// En el formulario de crear/editar location:
+const [operatingHours, setOperatingHours] = useState<Record<number, DaySchedule>>({
+  0: { enabled: false, blocks: [] },
+  1: { enabled: true, blocks: [{ start: "09:00", end: "13:00" }, { start: "16:00", end: "22:00" }] },
+  2: { enabled: true, blocks: [{ start: "09:00", end: "13:00" }, { start: "16:00", end: "22:00" }] },
+  3: { enabled: true, blocks: [{ start: "09:00", end: "13:00" }, { start: "16:00", end: "22:00" }] },
+  4: { enabled: true, blocks: [{ start: "10:00", end: "20:00" }] },
+  5: { enabled: true, blocks: [{ start: "10:00", end: "20:00" }] },
+  6: { enabled: true, blocks: [{ start: "11:00", end: "22:00" }] },
+});
+
+<TimeBlocksEditor
+  title="Horario de Operación"
+  value={operatingHours}
+  onChange={setOperatingHours}
+/>
+Usar TimeBlocksEditor en StaffManager con múltiples ubicaciones:
+typescript// client/src/components/bookings/staff-manager.tsx
+
+import TimeBlocksEditor from "./time-blocks-editor";
+
+// En el formulario de crear/editar staff:
+const [selectedLocations, setSelectedLocations] = useState<string[]>([]);
+const [schedulesByLocation, setSchedulesByLocation] = useState<Record<string, Record<number, DaySchedule>>>({});
+
+<div className="space-y-4">
+  <div>
+    <label className="block text-sm font-medium mb-2">
+      Ubicaciones donde trabaja *
+    </label>
+    <MultiSelect
+      options={locations}
+      selected={selectedLocations}
+      onChange={(locs) => {
+        setSelectedLocations(locs);
+        
+        // Inicializar horarios para nuevas ubicaciones
+        const newSchedules = { ...schedulesByLocation };
+        locs.forEach(locId => {
+          if (!newSchedules[locId]) {
+            newSchedules[locId] = {
+              1: { enabled: true, blocks: [{ start: "09:00", end: "17:00" }] },
+              // ... resto de días deshabilitados por defecto
+            };
+          }
+        });
+        setSchedulesByLocation(newSchedules);
+      }}
+    />
+  </div>
+
+  {/* Horarios por ubicación */}
+  {selectedLocations.map(locId => {
+    const location = locations?.find(l => l.id === locId);
+    return (
+      <TimeBlocksEditor
+        key={locId}
+        title={`Horario en: ${location?.name}`}
+        value={schedulesByLocation[locId] || {}}
+        onChange={(schedule) => {
+          setSchedulesByLocation({
+            ...schedulesByLocation,
+            [locId]: schedule,
+          });
+        }}
+      />
+    );
+  })}
+</div>
+
+MEJORA #2: Validación estricta de horarios por centro
+Actualizar endpoint de disponibilidad en server/routes.ts:
+typescriptapp.get("/api/calendar/available-slots", async (req, res) => {
+  // ... código existente ...
+
+  // Obtener reglas de disponibilidad FILTRANDO por locationId
+  const rules = await db.query.availabilityRules.findMany({
+    where: and(
+      eq(schema.availabilityRules.staffId, staff.id),
+      eq(schema.availabilityRules.locationId, locationId as string), // CRÍTICO
+      eq(schema.availabilityRules.dayOfWeek, dayOfWeek)
+    ),
+  });
+
+  if (rules.length === 0) {
+    continue; // Este staff no trabaja en esta ubicación este día
+  }
+
+  // Procesar timeBlocks en lugar de start/end único:
+  for (const rule of rules) {
+    const timeBlocks = rule.timeBlocks as Array<{ start: string; end: string }>;
+    
+    for (const block of timeBlocks) {
+      const [startHour, startMin] = block.start.split(':').map(Number);
+      const [endHour, endMin] = block.end.split(':').map(Number);
+
+      let currentTime = startHour * 60 + startMin;
+      const endTime = endHour * 60 + endMin;
+
+      while (currentTime + service.duration <= endTime) {
+        // ... generar slots ...
+      }
+    }
+  }
+  
+  // ... resto del código ...
+});
+Agregar validación al crear appointment:
+typescriptapp.post("/api/calendar/appointments", async (req, res) => {
+  // ... código existente ...
+
+  // VALIDACIÓN CRÍTICA: Verificar que el staff trabaja en esa ubicación en ese horario
+  const dayOfWeek = start.getDay();
+  const startTimeMinutes = start.getHours() * 60 + start.getMinutes();
+  const endTimeMinutes = end.getHours() * 60 + end.getMinutes();
+
+  const staffRules = await db.query.availabilityRules.findMany({
+    where: and(
+      eq(schema.availabilityRules.staffId, staffId),
+      eq(schema.availabilityRules.locationId, locationId),
+      eq(schema.availabilityRules.dayOfWeek, dayOfWeek)
+    ),
+  });
+
+  if (staffRules.length === 0) {
+    return res.status(400).json({ 
+      error: "Staff member does not work at this location on this day" 
+    });
+  }
+
+  // Verificar que el horario esté dentro de los bloques de trabajo
+  const isWithinWorkingHours = staffRules.some(rule => {
+    const timeBlocks = rule.timeBlocks as Array<{ start: string; end: string }>;
+    
+    return timeBlocks.some(block => {
+      const [blockStartH, blockStartM] = block.start.split(':').map(Number);
+      const [blockEndH, blockEndM] = block.end.split(':').map(Number);
+      
+      const blockStart = blockStartH * 60 + blockStartM;
+      const blockEnd = blockEndH * 60 + blockEndM;
+      
+      return startTimeMinutes >= blockStart && endTimeMinutes <= blockEnd;
+    });
+  });
+
+  if (!isWithinWorkingHours) {
+    return res.status(400).json({ 
+      error: "Appointment is outside staff member's working hours at this location" 
+    });
+  }
+
+  // ... continuar con creación de appointment ...
+});
+
+MEJORA #3: FullCalendar con businessHours y horarios bloqueados
+Actualizar calendar-view.tsx:
+typescript// Obtener location seleccionada
+const [selectedLocationId, setSelectedLocationId] = useState<string | null>(null);
+
+const { data: selectedLocation } = useQuery({
+  queryKey: ["/api/calendar/locations", selectedLocationId],
+  enabled: !!selectedLocationId,
+  queryFn: async () => {
+    const res = await fetch(`/api/calendar/locations/${selectedLocationId}`, {
+      credentials: "include",
+    });
+    if (!res.ok) throw new Error("Failed to fetch location");
+    return res.json();
+  },
+});
+
+// Convertir operatingHours a formato FullCalendar businessHours
+const businessHours = selectedLocation?.operatingHours
+  ? Object.entries(selectedLocation.operatingHours)
+      .filter(([_, schedule]: any) => schedule?.enabled)
+      .flatMap(([day, schedule]: any) => 
+        schedule.blocks.map((block: any) => ({
+          daysOfWeek: [parseInt(day)],
+          startTime: block.start,
+          endTime: block.end,
+        }))
+      )
+  : [];
+
+<FullCalendar
+  // ... props existentes ...
+  
+  businessHours={businessHours}
+  selectConstraint="businessHours" // Solo permite clicks en horario de operación
+  eventConstraint="businessHours" // Solo permite drag dentro del horario
+  
+  // Estilo para horario fuera de operación
+  slotLaneClassNames={(arg) => {
+    if (!selectedLocation) return "";
+    
+    const dayOfWeek = arg.date.getDay();
+    const timeMinutes = arg.date.getHours() * 60 + arg.date.getMinutes();
+    
+    const daySchedule = selectedLocation.operatingHours?.[dayOfWeek];
+    if (!daySchedule?.enabled) {
+      return "bg-red-50 opacity-40 cursor-not-allowed";
+    }
+    
+    const isWithinBusinessHours = daySchedule.blocks?.some((block: any) => {
+      const [startH, startM] = block.start.split(':').map(Number);
+      const [endH, endM] = block.end.split(':').map(Number);
+      const blockStart = startH * 60 + startM;
+      const blockEnd = endH * 60 + endM;
+      return timeMinutes >= blockStart && timeMinutes < blockEnd;
+    });
+    
+    return isWithinBusinessHours ? "" : "bg-red-50 opacity-40";
+  }}
+/>
+
+MEJORA #4: Colores por status de appointment
+En calendar-view.tsx:
+typescriptconst events = appointments?.map((apt: any) => {
+  let backgroundColor, borderColor;
+  
+  // Colores por status
+  switch (apt.status) {
+    case "pending":
+      backgroundColor = "#FEF3C7"; // amarillo claro
+      borderColor = "#F59E0B";
+      break;
+    case "confirmed":
+      backgroundColor = "#D1FAE5"; // verde claro
+      borderColor = "#10B981";
+      break;
+    case "completed":
+      backgroundColor = "#E5E7EB"; // gris
+      borderColor = "#6B7280";
+      break;
+    case "cancelled":
+      backgroundColor = "#FEE2E2"; // rojo claro
+      borderColor = "#EF4444";
+      break;
+    case "no_show":
+      backgroundColor = "#FED7AA"; // naranja claro
+      borderColor = "#F97316";
+      break;
+    default:
+      backgroundColor = apt.service?.color || "#3B82F6";
+      borderColor = apt.service?.color || "#3B82F6";
+  }
+  
+  return {
+    id: apt.id,
+    title: `${apt.customerName} - ${apt.service?.name || "Servicio"}`,
+    start: apt.startTime,
+    end: apt.endTime,
+    backgroundColor,
+    borderColor,
+    textColor: "#1F2937",
+    extendedProps: apt,
+  };
+}) || [];
+
+MEJORA #5: Búsqueda de citas
+Agregar barra de búsqueda en bookings.tsx:
+typescript<div className="flex items-center gap-4 mb-6">
+  <Input
+    placeholder="Buscar por cliente, servicio o teléfono..."
+    className="max-w-md"
+    onChange={(e) => {
+      // Implementar filtro en tiempo real
+    }}
+  />
+  
+  <Select onValueChange={(value) => {
+    // Filtrar por status
+  }}>
+    <SelectTrigger className="w-48">
+      <SelectValue placeholder="Filtrar por estado" />
+    </SelectTrigger>
+    <SelectContent>
+      <SelectItem value="all">Todos</SelectItem>
+      <SelectItem value="pending">Pendientes</SelectItem>
+      <SelectItem value="confirmed">Confirmadas</SelectItem>
+      <SelectItem value="completed">Completadas</SelectItem>
+      <SelectItem value="cancelled">Canceladas</SelectItem>
+      <SelectItem value="no_show">No-show</SelectItem>
+    </SelectContent>
+  </Select>
+</div>
+
+MEJORA #6: Vista de utilización (dashboard)
+Agregar estadísticas avanzadas en el endpoint /api/calendar/stats:
+typescriptapp.get("/api/calendar/stats", async (req, res) => {
+  if (!req.isAuthenticated() || !req.user.tenantId) {
+    return res.sendStatus(401);
+  }
+
+  try {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const tomorrow = new Date(today);
+    tomorrow.setDate(tomorrow.getDate() + 1);
+
+    // Citas de hoy
+    const todayAppointments = await db.query.appointments.findMany({
+      where: and(
+        eq(schema.appointments.tenantId, req.user.tenantId),
+        sql`DATE(${schema.appointments.startTime}) = ${today.toISOString().split('T')[0]}`
+      ),
+    });
+
+    // Servicios activos
+    const activeServices = await db.query.services.findMany({
+      where: and(
+        eq(schema.services.tenantId, req.user.tenantId),
+        eq(schema.services.isActive, true)
+      ),
+    });
+
+    // Staff activo
+    const activeStaff = await db.query.staffMembers.findMany({
+      where: and(
+        eq(schema.staffMembers.tenantId, req.user.tenantId),
+        eq(schema.staffMembers.isActive, true)
+      ),
+    });
+
+    // Locations
+    const locations = await db.query.locations.findMany({
+      where: and(
+        eq(schema.locations.tenantId, req.user.tenantId),
+        eq(schema.locations.isActive, true)
+      ),
+    });
+
+    // Calcular revenue del mes
+    const startOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
+    const appointmentsThisMonth = await db.query.appointments.findMany({
+      where: and(
+        eq(schema.appointments.tenantId, req.user.tenantId),
+        eq(schema.appointments.status, 'completed'),
+        sql`${schema.appointments.startTime} >= ${startOfMonth.toISOString()}`
+      ),
+      with: { service: true },
+    });
+
+    const totalRevenue = appointmentsThisMonth.reduce((sum, apt) => {
+      return sum + (parseFloat(apt.service?.price || "0"));
+    }, 0);
+
+    // Tasa de ocupación (últimos 7 días)
+    const last7Days = new Date(today);
+    last7Days.setDate(last7Days.getDate() - 7);
+    
+    const appointmentsLast7Days = await db.query.appointments.findMany({
+      where: and(
+        eq(schema.appointments.tenantId, req.user.tenantId),
+        not(eq(schema.appointments.status, 'cancelled')),
+        sql`${schema.appointments.startTime} >= ${last7Days.toISOString()}`
+      ),
+    });
+
+    // Total de slots posibles en 7 días (simplificado)
+    const totalPossibleSlots = activeStaff.length * 7 * 8; // 8 slots de 1h por día
+    const occupancyRate = ((appointmentsLast7Days.length / totalPossibleSlots) * 100).toFixed(1);
+
+    res.json({
+      todayAppointments: todayAppointments.length,
+      upcomingAppointments: todayAppointments.filter(apt => new Date(apt.startTime) > new Date()).length,
+      activeServices: activeServices.length,
+      totalRevenue: `$${totalRevenue.toFixed(2)}`,
+      activeStaff: activeStaff.length,
+      availableNow: activeStaff.length, // Simplificado - mejorar con lógica real
+      locations: locations.length,
+      busyLocations: locations.length,
+      occupancyRate: `${occupancyRate}%`,
+    });
+  } catch (error: any) {
+    console.error("❌ Error fetching stats:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+✅ CHECKLIST DE IMPLEMENTACIÓN
+Implementa en este orden:
+
+✅ BUG #1: Drag & drop optimistic update
+✅ BUG #2: Eliminar campo fecha fin + calcular automáticamente
+✅ BUG #3: Fix timezone en inputs
+✅ BUG #4: Validar citas en el pasado
+✅ BUG #5: Fix modal editar con datos correctos
+✅ BUG #6: Botón Settings funcional con tabs completos
+✅ MEJORA #1: Componente TimeBlocksEditor reutilizable
+✅ MEJORA #1: Integrar TimeBlocksEditor en LocationsManager
+✅ MEJORA #1: Integrar TimeBlocksEditor en StaffManager (con múltiples ubicaciones)
+✅ MEJORA #2: Validación backend de horarios por centro
+✅ MEJORA #2: FullCalendar con businessHours y restricciones visuales
+✅ MEJORA #3: Colores por status en eventos del calendario
+✅ MEJORA #4: Barra de búsqueda con filtros
+✅ MEJORA #5: Dashboard con tasa de ocupación
+
+Después de cada cambio, testea la funcionalidad afectada.
+
+🧪 TESTING SUGERIDO
+
+✅ Crear location con horarios: Lun-Vie 9-13 y 16-22, Sáb 11-22, Dom cerrado
+✅ Crear staff con horarios distintos en 2 locations (María ejemplo)
+✅ Intentar crear cita fuera de horario de location → debe fallar
+✅ Intentar crear cita cuando staff no trabaja en esa location → debe fallar
+✅ Arrastrar cita al pasado → debe revertir con toast
+✅ Editar cita desde calendario → campos deben llenarse
+✅ Drag & drop → SIN efecto rebote
+✅ Crear cita → NO pedir hora fin, calcular automática
+✅ Crear cita a las 14:00 → debe mostrar 14:00 en el input (no 12:00)
+✅ Clic en botón Settings → debe abrir modal con 3 tabs funcionales
+✅ Validar TimeBlocks: agregar bloque 9-14h, luego otro debe iniciar mínimo 14:01
+✅ Calendario debe mostrar zonas rojas en horarios cerrados

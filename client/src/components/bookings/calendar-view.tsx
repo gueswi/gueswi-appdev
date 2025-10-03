@@ -46,7 +46,7 @@ export function CalendarView({
   const [filterStaffId, setFilterStaffId] = useState<string>("all");
   const [filterServiceId, setFilterServiceId] = useState<string>("all");
 
-  // Mutation to update appointment time
+  // Mutation to update appointment time with optimistic updates
   const updateAppointmentTime = useMutation({
     mutationFn: async ({
       id,
@@ -62,19 +62,45 @@ export function CalendarView({
         endTime,
       });
     },
+    onMutate: async ({ id, startTime, endTime }) => {
+      // Cancel any outgoing refetches
+      await queryClient.cancelQueries({ queryKey: ["/api/appointments"] });
+
+      // Snapshot the previous value
+      const previousAppointments = queryClient.getQueryData(["/api/appointments"]);
+
+      // Optimistically update to the new value
+      queryClient.setQueryData(["/api/appointments"], (old: any) =>
+        old?.map((apt: any) =>
+          apt.id === id
+            ? { ...apt, startTime, endTime, updatedAt: new Date().toISOString() }
+            : apt
+        )
+      );
+
+      // Return context with the snapshot value
+      return { previousAppointments };
+    },
+    onError: (err, variables, context) => {
+      // Rollback to the previous value
+      if (context?.previousAppointments) {
+        queryClient.setQueryData(["/api/appointments"], context.previousAppointments);
+      }
+      toast({
+        title: "Error al actualizar",
+        description: "No se pudo mover la cita",
+        variant: "destructive",
+      });
+    },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/appointments"] });
       toast({
         title: "Cita actualizada",
         description: "La cita se ha movido correctamente",
       });
     },
-    onError: () => {
-      toast({
-        title: "Error",
-        description: "No se pudo actualizar la cita",
-        variant: "destructive",
-      });
+    onSettled: () => {
+      // Refetch to ensure we're in sync with server
+      queryClient.invalidateQueries({ queryKey: ["/api/appointments"] });
     },
   });
 
@@ -110,6 +136,19 @@ export function CalendarView({
   // Handle event drop (drag and drop)
   const handleEventDrop = (info: EventDropArg) => {
     const { event } = info;
+    const newStart = event.start!;
+    const now = new Date();
+
+    // Prevent dragging appointments to the past
+    if (newStart < now) {
+      info.revert();
+      toast({
+        title: "Operación no permitida",
+        description: "No puedes mover citas al pasado",
+        variant: "destructive",
+      });
+      return;
+    }
     
     updateAppointmentTime.mutate(
       {
@@ -134,6 +173,19 @@ export function CalendarView({
 
   // Handle date select (for creating new appointments)
   const handleDateSelect = (selectInfo: DateSelectArg) => {
+    const selectedDate = selectInfo.start;
+    const now = new Date();
+
+    // Prevent creating appointments in the past
+    if (selectedDate < now) {
+      toast({
+        title: "Fecha no disponible",
+        description: "No puedes crear citas en el pasado",
+        variant: "destructive",
+      });
+      return;
+    }
+
     if (onCreateAppointment) {
       onCreateAppointment(selectInfo);
     }

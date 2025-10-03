@@ -32,6 +32,7 @@ import { AppointmentDialog } from "@/components/bookings/appointment-dialog";
 import { LocationManagerDialog } from "@/components/bookings/location-manager-dialog";
 import { ServiceManagerDialog } from "@/components/bookings/service-manager-dialog";
 import { StaffManagerDialog } from "@/components/bookings/staff-manager-dialog";
+import { SettingsDialog } from "@/components/bookings/settings-dialog";
 
 export default function BookingsPage() {
   const [selectedLocationId, setSelectedLocationId] = useState<string>("all");
@@ -46,6 +47,7 @@ export default function BookingsPage() {
   const [selectedService, setSelectedService] = useState<Service | null>(null);
   const [staffDialogOpen, setStaffDialogOpen] = useState(false);
   const [selectedStaff, setSelectedStaff] = useState<StaffMember | null>(null);
+  const [settingsDialogOpen, setSettingsDialogOpen] = useState(false);
 
   // Fetch locations
   const { data: locations = [], isLoading: locationsLoading } = useQuery<Location[]>({
@@ -99,7 +101,12 @@ export default function BookingsPage() {
               <Plus className="h-4 w-4 mr-2" />
               Nueva Cita
             </Button>
-            <Button variant="outline" size="sm" data-testid="button-settings">
+            <Button 
+              variant="outline" 
+              size="sm" 
+              onClick={() => setSettingsDialogOpen(true)}
+              data-testid="button-settings"
+            >
               <Settings className="h-4 w-4" />
             </Button>
           </div>
@@ -508,6 +515,11 @@ export default function BookingsPage() {
         open={staffDialogOpen}
         onOpenChange={setStaffDialogOpen}
         staff={selectedStaff}
+      />
+
+      <SettingsDialog
+        open={settingsDialogOpen}
+        onOpenChange={setSettingsDialogOpen}
       />
     </div>
   );

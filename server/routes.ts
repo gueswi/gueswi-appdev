@@ -2860,6 +2860,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
     try {
       const validatedData = insertAppointmentSchema.parse(req.body);
+      
+      // Validate that startTime is not in the past
+      const startTime = new Date(validatedData.startTime);
+      if (startTime < new Date()) {
+        return res.status(400).json({ error: "Cannot create appointments in the past" });
+      }
+      
       const [appointment] = await db
         .insert(schema.appointments)
         .values({
@@ -2882,6 +2889,35 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const { id } = req.params;
       const validatedData = insertAppointmentSchema.partial().parse(req.body);
+      
+      // Only validate if startTime is being changed and the new time is in the past
+      if (validatedData.startTime) {
+        // Get the existing appointment to compare
+        const [existing] = await db
+          .select()
+          .from(schema.appointments)
+          .where(
+            and(
+              eq(schema.appointments.id, id),
+              eq(schema.appointments.tenantId, req.user.tenantId)
+            )
+          )
+          .limit(1);
+
+        if (!existing) {
+          return res.status(404).json({ error: "Appointment not found" });
+        }
+
+        const newStartTime = new Date(validatedData.startTime);
+        const existingStartTime = new Date(existing.startTime);
+        const now = new Date();
+        
+        // Only block if moving to a different past date
+        if (newStartTime.getTime() !== existingStartTime.getTime() && newStartTime < now) {
+          return res.status(400).json({ error: "Cannot move appointments to the past" });
+        }
+      }
+      
       const [updated] = await db
         .update(schema.appointments)
         .set({ ...validatedData, updatedAt: new Date() })
