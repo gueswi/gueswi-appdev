@@ -3108,7 +3108,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const [service] = await db
         .insert(schema.services)
         .values({
-          id: generateId(),
           tenantId: req.user.tenantId,
           name,
           description: description || null,
@@ -3121,7 +3120,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       await Promise.all(
         locationIds.map((locationId: string) =>
           db.insert(schema.serviceLocations).values({
-            id: generateId(),
+            tenantId: req.user.tenantId,
             serviceId: service.id,
             locationId,
           })
