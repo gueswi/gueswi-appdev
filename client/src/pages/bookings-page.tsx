@@ -39,6 +39,7 @@ export default function BookingsPage() {
   // Dialog states
   const [appointmentDialogOpen, setAppointmentDialogOpen] = useState(false);
   const [selectedAppointment, setSelectedAppointment] = useState<Appointment | null>(null);
+  const [defaultDate, setDefaultDate] = useState<Date | null>(null);
   const [settingsDialogOpen, setSettingsDialogOpen] = useState(false);
 
   // Fetch locations
@@ -198,6 +199,7 @@ export default function BookingsPage() {
               }}
               onCreateAppointment={(dateInfo) => {
                 setSelectedAppointment(null);
+                setDefaultDate(dateInfo.start);
                 setAppointmentDialogOpen(true);
               }}
             />
@@ -223,8 +225,14 @@ export default function BookingsPage() {
       {/* Dialogs */}
       <AppointmentDialog
         open={appointmentDialogOpen}
-        onOpenChange={setAppointmentDialogOpen}
+        onOpenChange={(open) => {
+          setAppointmentDialogOpen(open);
+          if (!open) {
+            setDefaultDate(null);
+          }
+        }}
         appointment={selectedAppointment}
+        defaultDate={defaultDate}
         preSelectedLocationId={selectedLocationId === "all" ? null : selectedLocationId}
       />
 
