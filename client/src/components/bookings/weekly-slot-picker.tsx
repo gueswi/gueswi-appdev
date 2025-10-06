@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { format, addDays, startOfWeek, isSameDay, isPast, isToday } from "date-fns";
 import { es } from "date-fns/locale";
 import { Button } from "@/components/ui/button";
@@ -31,7 +31,7 @@ interface WeeklySlotPickerProps {
 }
 
 export function WeeklySlotPicker({
-  selectedDate = new Date(),
+  selectedDate,
   serviceId,
   locationId,
   duration,
@@ -39,14 +39,53 @@ export function WeeklySlotPicker({
   staffMembers = [],
   staffId,
 }: WeeklySlotPickerProps) {
-  const [currentWeekStart, setCurrentWeekStart] = useState(
-    startOfWeek(selectedDate, { weekStartsOn: 1 })
-  );
+  const lastSelectedDateRef = useRef<number | null>(null);
+  
+  const initialDate = useMemo(() => selectedDate || new Date(), []);
+  
+  const [currentWeekStart, setCurrentWeekStart] = useState<Date>(() => {
+    const base = initialDate;
+    const day = base.getDay();
+    const diff = base.getDate() - day + (day === 0 ? -6 : 1);
+    const monday = new Date(base);
+    monday.setDate(diff);
+    monday.setHours(0, 0, 0, 0);
+    return monday;
+  });
   const [selectedSlot, setSelectedSlot] = useState<{
     date: Date;
     time: string;
   } | null>(null);
-  const [selectedDayIndex, setSelectedDayIndex] = useState<number | null>(null);
+  const [selectedDayIndex, setSelectedDayIndex] = useState<number | null>(() => {
+    if (selectedDate) {
+      const dayOfWeek = selectedDate.getDay();
+      return dayOfWeek === 0 ? 6 : dayOfWeek - 1;
+    }
+    return null;
+  });
+
+  // Actualizar cuando cambia selectedDate (solo si realmente cambió)
+  useEffect(() => {
+    if (selectedDate) {
+      const dateTime = selectedDate.getTime();
+      
+      // Solo actualizar si la fecha realmente cambió
+      if (lastSelectedDateRef.current !== dateTime) {
+        lastSelectedDateRef.current = dateTime;
+        
+        const dayOfWeek = selectedDate.getDay();
+        setSelectedDayIndex(dayOfWeek === 0 ? 6 : dayOfWeek - 1);
+        
+        // Ajustar semana si es necesario
+        const day = selectedDate.getDay();
+        const diff = selectedDate.getDate() - day + (day === 0 ? -6 : 1);
+        const monday = new Date(selectedDate);
+        monday.setDate(diff);
+        monday.setHours(0, 0, 0, 0);
+        setCurrentWeekStart(monday);
+      }
+    }
+  }, [selectedDate]);
 
   // Obtener staff completo para validar horarios
   const { data: allStaff } = useQuery<any[]>({
