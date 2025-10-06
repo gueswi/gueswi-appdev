@@ -3366,11 +3366,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       const [year, month, day] = dateStr.split("-").map(Number);
       
-      // Crear fecha en la timezone de la ubicación
-      const requestedDateInTz = new Date(
-        new Date(year, month - 1, day, 12, 0, 0).toLocaleString("en-US", { timeZone: timezone })
-      );
-      const dayOfWeek = requestedDateInTz.getDay();
+      // Crear fecha a mediodía UTC para evitar problemas de zona horaria
+      const requestedDateUTC = new Date(Date.UTC(year, month - 1, day, 12, 0, 0));
+      const dayOfWeek = requestedDateUTC.getUTCDay();
+
+      console.log(`📅 Date: ${dateStr}, UTC Day: ${dayOfWeek}, Day name: ${['Dom','Lun','Mar','Mié','Jue','Vie','Sáb'][dayOfWeek]}`);
       
       const daySchedule = locationSchedule[dayOfWeek];
 
@@ -3379,7 +3379,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       // Calcular offset para este día específico (maneja DST)
-      const offsetMinutes = getTimezoneOffset(timezone, requestedDateInTz);
+      const offsetMinutes = getTimezoneOffset(timezone, requestedDateUTC);
 
       const startOfDayUTC = new Date(Date.UTC(year, month - 1, day, 0, 0, 0) - offsetMinutes * 60 * 1000);
       const endOfDayUTC = new Date(Date.UTC(year, month - 1, day, 23, 59, 59, 999) - offsetMinutes * 60 * 1000);
@@ -3402,20 +3402,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const [startH, startM] = block.start.split(":").map(Number);
         const [endH, endM] = block.end.split(":").map(Number);
 
-        // Crear horarios en timezone local y convertir a UTC
-        let currentTimeUTC = new Date(
-          Date.UTC(year, month - 1, day, startH, startM, 0, 0) - offsetMinutes * 60 * 1000
-        );
-        
-        const blockEndUTC = new Date(
-          Date.UTC(year, month - 1, day, endH, endM, 0, 0) - offsetMinutes * 60 * 1000
-        );
+        // Crear horarios en UTC, compensando por timezone
+        // 09:00 Madrid (UTC+2) = 07:00 UTC
+        let currentTimeUTC = new Date(Date.UTC(year, month - 1, day, startH, startM, 0, 0));
+        currentTimeUTC = new Date(currentTimeUTC.getTime() - offsetMinutes * 60 * 1000);
 
-        while (currentTimeUTC < blockEndUTC) {
+        const blockEndUTC = new Date(Date.UTC(year, month - 1, day, endH, endM, 0, 0));
+        const blockEndUTCAdjusted = new Date(blockEndUTC.getTime() - offsetMinutes * 60 * 1000);
+
+        console.log(`🔍 Block ${startH}:${startM}-${endH}:${endM} → UTC: ${currentTimeUTC.toISOString()} - ${blockEndUTCAdjusted.toISOString()}`);
+
+        while (currentTimeUTC < blockEndUTCAdjusted) {
           const slotEndUTC = new Date(currentTimeUTC);
           slotEndUTC.setUTCMinutes(slotEndUTC.getUTCMinutes() + serviceDuration);
 
-          if (slotEndUTC <= blockEndUTC) {
+          if (slotEndUTC <= blockEndUTCAdjusted) {
             const isFuture = currentTimeUTC.getTime() > nowUTC.getTime();
 
             const isOccupied = existingAppointments.some((apt) => {
