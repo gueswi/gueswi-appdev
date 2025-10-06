@@ -1,0 +1,194 @@
+# CORRECCIÓN FOCALIZADA: Slots no se muestran + Reset de fecha al cambiar personal
+
+## BUGS A CORREGIR
+
+1. **CRÍTICO**: Personal con horarios configurados NO muestra slots disponibles
+2. Al cambiar de personal en el modal, el día seleccionado se resetea al día actual
+
+---
+
+## DIAGNÓSTICO
+
+El problema está en cómo `schedulesByLocation` se almacena/parsea en la base de datos. El endpoint está fallando silenciosamente.
+
+---
+
+## SOLUCIÓN ENFOCADA
+
+### Paso 1: Forzar JSON en la columna schedulesByLocation
+
+En `db/schema.ts`, verificar que la columna esté definida como:
+```typescript
+schedulesByLocation: json("schedules_by_location").$type<Record<string, any>>().default({}),
+Paso 2: Corregir endpoint de slots con manejo robusto
+En server/routes.ts, REEMPLAZAR el endpoint /api/calendar/available-slots:
+typescriptapp.get("/api/calendar/available-slots", async (req, res) => {
+  try {
+    const { serviceId, staffId, date, locationId } = req.query;
+
+    if (!serviceId || !staffId || !date || !locationId) {
+      return res.status(400).json({ error: "Missing parameters" });
+    }
+
+    const service = await db.query.services.findFirst({
+      where: eq(schema.services.id, serviceId as string),
+    });
+
+    if (!service) {
+      return res.status(404).json({ error: "Service not found" });
+    }
+
+    const staff = await db.query.staffMembers.findFirst({
+      where: eq(schema.staffMembers.id, staffId as string),
+    });
+
+    if (!staff) {
+      return res.status(404).json({ error: "Staff not found" });
+    }
+
+    // Parsear schedulesByLocation robustamente
+    let schedules = staff.schedulesByLocation;
+    
+    if (!schedules) {
+      return res.json({ slots: [] });
+    }
+
+    // Si es string, parsear
+    if (typeof schedules === "string") {
+      try {
+        schedules = JSON.parse(schedules);
+      } catch {
+        return res.json({ slots: [] });
+      }
+    }
+
+    const locationSchedule = schedules[locationId as string];
+    
+    if (!locationSchedule) {
+      return res.json({ slots: [] });
+    }
+
+    const requestedDate = new Date(date as string + "T12:00:00");
+    const dayOfWeek = requestedDate.getDay();
+    const daySchedule = locationSchedule[dayOfWeek];
+
+    if (!daySchedule?.enabled || !daySchedule.blocks) {
+      return res.json({ slots: [] });
+    }
+
+    // Obtener citas existentes
+    const startOfDay = new Date(requestedDate);
+    startOfDay.setHours(0, 0, 0, 0);
+    const endOfDay = new Date(requestedDate);
+    endOfDay.setHours(23, 59, 59, 999);
+
+    const existingAppointments = await db.query.appointments.findMany({
+      where: and(
+        eq(schema.appointments.staffId, staffId as string),
+        eq(schema.appointments.locationId, locationId as string),
+        gte(schema.appointments.startTime, startOfDay),
+        lte(schema.appointments.startTime, endOfDay),
+        ne(schema.appointments.status, "cancelled")
+      ),
+    });
+
+    // Generar slots
+    const slots: any[] = [];
+    const now = new Date();
+
+    daySchedule.blocks.forEach((block: any) => {
+      const [startH, startM] = block.start.split(":").map(Number);
+      const [endH, endM] = block.end.split(":").map(Number);
+
+      let currentTime = new Date(requestedDate);
+      currentTime.setHours(startH, startM, 0, 0);
+
+      const blockEnd = new Date(requestedDate);
+      blockEnd.setHours(endH, endM, 0, 0);
+
+      while (currentTime < blockEnd) {
+        const slotEnd = new Date(currentTime);
+        slotEnd.setMinutes(slotEnd.getMinutes() + service.duration);
+
+        if (slotEnd <= blockEnd && currentTime > now) {
+          const isOccupied = existingAppointments.some((apt) => {
+            const aptStart = new Date(apt.startTime);
+            const aptEnd = new Date(apt.endTime);
+            return (
+              (currentTime >= aptStart && currentTime < aptEnd) ||
+              (slotEnd > aptStart && slotEnd <= aptEnd) ||
+              (currentTime <= aptStart && slotEnd >= aptEnd)
+            );
+          });
+
+          if (!isOccupied) {
+            slots.push({
+              startTime: currentTime.toISOString(),
+              endTime: slotEnd.toISOString(),
+            });
+          }
+        }
+
+        currentTime.setMinutes(currentTime.getMinutes() + 30);
+      }
+    });
+
+    res.json({ slots });
+  } catch (error: any) {
+    console.error("❌ Slots error:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
+Paso 3: Mantener fecha seleccionada al cambiar personal
+En client/src/components/bookings/appointment-dialog.tsx, modificar handleStaffChange:
+typescriptconst handleStaffChange = (staffId: string) => {
+  setSelectedStaffId(staffId);
+  // NO resetear selectedSlotDate aquí
+  // Solo invalidar para que se recarguen los slots con el nuevo staff
+};
+En client/src/components/bookings/weekly-slot-picker.tsx, evitar que se resetee al cambiar props:
+typescript// En lugar de actualizar selectedDayIndex en useEffect cuando cambia staffId,
+// solo mantener la fecha seleccionada actual
+useEffect(() => {
+  // Solo actualizar si initialDate cambia Y no hay día seleccionado
+  if (initialDate && !selectedSlot) {
+    const dayOfWeek = initialDate.getDay();
+    setSelectedDayIndex(dayOfWeek === 0 ? 6 : dayOfWeek - 1);
+  }
+}, [initialDate]); // NO incluir staffId aquí
+Paso 4: Verificar parseo en GET staff
+En server/routes.ts, endpoint GET /api/calendar/staff:
+typescriptapp.get("/api/calendar/staff", async (req, res) => {
+  if (!req.isAuthenticated() || !req.user.tenantId) {
+    return res.sendStatus(401);
+  }
+
+  try {
+    const staff = await db.query.staffMembers.findMany({
+      where: eq(schema.staffMembers.tenantId, req.user.tenantId),
+      with: {
+        staffServices: { with: { service: true } },
+      },
+      orderBy: [asc(schema.staffMembers.name)],
+    });
+
+    const parsed = staff.map((s: any) => {
+      let schedules = s.schedulesByLocation;
+      
+      if (typeof schedules === 'string') {
+        try {
+          schedules = JSON.parse(schedules);
+        } catch {
+          schedules = {};
+        }
+      }
+
+      return { ...s, schedulesByLocation: schedules || {} };
+    });
+
+    res.json(parsed);
+  } catch (error: any) {
+    console.error("❌ Staff fetch error:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
