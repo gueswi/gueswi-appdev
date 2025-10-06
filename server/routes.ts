@@ -3308,7 +3308,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.json({ slots: [] });
       }
 
-      const requestedDate = new Date(date as string + "T12:00:00");
+      const requestedDate = new Date(date as string);
       const dayOfWeek = requestedDate.getDay();
       const daySchedule = locationSchedule[dayOfWeek];
 
