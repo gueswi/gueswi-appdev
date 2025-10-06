@@ -3463,7 +3463,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       const daySchedule = locationSchedule[dayOfWeek];
 
+      console.log(
+        `🔍 Looking for dayOfWeek ${dayOfWeek}, found:`,
+        daySchedule ? "YES" : "NO",
+      );
+      if (daySchedule) {
+        console.log(
+          `🔍 Enabled: ${daySchedule.enabled}, Blocks:`,
+          daySchedule.blocks,
+        );
+      }
+
       if (!daySchedule?.enabled || !daySchedule.blocks) {
+        console.log(
+          `❌ Returning empty slots - daySchedule enabled: ${daySchedule?.enabled}, has blocks: ${!!daySchedule?.blocks}`,
+        );
         return res.json({ slots: [] });
       }
 
