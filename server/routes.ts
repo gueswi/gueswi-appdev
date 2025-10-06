@@ -3304,7 +3304,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.json({ slots: [] });
       }
 
-      // Parsear fecha robustamente
       let dateStr = date as string;
       if (dateStr.includes("T")) {
         dateStr = dateStr.split("T")[0];
@@ -3312,50 +3311,25 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       const [year, month, day] = dateStr.split("-").map(Number);
       
-      const MADRID_OFFSET_HOURS = 2;
-      
-      // CRÍTICO: Calcular día de semana directamente del string de fecha
-      // Martes 7 oct 2025 → dayOfWeek debe ser 2
-      const dayOfWeek = new Date(year, month - 1, day).getDay();
-      
-      console.log(`📅 Date: ${dateStr}, Day of week: ${dayOfWeek} (${['Dom','Lun','Mar','Mié','Jue','Vie','Sáb'][dayOfWeek]})`);
+      // CRÍTICO: Calcular día de semana en UTC
+      const dayOfWeek = new Date(Date.UTC(year, month - 1, day, 12, 0, 0)).getUTCDay();
       
       const daySchedule = locationSchedule[dayOfWeek];
 
       if (!daySchedule?.enabled || !daySchedule.blocks) {
-        console.log(`❌ No schedule for day ${dayOfWeek}`);
         return res.json({ slots: [] });
       }
 
-      console.log(`✅ Schedule blocks:`, daySchedule.blocks);
-
-      // Inicio y fin del día en Madrid, convertido a UTC
-      const startOfDayMadrid = new Date(Date.UTC(
-        year, 
-        month - 1, 
-        day, 
-        0 - MADRID_OFFSET_HOURS, 
-        0, 
-        0, 
-        0
-      ));
-      
-      const endOfDayMadrid = new Date(Date.UTC(
-        year, 
-        month - 1, 
-        day, 
-        23 - MADRID_OFFSET_HOURS, 
-        59, 
-        59, 
-        999
-      ));
+      // Buscar citas existentes (rango del día completo en UTC)
+      const startOfDayUTC = new Date(Date.UTC(year, month - 1, day, 0, 0, 0, 0));
+      const endOfDayUTC = new Date(Date.UTC(year, month - 1, day, 23, 59, 59, 999));
 
       const existingAppointments = await db.query.appointments.findMany({
         where: and(
           eq(schema.appointments.staffId, staffId as string),
           eq(schema.appointments.locationId, locationId as string),
-          gte(schema.appointments.startTime, startOfDayMadrid),
-          lte(schema.appointments.startTime, endOfDayMadrid),
+          gte(schema.appointments.startTime, startOfDayUTC),
+          lte(schema.appointments.startTime, endOfDayUTC),
           ne(schema.appointments.status, "cancelled")
         ),
       });
@@ -3363,30 +3337,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const slots: any[] = [];
       const serviceDuration = service.duration;
       const nowUTC = new Date();
-      const nowMadrid = new Date(nowUTC.getTime() + (MADRID_OFFSET_HOURS * 60 * 60 * 1000));
 
-      daySchedule.blocks.forEach((block: any, blockIdx: number) => {
+      daySchedule.blocks.forEach((block: any) => {
         const [startH, startM] = block.start.split(":").map(Number);
         const [endH, endM] = block.end.split(":").map(Number);
 
-        console.log(`🔍 Processing block ${blockIdx}: ${block.start}-${block.end}`);
-
-        // Crear fecha en Madrid y luego convertir a UTC
-        const blockStartMadrid = new Date(year, month - 1, day, startH, startM, 0, 0);
-        const blockEndMadrid = new Date(year, month - 1, day, endH, endM, 0, 0);
-        
-        // Convertir a UTC restando offset
-        let currentTimeUTC = new Date(blockStartMadrid.getTime() - (MADRID_OFFSET_HOURS * 60 * 60 * 1000));
-        const blockEndUTC = new Date(blockEndMadrid.getTime() - (MADRID_OFFSET_HOURS * 60 * 60 * 1000));
+        // CRÍTICO: Crear tiempos en UTC directamente
+        let currentTimeUTC = new Date(Date.UTC(year, month - 1, day, startH, startM, 0, 0));
+        const blockEndUTC = new Date(Date.UTC(year, month - 1, day, endH, endM, 0, 0));
 
         while (currentTimeUTC < blockEndUTC) {
           const slotEndUTC = new Date(currentTimeUTC);
           slotEndUTC.setUTCMinutes(slotEndUTC.getUTCMinutes() + serviceDuration);
 
           if (slotEndUTC <= blockEndUTC) {
-            // Convertir slot UTC a Madrid para comparar con "ahora" en Madrid
-            const slotStartMadrid = new Date(currentTimeUTC.getTime() + (MADRID_OFFSET_HOURS * 60 * 60 * 1000));
-            const isFuture = slotStartMadrid.getTime() >= nowMadrid.getTime();
+            const isFuture = currentTimeUTC.getTime() > nowUTC.getTime();
 
             const isOccupied = existingAppointments.some((apt) => {
               const aptStart = new Date(apt.startTime);
@@ -3409,8 +3374,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
           currentTimeUTC.setUTCMinutes(currentTimeUTC.getUTCMinutes() + serviceDuration);
         }
       });
-
-      console.log(`✅ Generated ${slots.length} slots`);
 
       res.json({ slots });
     } catch (error: any) {
