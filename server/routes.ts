@@ -1191,7 +1191,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Pipeline CRM endpoints
-  
+
   // Pipelines CRUD
   app.get("/api/pipelines", async (req, res) => {
     if (!req.isAuthenticated() || !req.user.tenantId) {
@@ -1204,7 +1204,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         .from(schema.pipelines)
         .where(eq(schema.pipelines.tenantId, req.user.tenantId))
         .orderBy(desc(schema.pipelines.isDefault), schema.pipelines.createdAt);
-      
+
       // If no pipelines exist, create a default one
       if (pipelines.length === 0) {
         const [newPipeline] = await db
@@ -1216,10 +1216,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
             isDefault: true,
           })
           .returning();
-        
+
         pipelines = [newPipeline];
       }
-      
+
       res.json(pipelines);
     } catch (error: any) {
       res.status(500).json({ error: error.message });
@@ -1233,7 +1233,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
     try {
       const { name, description } = req.body;
-      
+
       const [newPipeline] = await db
         .insert(schema.pipelines)
         .values({
@@ -1284,8 +1284,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         .where(
           and(
             eq(schema.pipelines.id, id),
-            eq(schema.pipelines.tenantId, req.user.tenantId)
-          )
+            eq(schema.pipelines.tenantId, req.user.tenantId),
+          ),
         );
 
       res.json({ success: true });
@@ -1306,12 +1306,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const pipeline = await db.query.pipelines.findFirst({
         where: and(
           eq(schema.pipelines.id, id),
-          eq(schema.pipelines.tenantId, req.user.tenantId)
+          eq(schema.pipelines.tenantId, req.user.tenantId),
         ),
       });
 
       if (pipeline?.isDefault) {
-        return res.status(400).json({ error: "No puedes eliminar el pipeline principal" });
+        return res
+          .status(400)
+          .json({ error: "No puedes eliminar el pipeline principal" });
       }
 
       // Verificar que no tiene leads
@@ -1321,8 +1323,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         .where(eq(schema.leads.pipelineId, id));
 
       if (leadsCount[0]?.count > 0) {
-        return res.status(400).json({ 
-          error: `Este pipeline tiene ${leadsCount[0].count} leads. Muévelos o elimínalos primero.` 
+        return res.status(400).json({
+          error: `Este pipeline tiene ${leadsCount[0].count} leads. Muévelos o elimínalos primero.`,
         });
       }
 
@@ -1332,9 +1334,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         .where(eq(schema.pipelineStages.pipelineId, id));
 
       // Eliminar pipeline
-      await db
-        .delete(schema.pipelines)
-        .where(eq(schema.pipelines.id, id));
+      await db.delete(schema.pipelines).where(eq(schema.pipelines.id, id));
 
       res.json({ success: true });
     } catch (error: any) {
@@ -1349,9 +1349,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
     try {
       const { pipelineId } = req.query;
-      
+
       if (!pipelineId) {
-        return res.status(400).json({ error: "pipelineId query param required" });
+        return res
+          .status(400)
+          .json({ error: "pipelineId query param required" });
       }
 
       const stages = await db
@@ -1360,8 +1362,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         .where(
           and(
             eq(schema.pipelineStages.tenantId, req.user.tenantId),
-            eq(schema.pipelineStages.pipelineId, pipelineId as string)
-          )
+            eq(schema.pipelineStages.pipelineId, pipelineId as string),
+          ),
         )
         .orderBy(schema.pipelineStages.order);
 
@@ -1378,9 +1380,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
     try {
       const { pipelineId } = req.query;
-      
+
       if (!pipelineId) {
-        return res.status(400).json({ error: "pipelineId query param required" });
+        return res
+          .status(400)
+          .json({ error: "pipelineId query param required" });
       }
 
       const leads = await db
@@ -1389,8 +1393,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         .where(
           and(
             eq(schema.leads.tenantId, req.user.tenantId),
-            eq(schema.leads.pipelineId, pipelineId as string)
-          )
+            eq(schema.leads.pipelineId, pipelineId as string),
+          ),
         )
         .orderBy(desc(schema.leads.createdAt));
 
@@ -1463,7 +1467,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
     try {
       const validatedData = schema.insertPipelineStageSchema.parse(req.body);
-      
+
       const [stage] = await db
         .insert(schema.pipelineStages)
         .values({
@@ -1486,7 +1490,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       console.log("🔧 Reorder request body:", JSON.stringify(req.body));
       const { stages } = req.body;
-      
+
       if (!stages || !Array.isArray(stages)) {
         return res.status(400).json({ error: "Invalid stages array" });
       }
@@ -1499,8 +1503,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
           .where(
             and(
               eq(schema.pipelineStages.id, stage.id),
-              eq(schema.pipelineStages.tenantId, req.user.tenantId)
-            )
+              eq(schema.pipelineStages.tenantId, req.user.tenantId),
+            ),
           );
       }
 
@@ -1537,11 +1541,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
             ),
           )
           .limit(1);
-        
+
         if (!stage) {
           return res.status(404).json({ error: "Stage not found" });
         }
-        
+
         return res.json(stage);
       }
 
@@ -1591,7 +1595,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       if (stage.isFixed) {
-        return res.status(400).json({ error: "Cannot delete fixed stages (Won/Lost)" });
+        return res
+          .status(400)
+          .json({ error: "Cannot delete fixed stages (Won/Lost)" });
       }
 
       // Verificar si hay leads en esta etapa
@@ -1601,8 +1607,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         .where(eq(schema.leads.stageId, id));
 
       if (Number(leadsCount[0]?.count) > 0) {
-        return res.status(400).json({ 
-          error: "Cannot delete stage with leads. Move or delete leads first." 
+        return res.status(400).json({
+          error: "Cannot delete stage with leads. Move or delete leads first.",
         });
       }
 
@@ -1629,27 +1635,37 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
     try {
       const validationResult = schema.insertLeadSchema.safeParse(req.body);
-      
+
       if (!validationResult.success) {
-        console.error("Lead validation error:", validationResult.error.format());
-        return res.status(400).json({ 
-          error: validationResult.error.errors.map(e => `${e.path.join('.')}: ${e.message}`).join(", ")
+        console.error(
+          "Lead validation error:",
+          validationResult.error.format(),
+        );
+        return res.status(400).json({
+          error: validationResult.error.errors
+            .map((e) => `${e.path.join(".")}: ${e.message}`)
+            .join(", "),
         });
       }
 
       // Convertir y limpiar datos
       const processedData: any = { ...validationResult.data };
-      
+
       // Convertir value de number a string si es necesario (para decimal en BD)
-      if (typeof processedData.value === 'number') {
+      if (typeof processedData.value === "number") {
         processedData.value = processedData.value.toString();
       }
-      
+
       // Convertir strings de fecha a objetos Date
-      if (processedData.expectedCloseDate && typeof processedData.expectedCloseDate === 'string') {
+      if (
+        processedData.expectedCloseDate &&
+        typeof processedData.expectedCloseDate === "string"
+      ) {
         const date = new Date(processedData.expectedCloseDate);
         if (isNaN(date.getTime())) {
-          return res.status(400).json({ error: "Invalid expectedCloseDate format" });
+          return res
+            .status(400)
+            .json({ error: "Invalid expectedCloseDate format" });
         }
         processedData.expectedCloseDate = date;
       }
@@ -1728,11 +1744,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       // Convertir strings de fecha a objetos Date
       const processedData = { ...updateData };
-      if (processedData.closedAt && typeof processedData.closedAt === 'string') {
+      if (
+        processedData.closedAt &&
+        typeof processedData.closedAt === "string"
+      ) {
         processedData.closedAt = new Date(processedData.closedAt);
       }
-      if (processedData.expectedCloseDate && typeof processedData.expectedCloseDate === 'string') {
-        processedData.expectedCloseDate = new Date(processedData.expectedCloseDate);
+      if (
+        processedData.expectedCloseDate &&
+        typeof processedData.expectedCloseDate === "string"
+      ) {
+        processedData.expectedCloseDate = new Date(
+          processedData.expectedCloseDate,
+        );
       }
 
       const [updated] = await db
@@ -1864,22 +1888,24 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
     try {
       const { pipelineId } = req.query;
-      
+
       if (!pipelineId) {
-        return res.status(400).json({ error: "pipelineId query param required" });
+        return res
+          .status(400)
+          .json({ error: "pipelineId query param required" });
       }
 
       // Valor total del pipeline
       const totalValue = await db
-        .select({ 
-          sum: sql<string>`COALESCE(SUM(${schema.leads.value}), 0)` 
+        .select({
+          sum: sql<string>`COALESCE(SUM(${schema.leads.value}), 0)`,
         })
         .from(schema.leads)
         .where(
           and(
             eq(schema.leads.tenantId, req.user.tenantId),
-            eq(schema.leads.pipelineId, pipelineId as string)
-          )
+            eq(schema.leads.pipelineId, pipelineId as string),
+          ),
         );
 
       // Contar leads ganados y totales
@@ -1891,17 +1917,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
             eq(schema.pipelineStages.tenantId, req.user.tenantId),
             eq(schema.pipelineStages.pipelineId, pipelineId as string),
             eq(schema.pipelineStages.isFixed, true),
-            sql`${schema.pipelineStages.name} ILIKE '%ganado%'`
+            sql`${schema.pipelineStages.name} ILIKE '%ganado%'`,
           ),
         )
         .limit(1);
 
-      const wonCount = wonStage.length > 0 
-        ? await db
-            .select({ count: sql<number>`count(*)` })
-            .from(schema.leads)
-            .where(eq(schema.leads.stageId, wonStage[0].id))
-        : [{ count: 0 }];
+      const wonCount =
+        wonStage.length > 0
+          ? await db
+              .select({ count: sql<number>`count(*)` })
+              .from(schema.leads)
+              .where(eq(schema.leads.stageId, wonStage[0].id))
+          : [{ count: 0 }];
 
       const totalCount = await db
         .select({ count: sql<number>`count(*)` })
@@ -1909,38 +1936,41 @@ export async function registerRoutes(app: Express): Promise<Server> {
         .where(
           and(
             eq(schema.leads.tenantId, req.user.tenantId),
-            eq(schema.leads.pipelineId, pipelineId as string)
-          )
+            eq(schema.leads.pipelineId, pipelineId as string),
+          ),
         );
 
-      const conversionRate = Number(totalCount[0]?.count) > 0
-        ? (Number(wonCount[0]?.count) / Number(totalCount[0]?.count)) * 100
-        : 0;
+      const conversionRate =
+        Number(totalCount[0]?.count) > 0
+          ? (Number(wonCount[0]?.count) / Number(totalCount[0]?.count)) * 100
+          : 0;
 
       // Tiempo promedio de cierre (en días)
-      const avgClosingTime = wonStage.length > 0
-        ? await db
-            .select({
-              avg: sql<number>`AVG(EXTRACT(EPOCH FROM (${schema.leads.closedAt} - ${schema.leads.createdAt})) / 86400)`,
-            })
-            .from(schema.leads)
-            .where(
-              and(
-                eq(schema.leads.stageId, wonStage[0].id),
-                sql`${schema.leads.closedAt} IS NOT NULL`,
-              ),
-            )
-        : [{ avg: 0 }];
+      const avgClosingTime =
+        wonStage.length > 0
+          ? await db
+              .select({
+                avg: sql<number>`AVG(EXTRACT(EPOCH FROM (${schema.leads.closedAt} - ${schema.leads.createdAt})) / 86400)`,
+              })
+              .from(schema.leads)
+              .where(
+                and(
+                  eq(schema.leads.stageId, wonStage[0].id),
+                  sql`${schema.leads.closedAt} IS NOT NULL`,
+                ),
+              )
+          : [{ avg: 0 }];
 
       // Valor ganado
-      const wonValue = wonStage.length > 0
-        ? await db
-            .select({ 
-              sum: sql<string>`COALESCE(SUM(${schema.leads.value}), 0)` 
-            })
-            .from(schema.leads)
-            .where(eq(schema.leads.stageId, wonStage[0].id))
-        : [{ sum: '0' }];
+      const wonValue =
+        wonStage.length > 0
+          ? await db
+              .select({
+                sum: sql<string>`COALESCE(SUM(${schema.leads.value}), 0)`,
+              })
+              .from(schema.leads)
+              .where(eq(schema.leads.stageId, wonStage[0].id))
+          : [{ sum: "0" }];
 
       // Etapa "Perdido" y valor perdido
       const lostStage = await db
@@ -1951,19 +1981,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
             eq(schema.pipelineStages.tenantId, req.user.tenantId),
             eq(schema.pipelineStages.pipelineId, pipelineId as string),
             eq(schema.pipelineStages.isFixed, true),
-            sql`${schema.pipelineStages.name} ILIKE '%perdido%'`
+            sql`${schema.pipelineStages.name} ILIKE '%perdido%'`,
           ),
         )
         .limit(1);
 
-      const lostValue = lostStage.length > 0
-        ? await db
-            .select({ 
-              sum: sql<string>`COALESCE(SUM(${schema.leads.value}), 0)` 
-            })
-            .from(schema.leads)
-            .where(eq(schema.leads.stageId, lostStage[0].id))
-        : [{ sum: '0' }];
+      const lostValue =
+        lostStage.length > 0
+          ? await db
+              .select({
+                sum: sql<string>`COALESCE(SUM(${schema.leads.value}), 0)`,
+              })
+              .from(schema.leads)
+              .where(eq(schema.leads.stageId, lostStage[0].id))
+          : [{ sum: "0" }];
 
       res.json({
         totalValue: Number(totalValue[0]?.sum || 0),
@@ -2119,8 +2150,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         .where(
           and(
             eq(schema.locations.id, id),
-            eq(schema.locations.tenantId, req.user.tenantId)
-          )
+            eq(schema.locations.tenantId, req.user.tenantId),
+          ),
         )
         .returning();
 
@@ -2146,8 +2177,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         .where(
           and(
             eq(schema.locations.id, id),
-            eq(schema.locations.tenantId, req.user.tenantId)
-          )
+            eq(schema.locations.tenantId, req.user.tenantId),
+          ),
         );
 
       res.json({ success: true });
@@ -2210,8 +2241,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         .where(
           and(
             eq(schema.services.id, id),
-            eq(schema.services.tenantId, req.user.tenantId)
-          )
+            eq(schema.services.tenantId, req.user.tenantId),
+          ),
         )
         .returning();
 
@@ -2237,8 +2268,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         .where(
           and(
             eq(schema.services.id, id),
-            eq(schema.services.tenantId, req.user.tenantId)
-          )
+            eq(schema.services.tenantId, req.user.tenantId),
+          ),
         );
 
       res.json({ success: true });
@@ -2258,7 +2289,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const whereConditions = serviceId
         ? and(
             eq(schema.serviceLocations.tenantId, req.user.tenantId),
-            eq(schema.serviceLocations.serviceId, serviceId as string)
+            eq(schema.serviceLocations.serviceId, serviceId as string),
           )
         : eq(schema.serviceLocations.tenantId, req.user.tenantId);
 
@@ -2306,8 +2337,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         .where(
           and(
             eq(schema.serviceLocations.id, id),
-            eq(schema.serviceLocations.tenantId, req.user.tenantId)
-          )
+            eq(schema.serviceLocations.tenantId, req.user.tenantId),
+          ),
         );
 
       res.json({ success: true });
@@ -2370,8 +2401,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         .where(
           and(
             eq(schema.staffMembers.id, id),
-            eq(schema.staffMembers.tenantId, req.user.tenantId)
-          )
+            eq(schema.staffMembers.tenantId, req.user.tenantId),
+          ),
         )
         .returning();
 
@@ -2397,8 +2428,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         .where(
           and(
             eq(schema.staffMembers.id, id),
-            eq(schema.staffMembers.tenantId, req.user.tenantId)
-          )
+            eq(schema.staffMembers.tenantId, req.user.tenantId),
+          ),
         );
 
       res.json({ success: true });
@@ -2418,7 +2449,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const whereConditions = staffId
         ? and(
             eq(schema.staffServices.tenantId, req.user.tenantId),
-            eq(schema.staffServices.staffId, staffId as string)
+            eq(schema.staffServices.staffId, staffId as string),
           )
         : eq(schema.staffServices.tenantId, req.user.tenantId);
 
@@ -2466,8 +2497,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         .where(
           and(
             eq(schema.staffServices.id, id),
-            eq(schema.staffServices.tenantId, req.user.tenantId)
-          )
+            eq(schema.staffServices.tenantId, req.user.tenantId),
+          ),
         );
 
       res.json({ success: true });
@@ -2487,7 +2518,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const whereConditions = staffId
         ? and(
             eq(schema.availabilityRules.tenantId, req.user.tenantId),
-            eq(schema.availabilityRules.staffId, staffId as string)
+            eq(schema.availabilityRules.staffId, staffId as string),
           )
         : eq(schema.availabilityRules.tenantId, req.user.tenantId);
 
@@ -2531,15 +2562,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
     try {
       const { id } = req.params;
-      const validatedData = insertAvailabilityRuleSchema.partial().parse(req.body);
+      const validatedData = insertAvailabilityRuleSchema
+        .partial()
+        .parse(req.body);
       const [updated] = await db
         .update(schema.availabilityRules)
         .set(validatedData)
         .where(
           and(
             eq(schema.availabilityRules.id, id),
-            eq(schema.availabilityRules.tenantId, req.user.tenantId)
-          )
+            eq(schema.availabilityRules.tenantId, req.user.tenantId),
+          ),
         )
         .returning();
 
@@ -2565,8 +2598,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         .where(
           and(
             eq(schema.availabilityRules.id, id),
-            eq(schema.availabilityRules.tenantId, req.user.tenantId)
-          )
+            eq(schema.availabilityRules.tenantId, req.user.tenantId),
+          ),
         );
 
       res.json({ success: true });
@@ -2586,7 +2619,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const whereConditions = staffId
         ? and(
             eq(schema.availabilityExceptions.tenantId, req.user.tenantId),
-            eq(schema.availabilityExceptions.staffId, staffId as string)
+            eq(schema.availabilityExceptions.staffId, staffId as string),
           )
         : eq(schema.availabilityExceptions.tenantId, req.user.tenantId);
 
@@ -2630,20 +2663,24 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
     try {
       const { id } = req.params;
-      const validatedData = insertAvailabilityExceptionSchema.partial().parse(req.body);
+      const validatedData = insertAvailabilityExceptionSchema
+        .partial()
+        .parse(req.body);
       const [updated] = await db
         .update(schema.availabilityExceptions)
         .set(validatedData)
         .where(
           and(
             eq(schema.availabilityExceptions.id, id),
-            eq(schema.availabilityExceptions.tenantId, req.user.tenantId)
-          )
+            eq(schema.availabilityExceptions.tenantId, req.user.tenantId),
+          ),
         )
         .returning();
 
       if (!updated) {
-        return res.status(404).json({ error: "Availability exception not found" });
+        return res
+          .status(404)
+          .json({ error: "Availability exception not found" });
       }
 
       res.json(updated);
@@ -2664,8 +2701,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         .where(
           and(
             eq(schema.availabilityExceptions.id, id),
-            eq(schema.availabilityExceptions.tenantId, req.user.tenantId)
-          )
+            eq(schema.availabilityExceptions.tenantId, req.user.tenantId),
+          ),
         );
 
       res.json({ success: true });
@@ -2677,11 +2714,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // ============================================================================
   // Public booking endpoints (no authentication required)
   // ============================================================================
-  
+
   app.get("/api/public/services/:tenantId", async (req, res) => {
     try {
       const { tenantId } = req.params;
-      
+
       const services = await db
         .select()
         .from(schema.services)
@@ -2689,8 +2726,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
           and(
             eq(schema.services.tenantId, tenantId),
             eq(schema.services.isActive, true),
-            eq(schema.services.isPublic, true)
-          )
+            eq(schema.services.isPublic, true),
+          ),
         );
 
       res.json(services);
@@ -2702,15 +2739,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/public/staff/:tenantId", async (req, res) => {
     try {
       const { tenantId } = req.params;
-      
+
       const staff = await db
         .select()
         .from(schema.staffMembers)
         .where(
           and(
             eq(schema.staffMembers.tenantId, tenantId),
-            eq(schema.staffMembers.isActive, true)
-          )
+            eq(schema.staffMembers.isActive, true),
+          ),
         );
 
       res.json(staff);
@@ -2722,15 +2759,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/public/locations/:tenantId", async (req, res) => {
     try {
       const { tenantId } = req.params;
-      
+
       const locations = await db
         .select()
         .from(schema.locations)
         .where(
           and(
             eq(schema.locations.tenantId, tenantId),
-            eq(schema.locations.isActive, true)
-          )
+            eq(schema.locations.isActive, true),
+          ),
         );
 
       res.json(locations);
@@ -2742,45 +2779,62 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/public/appointments", async (req, res) => {
     try {
       // Validate but override tenantId from request body
-      const { tenantId, serviceId, staffId, locationId, ...appointmentData } = req.body;
-      
+      const { tenantId, serviceId, staffId, locationId, ...appointmentData } =
+        req.body;
+
       if (!tenantId) {
         return res.status(400).json({ error: "Tenant ID is required" });
       }
       if (!serviceId || !staffId || !locationId) {
-        return res.status(400).json({ error: "Service, staff, and location are required" });
+        return res
+          .status(400)
+          .json({ error: "Service, staff, and location are required" });
       }
 
       // Security: Validate that service, staff, and location belong to this tenant and are active
       const [service, staff, location] = await Promise.all([
-        db.select().from(schema.services)
-          .where(and(
-            eq(schema.services.id, serviceId),
-            eq(schema.services.tenantId, tenantId)
-          ))
+        db
+          .select()
+          .from(schema.services)
+          .where(
+            and(
+              eq(schema.services.id, serviceId),
+              eq(schema.services.tenantId, tenantId),
+            ),
+          )
           .limit(1)
-          .then(rows => rows[0]),
-        db.select().from(schema.staffMembers)
-          .where(and(
-            eq(schema.staffMembers.id, staffId),
-            eq(schema.staffMembers.tenantId, tenantId)
-          ))
+          .then((rows) => rows[0]),
+        db
+          .select()
+          .from(schema.staffMembers)
+          .where(
+            and(
+              eq(schema.staffMembers.id, staffId),
+              eq(schema.staffMembers.tenantId, tenantId),
+            ),
+          )
           .limit(1)
-          .then(rows => rows[0]),
-        db.select().from(schema.locations)
-          .where(and(
-            eq(schema.locations.id, locationId),
-            eq(schema.locations.tenantId, tenantId)
-          ))
+          .then((rows) => rows[0]),
+        db
+          .select()
+          .from(schema.locations)
+          .where(
+            and(
+              eq(schema.locations.id, locationId),
+              eq(schema.locations.tenantId, tenantId),
+            ),
+          )
           .limit(1)
-          .then(rows => rows[0]),
+          .then((rows) => rows[0]),
       ]);
 
       if (!service || !service.isActive) {
         return res.status(400).json({ error: "Invalid or inactive service" });
       }
       if (!staff || !staff.isActive) {
-        return res.status(400).json({ error: "Invalid or inactive staff member" });
+        return res
+          .status(400)
+          .json({ error: "Invalid or inactive staff member" });
       }
       if (!location || !location.isActive) {
         return res.status(400).json({ error: "Invalid or inactive location" });
@@ -2838,7 +2892,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
     try {
       const { operatingHours, ...locationData } = req.body;
-      
+
       const [location] = await db
         .insert(schema.locations)
         .values({
@@ -2870,10 +2924,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
           operatingHours,
           updatedAt: new Date(),
         })
-        .where(and(
-          eq(schema.locations.id, id),
-          eq(schema.locations.tenantId, req.user.tenantId)
-        ))
+        .where(
+          and(
+            eq(schema.locations.id, id),
+            eq(schema.locations.tenantId, req.user.tenantId),
+          ),
+        )
         .returning();
 
       if (!location) {
@@ -2899,13 +2955,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
         where: and(
           eq(schema.appointments.locationId, locationId),
           gte(schema.appointments.startTime, new Date()),
-          ne(schema.appointments.status, "cancelled")
+          ne(schema.appointments.status, "cancelled"),
         ),
       });
 
       if (futureAppointments) {
         return res.status(400).json({
-          error: "No se puede eliminar: hay citas futuras en esta ubicación"
+          error: "No se puede eliminar: hay citas futuras en esta ubicación",
         });
       }
 
@@ -2916,7 +2972,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       const hasStaff = staffInLocation.some((staff: any) => {
         let schedules = staff.schedulesByLocation;
-        if (typeof schedules === 'string') {
+        if (typeof schedules === "string") {
           schedules = JSON.parse(schedules);
         }
         return schedules && Object.keys(schedules).includes(locationId);
@@ -2924,20 +2980,24 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       if (hasStaff) {
         return res.status(400).json({
-          error: "No se puede eliminar: hay personal asignado a esta ubicación"
+          error: "No se puede eliminar: hay personal asignado a esta ubicación",
         });
       }
 
       // Eliminar relaciones
-      await db.delete(schema.serviceLocations)
+      await db
+        .delete(schema.serviceLocations)
         .where(eq(schema.serviceLocations.locationId, locationId));
 
       // Eliminar ubicación
-      await db.delete(schema.locations)
-        .where(and(
-          eq(schema.locations.id, locationId),
-          eq(schema.locations.tenantId, req.user.tenantId)
-        ));
+      await db
+        .delete(schema.locations)
+        .where(
+          and(
+            eq(schema.locations.id, locationId),
+            eq(schema.locations.tenantId, req.user.tenantId),
+          ),
+        );
 
       res.json({ success: true });
     } catch (error: any) {
@@ -2960,7 +3020,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         .orderBy(schema.staffMembers.name);
 
       // Get staff services relations
-      const staffIds = staff.map(s => s.id);
+      const staffIds = staff.map((s) => s.id);
       let staffServices: any[] = [];
       if (staffIds.length > 0) {
         staffServices = await db
@@ -2972,8 +3032,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // CRÍTICO: Parsear schedulesByLocation de JSON con error handling
       const staffWithParsedSchedules = staff.map((s: any) => {
         let schedules = s.schedulesByLocation;
-        
-        if (typeof schedules === 'string') {
+
+        if (typeof schedules === "string") {
           try {
             schedules = JSON.parse(schedules);
           } catch (e) {
@@ -2985,8 +3045,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return {
           ...s,
           schedulesByLocation: schedules || {},
-          staffServices: staffServices.filter(ss => ss.staffId === s.id),
-          serviceIds: staffServices.filter(ss => ss.staffId === s.id).map(ss => ss.serviceId),
+          staffServices: staffServices.filter((ss) => ss.staffId === s.id),
+          serviceIds: staffServices
+            .filter((ss) => ss.staffId === s.id)
+            .map((ss) => ss.serviceId),
         };
       });
 
@@ -3003,8 +3065,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
 
     try {
-      const { schedulesByLocation, serviceIds, locationIds, ...staffData } = req.body;
-      
+      const { schedulesByLocation, serviceIds, locationIds, ...staffData } =
+        req.body;
+
       const [staff] = await db
         .insert(schema.staffMembers)
         .values({
@@ -3021,7 +3084,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
             staffId: staff.id,
             serviceId,
             tenantId: req.user.tenantId,
-          }))
+          })),
         );
       }
 
@@ -3038,7 +3101,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
     try {
       const { id } = req.params;
-      const { schedulesByLocation, serviceIds, locationIds, ...staffData } = req.body;
+      const { schedulesByLocation, serviceIds, locationIds, ...staffData } =
+        req.body;
 
       const [staff] = await db
         .update(schema.staffMembers)
@@ -3047,10 +3111,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
           schedulesByLocation,
           updatedAt: new Date(),
         })
-        .where(and(
-          eq(schema.staffMembers.id, id),
-          eq(schema.staffMembers.tenantId, req.user.tenantId)
-        ))
+        .where(
+          and(
+            eq(schema.staffMembers.id, id),
+            eq(schema.staffMembers.tenantId, req.user.tenantId),
+          ),
+        )
         .returning();
 
       if (!staff) {
@@ -3060,7 +3126,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Update staff-service relations
       if (serviceIds !== undefined) {
         // Delete existing relations
-        await db.delete(schema.staffServices)
+        await db
+          .delete(schema.staffServices)
           .where(eq(schema.staffServices.staffId, id));
 
         // Insert new relations
@@ -3070,7 +3137,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
               staffId: id,
               serviceId,
               tenantId: req.user.tenantId,
-            }))
+            })),
           );
         }
       }
@@ -3094,26 +3161,31 @@ export async function registerRoutes(app: Express): Promise<Server> {
         where: and(
           eq(schema.appointments.staffId, staffId),
           gte(schema.appointments.startTime, new Date()),
-          ne(schema.appointments.status, "cancelled")
+          ne(schema.appointments.status, "cancelled"),
         ),
       });
 
       if (futureAppointments) {
         return res.status(400).json({
-          error: "No se puede eliminar: este personal tiene citas futuras programadas"
+          error:
+            "No se puede eliminar: este personal tiene citas futuras programadas",
         });
       }
 
       // Eliminar relaciones
-      await db.delete(schema.staffServices)
+      await db
+        .delete(schema.staffServices)
         .where(eq(schema.staffServices.staffId, staffId));
 
       // Eliminar staff
-      await db.delete(schema.staffMembers)
-        .where(and(
-          eq(schema.staffMembers.id, staffId),
-          eq(schema.staffMembers.tenantId, req.user.tenantId)
-        ));
+      await db
+        .delete(schema.staffMembers)
+        .where(
+          and(
+            eq(schema.staffMembers.id, staffId),
+            eq(schema.staffMembers.tenantId, req.user.tenantId),
+          ),
+        );
 
       res.json({ success: true });
     } catch (error: any) {
@@ -3136,7 +3208,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         .orderBy(schema.services.name);
 
       // Get service locations relations
-      const serviceIds = services.map(s => s.id);
+      const serviceIds = services.map((s) => s.id);
       let serviceLocations: any[] = [];
       if (serviceIds.length > 0) {
         serviceLocations = await db
@@ -3146,9 +3218,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       // Attach locations to each service
-      const servicesWithLocations = services.map(service => ({
+      const servicesWithLocations = services.map((service) => ({
         ...service,
-        serviceLocations: serviceLocations.filter(sl => sl.serviceId === service.id),
+        serviceLocations: serviceLocations.filter(
+          (sl) => sl.serviceId === service.id,
+        ),
       }));
 
       res.json(servicesWithLocations);
@@ -3193,8 +3267,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
             tenantId: req.user.tenantId,
             serviceId: service.id,
             locationId,
-          })
-        )
+          }),
+        ),
       );
 
       console.log("🛎️ Service created:", service.id);
@@ -3220,10 +3294,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
           ...serviceData,
           updatedAt: new Date(),
         })
-        .where(and(
-          eq(schema.services.id, id),
-          eq(schema.services.tenantId, req.user.tenantId)
-        ))
+        .where(
+          and(
+            eq(schema.services.id, id),
+            eq(schema.services.tenantId, req.user.tenantId),
+          ),
+        )
         .returning();
 
       if (!service) {
@@ -3233,7 +3309,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Update service-location relations
       if (locationIds !== undefined) {
         // Delete existing relations
-        await db.delete(schema.serviceLocations)
+        await db
+          .delete(schema.serviceLocations)
           .where(eq(schema.serviceLocations.serviceId, id));
 
         // Insert new relations
@@ -3243,7 +3320,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
               serviceId: id,
               locationId,
               tenantId: req.user.tenantId,
-            }))
+            })),
           );
         }
       }
@@ -3267,29 +3344,35 @@ export async function registerRoutes(app: Express): Promise<Server> {
         where: and(
           eq(schema.appointments.serviceId, serviceId),
           gte(schema.appointments.startTime, new Date()),
-          ne(schema.appointments.status, "cancelled")
+          ne(schema.appointments.status, "cancelled"),
         ),
       });
 
       if (futureAppointments) {
         return res.status(400).json({
-          error: "No se puede eliminar: hay citas futuras programadas con este servicio"
+          error:
+            "No se puede eliminar: hay citas futuras programadas con este servicio",
         });
       }
 
       // Eliminar relaciones
-      await db.delete(schema.serviceLocations)
+      await db
+        .delete(schema.serviceLocations)
         .where(eq(schema.serviceLocations.serviceId, serviceId));
 
-      await db.delete(schema.staffServices)
+      await db
+        .delete(schema.staffServices)
         .where(eq(schema.staffServices.serviceId, serviceId));
 
       // Eliminar servicio
-      await db.delete(schema.services)
-        .where(and(
-          eq(schema.services.id, serviceId),
-          eq(schema.services.tenantId, req.user.tenantId)
-        ));
+      await db
+        .delete(schema.services)
+        .where(
+          and(
+            eq(schema.services.id, serviceId),
+            eq(schema.services.tenantId, req.user.tenantId),
+          ),
+        );
 
       res.json({ success: true });
     } catch (error: any) {
@@ -3317,10 +3400,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       const timezone = location.timezone || "Europe/Madrid";
-      
+
       // Calcular offset de timezone en minutos
       const getTimezoneOffset = (tz: string, date: Date): number => {
-        const utcDate = new Date(date.toLocaleString("en-US", { timeZone: "UTC" }));
+        const utcDate = new Date(
+          date.toLocaleString("en-US", { timeZone: "UTC" }),
+        );
         const tzDate = new Date(date.toLocaleString("en-US", { timeZone: tz }));
         return (tzDate.getTime() - utcDate.getTime()) / (1000 * 60);
       };
@@ -3363,15 +3448,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (dateStr.includes("T")) {
         dateStr = dateStr.split("T")[0];
       }
-      
+
       const [year, month, day] = dateStr.split("-").map(Number);
-      
+
       // Crear fecha a mediodía UTC para evitar problemas de zona horaria
-      const requestedDateUTC = new Date(Date.UTC(year, month - 1, day, 12, 0, 0));
+      const requestedDateUTC = new Date(
+        Date.UTC(year, month - 1, day, 12, 0, 0),
+      );
       const dayOfWeek = requestedDateUTC.getUTCDay();
 
-      console.log(`📅 Date: ${dateStr}, UTC Day: ${dayOfWeek}, Day name: ${['Dom','Lun','Mar','Mié','Jue','Vie','Sáb'][dayOfWeek]}`);
-      
+      console.log(
+        `📅 Date: ${dateStr}, UTC Day: ${dayOfWeek}, Day name: ${["Dom", "Lun", "Mar", "Mié", "Jue", "Vie", "Sáb"][dayOfWeek]}`,
+      );
+
       const daySchedule = locationSchedule[dayOfWeek];
 
       if (!daySchedule?.enabled || !daySchedule.blocks) {
@@ -3381,8 +3470,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Calcular offset para este día específico (maneja DST)
       const offsetMinutes = getTimezoneOffset(timezone, requestedDateUTC);
 
-      const startOfDayUTC = new Date(Date.UTC(year, month - 1, day, 0, 0, 0) - offsetMinutes * 60 * 1000);
-      const endOfDayUTC = new Date(Date.UTC(year, month - 1, day, 23, 59, 59, 999) - offsetMinutes * 60 * 1000);
+      const startOfDayUTC = new Date(
+        Date.UTC(year, month - 1, day, 0, 0, 0) - offsetMinutes * 60 * 1000,
+      );
+      const endOfDayUTC = new Date(
+        Date.UTC(year, month - 1, day, 23, 59, 59, 999) -
+          offsetMinutes * 60 * 1000,
+      );
 
       const existingAppointments = await db.query.appointments.findMany({
         where: and(
@@ -3390,7 +3484,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           eq(schema.appointments.locationId, locationId as string),
           gte(schema.appointments.startTime, startOfDayUTC),
           lte(schema.appointments.startTime, endOfDayUTC),
-          ne(schema.appointments.status, "cancelled")
+          ne(schema.appointments.status, "cancelled"),
         ),
       });
 
@@ -3402,19 +3496,28 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const [startH, startM] = block.start.split(":").map(Number);
         const [endH, endM] = block.end.split(":").map(Number);
 
-        // Crear horarios en UTC, compensando por timezone
-        // 09:00 Madrid (UTC+2) = 07:00 UTC
-        let currentTimeUTC = new Date(Date.UTC(year, month - 1, day, startH, startM, 0, 0));
-        currentTimeUTC = new Date(currentTimeUTC.getTime() - offsetMinutes * 60 * 1000);
+        // Los horarios están en hora LOCAL (Madrid)
+        // Para convertir a UTC: restar el offset
+        // Ejemplo: 15:00 Madrid (UTC+2) = 13:00 UTC
+        const localTime = new Date(year, month - 1, day, startH, startM, 0, 0);
+        let currentTimeUTC = new Date(
+          localTime.getTime() - offsetMinutes * 60 * 1000,
+        );
 
-        const blockEndUTC = new Date(Date.UTC(year, month - 1, day, endH, endM, 0, 0));
-        const blockEndUTCAdjusted = new Date(blockEndUTC.getTime() - offsetMinutes * 60 * 1000);
+        const localTimeEnd = new Date(year, month - 1, day, endH, endM, 0, 0);
+        const blockEndUTCAdjusted = new Date(
+          localTimeEnd.getTime() - offsetMinutes * 60 * 1000,
+        );
 
-        console.log(`🔍 Block ${startH}:${startM}-${endH}:${endM} → UTC: ${currentTimeUTC.toISOString()} - ${blockEndUTCAdjusted.toISOString()}`);
+        console.log(
+          `🔍 Block ${startH}:${startM}-${endH}:${endM} → UTC: ${currentTimeUTC.toISOString()} - ${blockEndUTCAdjusted.toISOString()}`,
+        );
 
         while (currentTimeUTC < blockEndUTCAdjusted) {
           const slotEndUTC = new Date(currentTimeUTC);
-          slotEndUTC.setUTCMinutes(slotEndUTC.getUTCMinutes() + serviceDuration);
+          slotEndUTC.setUTCMinutes(
+            slotEndUTC.getUTCMinutes() + serviceDuration,
+          );
 
           if (slotEndUTC <= blockEndUTCAdjusted) {
             const isFuture = currentTimeUTC.getTime() > nowUTC.getTime();
@@ -3437,7 +3540,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
             }
           }
 
-          currentTimeUTC.setUTCMinutes(currentTimeUTC.getUTCMinutes() + serviceDuration);
+          currentTimeUTC.setUTCMinutes(
+            currentTimeUTC.getUTCMinutes() + serviceDuration,
+          );
         }
       });
 
@@ -3451,7 +3556,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // ============================================================================
   // Authenticated appointments endpoints
   // ============================================================================
-  
+
   // Appointments endpoints
   app.get("/api/appointments", async (req, res) => {
     if (!req.isAuthenticated() || !req.user.tenantId) {
@@ -3460,9 +3565,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
     try {
       const { start, end, staffId, serviceId, status } = req.query;
-      
+
       let whereConditions = eq(schema.appointments.tenantId, req.user.tenantId);
-      
+
       // Build filter conditions
       const conditions = [whereConditions];
       if (staffId) {
@@ -3498,7 +3603,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     staffSchedule: any,
     dayOfWeek: number,
     startMinutes: number,
-    endMinutes: number
+    endMinutes: number,
   ): { valid: boolean; message?: string } => {
     const daySchedule = staffSchedule[dayOfWeek];
 
@@ -3534,7 +3639,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
   };
 
   // Función helper para validar horario de citas
-  const validateAppointmentTime = async (locationId: string, staffId: string, startTime: Date, endTime: Date) => {
+  const validateAppointmentTime = async (
+    locationId: string,
+    staffId: string,
+    startTime: Date,
+    endTime: Date,
+  ) => {
     // Validar horario de la ubicación
     const location = await db.query.locations.findFirst({
       where: eq(schema.locations.id, locationId),
@@ -3549,7 +3659,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
     const daySchedule = operatingHours?.[dayOfWeek];
 
     if (!daySchedule?.enabled) {
-      const dayNames = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+      const dayNames = [
+        "Sunday",
+        "Monday",
+        "Tuesday",
+        "Wednesday",
+        "Thursday",
+        "Friday",
+        "Saturday",
+      ];
       throw new Error(`This location is closed on ${dayNames[dayOfWeek]}`);
     }
 
@@ -3588,7 +3706,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       staffScheduleForLocation,
       dayOfWeek,
       startMinutes,
-      endMinutes
+      endMinutes,
     );
 
     if (!validation.valid) {
@@ -3605,19 +3723,26 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
     try {
       const validatedData = insertAppointmentSchema.parse(req.body) as any;
-      
+
       // Validate that startTime is not in the past
       const startTime = new Date(validatedData.startTime);
       const endTime = new Date(validatedData.endTime);
       if (startTime < new Date()) {
-        return res.status(400).json({ error: "Cannot create appointments in the past" });
+        return res
+          .status(400)
+          .json({ error: "Cannot create appointments in the past" });
       }
 
       // Validar horario de la ubicación y staff
       if (validatedData.locationId && validatedData.staffId) {
-        await validateAppointmentTime(validatedData.locationId, validatedData.staffId, startTime, endTime);
+        await validateAppointmentTime(
+          validatedData.locationId,
+          validatedData.staffId,
+          startTime,
+          endTime,
+        );
       }
-      
+
       const [appointment] = await db
         .insert(schema.appointments)
         .values({
@@ -3640,7 +3765,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const { id } = req.params;
       const validatedData = insertAppointmentSchema.partial().parse(req.body);
-      
+
       // Get the existing appointment
       const [existing] = await db
         .select()
@@ -3648,8 +3773,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         .where(
           and(
             eq(schema.appointments.id, id),
-            eq(schema.appointments.tenantId, req.user.tenantId)
-          )
+            eq(schema.appointments.tenantId, req.user.tenantId),
+          ),
         )
         .limit(1);
 
@@ -3660,29 +3785,41 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Only validate if startTime is being changed and the new time is in the past
       if (validatedData.startTime) {
         const newStartTime = new Date(validatedData.startTime);
-        const newEndTime = validatedData.endTime ? new Date(validatedData.endTime) : new Date(existing.endTime);
+        const newEndTime = validatedData.endTime
+          ? new Date(validatedData.endTime)
+          : new Date(existing.endTime);
         const existingStartTime = new Date(existing.startTime);
         const now = new Date();
-        
+
         // Only block if moving to a different past date
-        if (newStartTime.getTime() !== existingStartTime.getTime() && newStartTime < now) {
-          return res.status(400).json({ error: "Cannot move appointments to the past" });
+        if (
+          newStartTime.getTime() !== existingStartTime.getTime() &&
+          newStartTime < now
+        ) {
+          return res
+            .status(400)
+            .json({ error: "Cannot move appointments to the past" });
         }
 
         // Validar horario de la ubicación y staff si cambia el tiempo
         const locationId = validatedData.locationId || existing.locationId;
         const staffId = validatedData.staffId || existing.staffId;
-        await validateAppointmentTime(locationId, staffId, newStartTime, newEndTime);
+        await validateAppointmentTime(
+          locationId,
+          staffId,
+          newStartTime,
+          newEndTime,
+        );
       }
-      
+
       const [updated] = await db
         .update(schema.appointments)
         .set({ ...validatedData, updatedAt: new Date() })
         .where(
           and(
             eq(schema.appointments.id, id),
-            eq(schema.appointments.tenantId, req.user.tenantId)
-          )
+            eq(schema.appointments.tenantId, req.user.tenantId),
+          ),
         )
         .returning();
 
@@ -3708,8 +3845,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         .where(
           and(
             eq(schema.appointments.id, id),
-            eq(schema.appointments.tenantId, req.user.tenantId)
-          )
+            eq(schema.appointments.tenantId, req.user.tenantId),
+          ),
         );
 
       res.json({ success: true });
@@ -3726,10 +3863,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
     try {
       const { start, end } = req.query;
-      
+
       let whereConditions = eq(schema.appointments.tenantId, req.user.tenantId);
       const conditions = [whereConditions];
-      
+
       if (start) {
         conditions.push(sql`${schema.appointments.startTime} >= ${start}`);
       }
@@ -3744,11 +3881,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       const stats = {
         total: appointments.length,
-        pending: appointments.filter(a => a.status === 'pending').length,
-        confirmed: appointments.filter(a => a.status === 'confirmed').length,
-        completed: appointments.filter(a => a.status === 'completed').length,
-        cancelled: appointments.filter(a => a.status === 'cancelled').length,
-        noShow: appointments.filter(a => a.status === 'no_show').length,
+        pending: appointments.filter((a) => a.status === "pending").length,
+        confirmed: appointments.filter((a) => a.status === "confirmed").length,
+        completed: appointments.filter((a) => a.status === "completed").length,
+        cancelled: appointments.filter((a) => a.status === "cancelled").length,
+        noShow: appointments.filter((a) => a.status === "no_show").length,
       };
 
       res.json(stats);
@@ -3768,7 +3905,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const whereConditions = status
         ? and(
             eq(schema.waitlist.tenantId, req.user.tenantId),
-            eq(schema.waitlist.status, status as string)
+            eq(schema.waitlist.status, status as string),
           )
         : eq(schema.waitlist.tenantId, req.user.tenantId);
 
@@ -3819,8 +3956,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         .where(
           and(
             eq(schema.waitlist.id, id),
-            eq(schema.waitlist.tenantId, req.user.tenantId)
-          )
+            eq(schema.waitlist.tenantId, req.user.tenantId),
+          ),
         )
         .returning();
 
@@ -3846,8 +3983,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         .where(
           and(
             eq(schema.waitlist.id, id),
-            eq(schema.waitlist.tenantId, req.user.tenantId)
-          )
+            eq(schema.waitlist.tenantId, req.user.tenantId),
+          ),
         );
 
       res.json({ success: true });
@@ -3864,14 +4001,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
     try {
       const { type, channel } = req.query;
-      let whereConditions = eq(schema.notificationTemplates.tenantId, req.user.tenantId);
-      
+      let whereConditions = eq(
+        schema.notificationTemplates.tenantId,
+        req.user.tenantId,
+      );
+
       const conditions = [whereConditions];
       if (type) {
         conditions.push(eq(schema.notificationTemplates.type, type as string));
       }
       if (channel) {
-        conditions.push(eq(schema.notificationTemplates.channel, channel as string));
+        conditions.push(
+          eq(schema.notificationTemplates.channel, channel as string),
+        );
       }
 
       const templates = await db
@@ -3914,20 +4056,24 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
     try {
       const { id } = req.params;
-      const validatedData = insertNotificationTemplateSchema.partial().parse(req.body);
+      const validatedData = insertNotificationTemplateSchema
+        .partial()
+        .parse(req.body);
       const [updated] = await db
         .update(schema.notificationTemplates)
         .set({ ...validatedData, updatedAt: new Date() })
         .where(
           and(
             eq(schema.notificationTemplates.id, id),
-            eq(schema.notificationTemplates.tenantId, req.user.tenantId)
-          )
+            eq(schema.notificationTemplates.tenantId, req.user.tenantId),
+          ),
         )
         .returning();
 
       if (!updated) {
-        return res.status(404).json({ error: "Notification template not found" });
+        return res
+          .status(404)
+          .json({ error: "Notification template not found" });
       }
 
       res.json(updated);
@@ -3948,8 +4094,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         .where(
           and(
             eq(schema.notificationTemplates.id, id),
-            eq(schema.notificationTemplates.tenantId, req.user.tenantId)
-          )
+            eq(schema.notificationTemplates.tenantId, req.user.tenantId),
+          ),
         );
 
       res.json({ success: true });
