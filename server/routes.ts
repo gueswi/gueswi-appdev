@@ -3286,14 +3286,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(404).json({ error: "Staff not found" });
       }
 
-      // Parsear schedulesByLocation robustamente
       let schedules = staff.schedulesByLocation;
-      
-      if (!schedules) {
-        return res.json({ slots: [] });
-      }
-
-      // Si es string, parsear
       if (typeof schedules === "string") {
         try {
           schedules = JSON.parse(schedules);
@@ -3302,25 +3295,35 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
       }
 
+      if (!schedules) {
+        return res.json({ slots: [] });
+      }
+
       const locationSchedule = schedules[locationId as string];
-      
       if (!locationSchedule) {
         return res.json({ slots: [] });
       }
 
-      const requestedDate = new Date(date as string);
+      // Extract date portion from ISO timestamp (YYYY-MM-DD) or use as-is
+      const dateStr = (date as string).substring(0, 10);
+      const [year, month, day] = dateStr.split("-").map(Number);
+      
+      // Validate parsed date components
+      if (isNaN(year) || isNaN(month) || isNaN(day)) {
+        return res.status(400).json({ error: "Invalid date format. Expected YYYY-MM-DD or ISO timestamp" });
+      }
+      
+      const requestedDate = new Date(year, month - 1, day, 12, 0, 0, 0);
       const dayOfWeek = requestedDate.getDay();
+      
       const daySchedule = locationSchedule[dayOfWeek];
 
       if (!daySchedule?.enabled || !daySchedule.blocks) {
         return res.json({ slots: [] });
       }
 
-      // Obtener citas existentes
-      const startOfDay = new Date(requestedDate);
-      startOfDay.setHours(0, 0, 0, 0);
-      const endOfDay = new Date(requestedDate);
-      endOfDay.setHours(23, 59, 59, 999);
+      const startOfDay = new Date(year, month - 1, day, 0, 0, 0, 0);
+      const endOfDay = new Date(year, month - 1, day, 23, 59, 59, 999);
 
       const existingAppointments = await db.query.appointments.findMany({
         where: and(
@@ -3332,7 +3335,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
         ),
       });
 
-      // Generar slots
       const slots: any[] = [];
       const serviceDuration = service.duration;
       const now = new Date();
@@ -3341,23 +3343,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const [startH, startM] = block.start.split(":").map(Number);
         const [endH, endM] = block.end.split(":").map(Number);
 
-        let currentTime = new Date(requestedDate);
-        currentTime.setHours(startH, startM, 0, 0);
+        let currentTime = new Date(year, month - 1, day, startH, startM, 0, 0);
+        const blockEnd = new Date(year, month - 1, day, endH, endM, 0, 0);
 
-        const blockEnd = new Date(requestedDate);
-        blockEnd.setHours(endH, endM, 0, 0);
-
-        // Generar slots con INTERVALO = DURACIÓN DEL SERVICIO
         while (currentTime < blockEnd) {
           const slotEnd = new Date(currentTime);
           slotEnd.setMinutes(slotEnd.getMinutes() + serviceDuration);
 
-          // El slot completo debe caber en el bloque
           if (slotEnd <= blockEnd) {
-            // CRÍTICO: Comparar con margen de 1 minuto para slots de hoy
-            const isFuture = currentTime.getTime() >= now.getTime() - 60000;
+            const isFuture = currentTime.getTime() >= (now.getTime() - 120000);
 
-            // Verificar si está ocupado
             const isOccupied = existingAppointments.some((apt) => {
               const aptStart = new Date(apt.startTime);
               const aptEnd = new Date(apt.endTime);
@@ -3376,7 +3371,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
             }
           }
 
-          // CRÍTICO: Avanzar según la DURACIÓN DEL SERVICIO
           currentTime.setMinutes(currentTime.getMinutes() + serviceDuration);
         }
       });

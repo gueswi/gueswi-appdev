@@ -1,0 +1,117 @@
+# CORRECCIÓN INMEDIATA: Generación de slots correcta
+
+En `server/routes.ts`, **REEMPLAZAR** el endpoint `/api/calendar/available-slots`:
+```typescript
+app.get("/api/calendar/available-slots", async (req, res) => {
+  try {
+    const { serviceId, staffId, date, locationId } = req.query;
+
+    if (!serviceId || !staffId || !date || !locationId) {
+      return res.status(400).json({ error: "Missing parameters" });
+    }
+
+    const service = await db.query.services.findFirst({
+      where: eq(schema.services.id, serviceId as string),
+    });
+
+    if (!service) {
+      return res.status(404).json({ error: "Service not found" });
+    }
+
+    const staff = await db.query.staffMembers.findFirst({
+      where: eq(schema.staffMembers.id, staffId as string),
+    });
+
+    if (!staff) {
+      return res.status(404).json({ error: "Staff not found" });
+    }
+
+    let schedules = staff.schedulesByLocation;
+    if (typeof schedules === "string") {
+      try {
+        schedules = JSON.parse(schedules);
+      } catch {
+        return res.json({ slots: [] });
+      }
+    }
+
+    if (!schedules) {
+      return res.json({ slots: [] });
+    }
+
+    const locationSchedule = schedules[locationId as string];
+    if (!locationSchedule) {
+      return res.json({ slots: [] });
+    }
+
+    const dateStr = date as string;
+    const [year, month, day] = dateStr.split("-").map(Number);
+    
+    const requestedDate = new Date(year, month - 1, day, 12, 0, 0, 0);
+    const dayOfWeek = requestedDate.getDay();
+    
+    const daySchedule = locationSchedule[dayOfWeek];
+
+    if (!daySchedule?.enabled || !daySchedule.blocks) {
+      return res.json({ slots: [] });
+    }
+
+    const startOfDay = new Date(year, month - 1, day, 0, 0, 0, 0);
+    const endOfDay = new Date(year, month - 1, day, 23, 59, 59, 999);
+
+    const existingAppointments = await db.query.appointments.findMany({
+      where: and(
+        eq(schema.appointments.staffId, staffId as string),
+        eq(schema.appointments.locationId, locationId as string),
+        gte(schema.appointments.startTime, startOfDay),
+        lte(schema.appointments.startTime, endOfDay),
+        ne(schema.appointments.status, "cancelled")
+      ),
+    });
+
+    const slots: any[] = [];
+    const serviceDuration = service.duration;
+    const now = new Date();
+
+    daySchedule.blocks.forEach((block: any) => {
+      const [startH, startM] = block.start.split(":").map(Number);
+      const [endH, endM] = block.end.split(":").map(Number);
+
+      let currentTime = new Date(year, month - 1, day, startH, startM, 0, 0);
+      const blockEnd = new Date(year, month - 1, day, endH, endM, 0, 0);
+
+      while (currentTime < blockEnd) {
+        const slotEnd = new Date(currentTime);
+        slotEnd.setMinutes(slotEnd.getMinutes() + serviceDuration);
+
+        if (slotEnd <= blockEnd) {
+          const isFuture = currentTime.getTime() >= (now.getTime() - 120000);
+
+          const isOccupied = existingAppointments.some((apt) => {
+            const aptStart = new Date(apt.startTime);
+            const aptEnd = new Date(apt.endTime);
+            return (
+              (currentTime >= aptStart && currentTime < aptEnd) ||
+              (slotEnd > aptStart && slotEnd <= aptEnd) ||
+              (currentTime <= aptStart && slotEnd >= aptEnd)
+            );
+          });
+
+          if (isFuture && !isOccupied) {
+            slots.push({
+              startTime: currentTime.toISOString(),
+              endTime: slotEnd.toISOString(),
+            });
+          }
+        }
+
+        currentTime.setMinutes(currentTime.getMinutes() + serviceDuration);
+      }
+    });
+
+    res.json({ slots });
+  } catch (error: any) {
+    console.error("❌ Slots error:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
