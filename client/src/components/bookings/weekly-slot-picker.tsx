@@ -145,7 +145,14 @@ export function WeeklySlotPicker({
   // Obtener slots reales desde el backend para el día seleccionado
   const selectedDay =
     selectedDayIndex !== null ? weekDays[selectedDayIndex] : null;
-
+  console.log(
+    "🔍 Selected day object:",
+    selectedDay,
+    "ISO:",
+    selectedDay?.toISOString(),
+    "Formatted:",
+    selectedDay?.toISOString().split("T")[0],
+  );
   const { data: slotsData } = useQuery<{ slots: any[] }>({
     queryKey: [
       "/api/calendar/available-slots",
