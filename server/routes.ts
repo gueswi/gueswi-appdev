@@ -3334,6 +3334,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       // Generar slots
       const slots: any[] = [];
+      const serviceDuration = service.duration;
       const now = new Date();
 
       daySchedule.blocks.forEach((block: any) => {
@@ -3346,11 +3347,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const blockEnd = new Date(requestedDate);
         blockEnd.setHours(endH, endM, 0, 0);
 
+        // Generar slots con INTERVALO = DURACIÓN DEL SERVICIO
         while (currentTime < blockEnd) {
           const slotEnd = new Date(currentTime);
-          slotEnd.setMinutes(slotEnd.getMinutes() + service.duration);
+          slotEnd.setMinutes(slotEnd.getMinutes() + serviceDuration);
 
-          if (slotEnd <= blockEnd && currentTime > now) {
+          // El slot completo debe caber en el bloque
+          if (slotEnd <= blockEnd) {
+            // CRÍTICO: Comparar con margen de 1 minuto para slots de hoy
+            const isFuture = currentTime.getTime() >= now.getTime() - 60000;
+
+            // Verificar si está ocupado
             const isOccupied = existingAppointments.some((apt) => {
               const aptStart = new Date(apt.startTime);
               const aptEnd = new Date(apt.endTime);
@@ -3361,7 +3368,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
               );
             });
 
-            if (!isOccupied) {
+            if (isFuture && !isOccupied) {
               slots.push({
                 startTime: currentTime.toISOString(),
                 endTime: slotEnd.toISOString(),
@@ -3369,7 +3376,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
             }
           }
 
-          currentTime.setMinutes(currentTime.getMinutes() + 30);
+          // CRÍTICO: Avanzar según la DURACIÓN DEL SERVICIO
+          currentTime.setMinutes(currentTime.getMinutes() + serviceDuration);
         }
       });
 

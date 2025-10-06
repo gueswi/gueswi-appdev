@@ -1,0 +1,136 @@
+# CORRECCIÓN DEFINITIVA: Generación de slots basada en duración de servicio
+
+## BUGS A CORREGIR
+
+1. **Día actual no muestra slots**: La comparación `currentTime > now` falla para slots de hoy
+2. **Slots incorrectos**: Se generan cada 30min fijos, deben generarse según duración del servicio
+
+---
+
+## SOLUCIÓN COMPLETA
+
+En `server/routes.ts`, **REEMPLAZAR COMPLETAMENTE** el endpoint `/api/calendar/available-slots`:
+```typescript
+app.get("/api/calendar/available-slots", async (req, res) => {
+  try {
+    const { serviceId, staffId, date, locationId } = req.query;
+
+    if (!serviceId || !staffId || !date || !locationId) {
+      return res.status(400).json({ error: "Missing parameters" });
+    }
+
+    const service = await db.query.services.findFirst({
+      where: eq(schema.services.id, serviceId as string),
+    });
+
+    if (!service) {
+      return res.status(404).json({ error: "Service not found" });
+    }
+
+    const staff = await db.query.staffMembers.findFirst({
+      where: eq(schema.staffMembers.id, staffId as string),
+    });
+
+    if (!staff) {
+      return res.status(404).json({ error: "Staff not found" });
+    }
+
+    // Parsear schedulesByLocation
+    let schedules = staff.schedulesByLocation;
+    if (typeof schedules === "string") {
+      try {
+        schedules = JSON.parse(schedules);
+      } catch {
+        return res.json({ slots: [] });
+      }
+    }
+
+    if (!schedules) {
+      return res.json({ slots: [] });
+    }
+
+    const locationSchedule = schedules[locationId as string];
+    if (!locationSchedule) {
+      return res.json({ slots: [] });
+    }
+
+    // Parsear fecha solicitada
+    const requestedDate = new Date(date as string + "T00:00:00");
+    const dayOfWeek = requestedDate.getDay();
+    const daySchedule = locationSchedule[dayOfWeek];
+
+    if (!daySchedule?.enabled || !daySchedule.blocks) {
+      return res.json({ slots: [] });
+    }
+
+    // Obtener citas existentes
+    const startOfDay = new Date(requestedDate);
+    startOfDay.setHours(0, 0, 0, 0);
+    const endOfDay = new Date(requestedDate);
+    endOfDay.setHours(23, 59, 59, 999);
+
+    const existingAppointments = await db.query.appointments.findMany({
+      where: and(
+        eq(schema.appointments.staffId, staffId as string),
+        eq(schema.appointments.locationId, locationId as string),
+        gte(schema.appointments.startTime, startOfDay),
+        lte(schema.appointments.startTime, endOfDay),
+        ne(schema.appointments.status, "cancelled")
+      ),
+    });
+
+    // Generar slots
+    const slots: any[] = [];
+    const serviceDuration = service.duration; // Duración del servicio
+    const now = new Date();
+
+    daySchedule.blocks.forEach((block: any) => {
+      const [startH, startM] = block.start.split(":").map(Number);
+      const [endH, endM] = block.end.split(":").map(Number);
+
+      let currentTime = new Date(requestedDate);
+      currentTime.setHours(startH, startM, 0, 0);
+
+      const blockEnd = new Date(requestedDate);
+      blockEnd.setHours(endH, endM, 0, 0);
+
+      // Generar slots con INTERVALO = DURACIÓN DEL SERVICIO
+      while (currentTime < blockEnd) {
+        const slotEnd = new Date(currentTime);
+        slotEnd.setMinutes(slotEnd.getMinutes() + serviceDuration);
+
+        // El slot completo debe caber en el bloque
+        if (slotEnd <= blockEnd) {
+          // CRÍTICO: Comparar minutos, no milisegundos
+          const isFuture = currentTime.getTime() >= now.getTime() - 60000; // Margen de 1 minuto
+
+          // Verificar si está ocupado
+          const isOccupied = existingAppointments.some((apt) => {
+            const aptStart = new Date(apt.startTime);
+            const aptEnd = new Date(apt.endTime);
+            return (
+              (currentTime >= aptStart && currentTime < aptEnd) ||
+              (slotEnd > aptStart && slotEnd <= aptEnd) ||
+              (currentTime <= aptStart && slotEnd >= aptEnd)
+            );
+          });
+
+          if (isFuture && !isOccupied) {
+            slots.push({
+              startTime: currentTime.toISOString(),
+              endTime: slotEnd.toISOString(),
+            });
+          }
+        }
+
+        // CRÍTICO: Avanzar según la DURACIÓN DEL SERVICIO, no 30min fijo
+        currentTime.setMinutes(currentTime.getMinutes() + serviceDuration);
+      }
+    });
+
+    res.json({ slots });
+  } catch (error: any) {
+    console.error("❌ Slots error:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
