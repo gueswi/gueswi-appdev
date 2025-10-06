@@ -3304,17 +3304,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.json({ slots: [] });
       }
 
-      // Extract date portion from ISO timestamp (YYYY-MM-DD) or use as-is
+      // CRÍTICO: Parsear fecha asumiendo zona horaria de Madrid (UTC+2)
+      // Extraer porción de fecha de ISO timestamp (YYYY-MM-DD) o usar como está
       const dateStr = (date as string).substring(0, 10);
       const [year, month, day] = dateStr.split("-").map(Number);
       
-      // Validate parsed date components
+      // Validar componentes de fecha parseados
       if (isNaN(year) || isNaN(month) || isNaN(day)) {
         return res.status(400).json({ error: "Invalid date format. Expected YYYY-MM-DD or ISO timestamp" });
       }
       
-      const requestedDate = new Date(year, month - 1, day, 12, 0, 0, 0);
-      const dayOfWeek = requestedDate.getDay();
+      // Offset de Madrid: +2 horas en horario de verano (CEST)
+      // Esto debería venir de la ubicación, pero por ahora hardcodeamos
+      const MADRID_OFFSET_HOURS = 2;
+      
+      // Crear fecha en UTC ajustada a Madrid
+      const requestedDateUTC = new Date(Date.UTC(year, month - 1, day, 12, 0, 0));
+      const dayOfWeek = requestedDateUTC.getUTCDay();
       
       const daySchedule = locationSchedule[dayOfWeek];
 
@@ -3322,56 +3328,77 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.json({ slots: [] });
       }
 
-      const startOfDay = new Date(year, month - 1, day, 0, 0, 0, 0);
-      const endOfDay = new Date(year, month - 1, day, 23, 59, 59, 999);
+      // Rango del día en UTC
+      const startOfDayUTC = new Date(Date.UTC(year, month - 1, day, 0, 0, 0));
+      const endOfDayUTC = new Date(Date.UTC(year, month - 1, day, 23, 59, 59, 999));
 
       const existingAppointments = await db.query.appointments.findMany({
         where: and(
           eq(schema.appointments.staffId, staffId as string),
           eq(schema.appointments.locationId, locationId as string),
-          gte(schema.appointments.startTime, startOfDay),
-          lte(schema.appointments.startTime, endOfDay),
+          gte(schema.appointments.startTime, startOfDayUTC),
+          lte(schema.appointments.startTime, endOfDayUTC),
           ne(schema.appointments.status, "cancelled")
         ),
       });
 
       const slots: any[] = [];
       const serviceDuration = service.duration;
-      const now = new Date();
+      const nowUTC = new Date();
 
       daySchedule.blocks.forEach((block: any) => {
         const [startH, startM] = block.start.split(":").map(Number);
         const [endH, endM] = block.end.split(":").map(Number);
 
-        let currentTime = new Date(year, month - 1, day, startH, startM, 0, 0);
-        const blockEnd = new Date(year, month - 1, day, endH, endM, 0, 0);
+        // CRÍTICO: Convertir horarios de Madrid a UTC
+        // 09:00 Madrid = 07:00 UTC (restar offset)
+        let currentTimeUTC = new Date(Date.UTC(
+          year, 
+          month - 1, 
+          day, 
+          startH - MADRID_OFFSET_HOURS, 
+          startM, 
+          0, 
+          0
+        ));
+        
+        const blockEndUTC = new Date(Date.UTC(
+          year, 
+          month - 1, 
+          day, 
+          endH - MADRID_OFFSET_HOURS, 
+          endM, 
+          0, 
+          0
+        ));
 
-        while (currentTime < blockEnd) {
-          const slotEnd = new Date(currentTime);
-          slotEnd.setMinutes(slotEnd.getMinutes() + serviceDuration);
+        while (currentTimeUTC < blockEndUTC) {
+          const slotEndUTC = new Date(currentTimeUTC);
+          slotEndUTC.setUTCMinutes(slotEndUTC.getUTCMinutes() + serviceDuration);
 
-          if (slotEnd <= blockEnd) {
-            const isFuture = currentTime.getTime() >= (now.getTime() - 120000);
+          if (slotEndUTC <= blockEndUTC) {
+            // Comparar en UTC
+            const isFuture = currentTimeUTC.getTime() >= (nowUTC.getTime() - 120000);
 
             const isOccupied = existingAppointments.some((apt) => {
               const aptStart = new Date(apt.startTime);
               const aptEnd = new Date(apt.endTime);
               return (
-                (currentTime >= aptStart && currentTime < aptEnd) ||
-                (slotEnd > aptStart && slotEnd <= aptEnd) ||
-                (currentTime <= aptStart && slotEnd >= aptEnd)
+                (currentTimeUTC >= aptStart && currentTimeUTC < aptEnd) ||
+                (slotEndUTC > aptStart && slotEndUTC <= aptEnd) ||
+                (currentTimeUTC <= aptStart && slotEndUTC >= aptEnd)
               );
             });
 
             if (isFuture && !isOccupied) {
               slots.push({
-                startTime: currentTime.toISOString(),
-                endTime: slotEnd.toISOString(),
+                startTime: currentTimeUTC.toISOString(),
+                endTime: slotEndUTC.toISOString(),
               });
             }
           }
 
-          currentTime.setMinutes(currentTime.getMinutes() + serviceDuration);
+          currentTimeUTC.setUTCMinutes(currentTimeUTC.getUTCMinutes() + serviceDuration);
         }
       });
 
