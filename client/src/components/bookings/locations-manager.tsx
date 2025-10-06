@@ -6,6 +6,7 @@ import { Switch } from "@/components/ui/switch";
 import { Card } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
@@ -22,6 +23,22 @@ interface DaySchedule {
 
 const DAYS = ["Domingo", "Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado"];
 
+const TIMEZONES = [
+  { value: "Europe/Madrid", label: "España (Madrid, Barcelona)" },
+  { value: "Atlantic/Canary", label: "España (Canarias)" },
+  { value: "America/New_York", label: "USA (Nueva York, Miami)" },
+  { value: "America/Los_Angeles", label: "USA (Los Ángeles)" },
+  { value: "America/Chicago", label: "USA (Chicago)" },
+  { value: "America/Caracas", label: "Venezuela (Caracas)" },
+  { value: "America/Mexico_City", label: "México" },
+  { value: "America/Bogota", label: "Colombia" },
+  { value: "America/Lima", label: "Perú" },
+  { value: "America/Argentina/Buenos_Aires", label: "Argentina" },
+  { value: "Europe/London", label: "Reino Unido" },
+  { value: "Europe/Paris", label: "Francia" },
+  { value: "Asia/Tokyo", label: "Japón" },
+];
+
 export default function LocationsManager() {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingLocation, setEditingLocation] = useState<any>(null);
@@ -35,6 +52,7 @@ export default function LocationsManager() {
     city: "",
     phone: "",
     email: "",
+    timezone: "Europe/Madrid",
   });
 
   const [operatingHours, setOperatingHours] = useState<Record<number, DaySchedule>>({
@@ -106,11 +124,12 @@ export default function LocationsManager() {
         city: location.city || "",
         phone: location.phone || "",
         email: location.email || "",
+        timezone: location.timezone || "Europe/Madrid",
       });
       setOperatingHours(location.operatingHours || getDefaultHours());
     } else {
       setEditingLocation(null);
-      setFormData({ name: "", address: "", city: "", phone: "", email: "" });
+      setFormData({ name: "", address: "", city: "", phone: "", email: "", timezone: "Europe/Madrid" });
       setOperatingHours(getDefaultHours());
     }
     setDialogOpen(true);
@@ -247,7 +266,6 @@ export default function LocationsManager() {
     saveMutation.mutate({
       ...formData,
       operatingHours,
-      timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
     });
   };
 
@@ -337,6 +355,35 @@ export default function LocationsManager() {
                   placeholder="contacto@ubicacion.com"
                   data-testid="input-location-email"
                 />
+              </div>
+              <div className="col-span-2">
+                <label className="block text-sm font-medium mb-2">Zona Horaria *</label>
+                <Select
+                  value={formData.timezone || "Europe/Madrid"}
+                  onValueChange={(value) => setFormData({ ...formData, timezone: value })}
+                >
+                  <SelectTrigger data-testid="select-timezone">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent className="max-h-[300px]">
+                    {TIMEZONES.map((tz) => (
+                      <SelectItem key={tz.value} value={tz.value}>
+                        {tz.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                
+                {formData.timezone && (
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Hora actual: {new Date().toLocaleString("es", {
+                      timeZone: formData.timezone,
+                      hour: "2-digit",
+                      minute: "2-digit",
+                      timeZoneName: "short"
+                    })}
+                  </p>
+                )}
               </div>
             </div>
 

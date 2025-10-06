@@ -416,7 +416,7 @@ export const locations = pgTable("locations", {
   state: text("state"),
   country: text("country"),
   postalCode: text("postal_code"),
-  timezone: text("timezone").notNull().default("UTC"),
+  timezone: text("timezone").notNull().default("Europe/Madrid"),
   phone: text("phone"),
   email: text("email"),
   operatingHours: jsonb("operating_hours"),

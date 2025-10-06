@@ -1,0 +1,229 @@
+Sistema de Timezone por Ubicación
+markdown# IMPLEMENTACIÓN COMPLETA: Timezone por ubicación
+
+Implementar sistema de zona horaria configurable por ubicación para manejar correctamente horarios en diferentes regiones.
+
+---
+
+## PASO 1: Migración de base de datos
+
+En `db/schema.ts`, modificar la tabla `locations`:
+```typescript
+export const locations = pgTable("locations", {
+  id: text("id").primaryKey(),
+  tenantId: text("tenant_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+  address: text("address"),
+  city: text("city"),
+  phone: text("phone"),
+  email: text("email"),
+  timezone: text("timezone").notNull().default("Europe/Madrid"),
+  operatingHours: json("operating_hours").$type<OperatingHours>().default(defaultOperatingHours),
+  isActive: boolean("is_active").default(true),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+Ejecutar migración:
+bashnpm run db:push
+Actualizar ubicaciones existentes:
+sqlUPDATE locations SET timezone = 'Europe/Madrid' WHERE timezone IS NULL;
+
+PASO 2: Frontend - Selector de timezone
+En client/src/components/bookings/locations-manager.tsx, agregar selector:
+typescript// Lista de zonas horarias
+const TIMEZONES = [
+  { value: "Europe/Madrid", label: "España (Madrid, Barcelona)" },
+  { value: "Atlantic/Canary", label: "España (Canarias)" },
+  { value: "America/New_York", label: "USA (Nueva York, Miami)" },
+  { value: "America/Los_Angeles", label: "USA (Los Ángeles)" },
+  { value: "America/Chicago", label: "USA (Chicago)" },
+  { value: "America/Caracas", label: "Venezuela (Caracas)" },
+  { value: "America/Mexico_City", label: "México" },
+  { value: "America/Bogota", label: "Colombia" },
+  { value: "America/Lima", label: "Perú" },
+  { value: "America/Argentina/Buenos_Aires", label: "Argentina" },
+  { value: "Europe/London", label: "Reino Unido" },
+  { value: "Europe/Paris", label: "Francia" },
+  { value: "Asia/Tokyo", label: "Japón" },
+];
+
+// En el formulario, después del campo Email:
+<div>
+  <Label>Zona Horaria *</Label>
+  <Select
+    value={formData.timezone || "Europe/Madrid"}
+    onValueChange={(value) => setFormData({ ...formData, timezone: value })}
+  >
+    <SelectTrigger>
+      <SelectValue />
+    </SelectTrigger>
+    <SelectContent className="max-h-[300px]">
+      {TIMEZONES.map((tz) => (
+        <SelectItem key={tz.value} value={tz.value}>
+          {tz.label}
+        </SelectItem>
+      ))}
+    </SelectContent>
+  </Select>
+  
+  {formData.timezone && (
+    <p className="text-xs text-gray-600 mt-1">
+      Hora actual: {new Date().toLocaleString("es", {
+        timeZone: formData.timezone,
+        hour: "2-digit",
+        minute: "2-digit",
+        timeZoneName: "short"
+      })}
+    </p>
+  )}
+</div>
+
+PASO 3: Backend - Usar timezone en generación de slots
+En server/routes.ts, REEMPLAZAR /api/calendar/available-slots:
+typescriptapp.get("/api/calendar/available-slots", async (req, res) => {
+  try {
+    const { serviceId, staffId, date, locationId } = req.query;
+
+    if (!serviceId || !staffId || !date || !locationId) {
+      return res.status(400).json({ error: "Missing parameters" });
+    }
+
+    // Obtener ubicación para timezone
+    const location = await db.query.locations.findFirst({
+      where: eq(schema.locations.id, locationId as string),
+    });
+
+    if (!location) {
+      return res.status(404).json({ error: "Location not found" });
+    }
+
+    const timezone = location.timezone || "Europe/Madrid";
+    
+    // Calcular offset de timezone en minutos
+    const getTimezoneOffset = (tz: string, date: Date): number => {
+      const utcDate = new Date(date.toLocaleString("en-US", { timeZone: "UTC" }));
+      const tzDate = new Date(date.toLocaleString("en-US", { timeZone: tz }));
+      return (tzDate.getTime() - utcDate.getTime()) / (1000 * 60);
+    };
+
+    const service = await db.query.services.findFirst({
+      where: eq(schema.services.id, serviceId as string),
+    });
+
+    if (!service) {
+      return res.status(404).json({ error: "Service not found" });
+    }
+
+    const staff = await db.query.staffMembers.findFirst({
+      where: eq(schema.staffMembers.id, staffId as string),
+    });
+
+    if (!staff) {
+      return res.status(404).json({ error: "Staff not found" });
+    }
+
+    let schedules = staff.schedulesByLocation;
+    if (typeof schedules === "string") {
+      try {
+        schedules = JSON.parse(schedules);
+      } catch {
+        return res.json({ slots: [] });
+      }
+    }
+
+    if (!schedules) {
+      return res.json({ slots: [] });
+    }
+
+    const locationSchedule = schedules[locationId as string];
+    if (!locationSchedule) {
+      return res.json({ slots: [] });
+    }
+
+    let dateStr = date as string;
+    if (dateStr.includes("T")) {
+      dateStr = dateStr.split("T")[0];
+    }
+    
+    const [year, month, day] = dateStr.split("-").map(Number);
+    
+    // Crear fecha en la timezone de la ubicación
+    const requestedDateInTz = new Date(
+      new Date(year, month - 1, day, 12, 0, 0).toLocaleString("en-US", { timeZone: timezone })
+    );
+    const dayOfWeek = requestedDateInTz.getDay();
+    
+    const daySchedule = locationSchedule[dayOfWeek];
+
+    if (!daySchedule?.enabled || !daySchedule.blocks) {
+      return res.json({ slots: [] });
+    }
+
+    // Calcular offset para este día específico (maneja DST)
+    const offsetMinutes = getTimezoneOffset(timezone, requestedDateInTz);
+
+    const startOfDayUTC = new Date(Date.UTC(year, month - 1, day, 0, 0, 0) - offsetMinutes * 60 * 1000);
+    const endOfDayUTC = new Date(Date.UTC(year, month - 1, day, 23, 59, 59, 999) - offsetMinutes * 60 * 1000);
+
+    const existingAppointments = await db.query.appointments.findMany({
+      where: and(
+        eq(schema.appointments.staffId, staffId as string),
+        eq(schema.appointments.locationId, locationId as string),
+        gte(schema.appointments.startTime, startOfDayUTC),
+        lte(schema.appointments.startTime, endOfDayUTC),
+        ne(schema.appointments.status, "cancelled")
+      ),
+    });
+
+    const slots: any[] = [];
+    const serviceDuration = service.duration;
+    const nowUTC = new Date();
+
+    daySchedule.blocks.forEach((block: any) => {
+      const [startH, startM] = block.start.split(":").map(Number);
+      const [endH, endM] = block.end.split(":").map(Number);
+
+      // Crear horarios en timezone local y convertir a UTC
+      let currentTimeUTC = new Date(
+        Date.UTC(year, month - 1, day, startH, startM, 0, 0) - offsetMinutes * 60 * 1000
+      );
+      
+      const blockEndUTC = new Date(
+        Date.UTC(year, month - 1, day, endH, endM, 0, 0) - offsetMinutes * 60 * 1000
+      );
+
+      while (currentTimeUTC < blockEndUTC) {
+        const slotEndUTC = new Date(currentTimeUTC);
+        slotEndUTC.setUTCMinutes(slotEndUTC.getUTCMinutes() + serviceDuration);
+
+        if (slotEndUTC <= blockEndUTC) {
+          const isFuture = currentTimeUTC.getTime() > nowUTC.getTime();
+
+          const isOccupied = existingAppointments.some((apt) => {
+            const aptStart = new Date(apt.startTime);
+            const aptEnd = new Date(apt.endTime);
+            return (
+              (currentTimeUTC >= aptStart && currentTimeUTC < aptEnd) ||
+              (slotEndUTC > aptStart && slotEndUTC <= aptEnd) ||
+              (currentTimeUTC <= aptStart && slotEndUTC >= aptEnd)
+            );
+          });
+
+          if (isFuture && !isOccupied) {
+            slots.push({
+              startTime: currentTimeUTC.toISOString(),
+              endTime: slotEndUTC.toISOString(),
+            });
+          }
+        }
+
+        currentTimeUTC.setUTCMinutes(currentTimeUTC.getUTCMinutes() + serviceDuration);
+      }
+    });
+
+    res.json({ slots });
+  } catch (error: any) {
+    console.error("❌ Slots error:", error);
+    res.status(500).json({ error: error.message });
+  }
+});

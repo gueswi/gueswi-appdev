@@ -3261,7 +3261,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Endpoint para obtener slots disponibles basados en horario del PERSONAL
+  // Endpoint para obtener slots disponibles basados en horario del PERSONAL (timezone-aware)
   app.get("/api/calendar/available-slots", async (req, res) => {
     try {
       const { serviceId, staffId, date, locationId } = req.query;
@@ -3269,6 +3269,24 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!serviceId || !staffId || !date || !locationId) {
         return res.status(400).json({ error: "Missing parameters" });
       }
+
+      // Obtener ubicación para timezone
+      const location = await db.query.locations.findFirst({
+        where: eq(schema.locations.id, locationId as string),
+      });
+
+      if (!location) {
+        return res.status(404).json({ error: "Location not found" });
+      }
+
+      const timezone = location.timezone || "Europe/Madrid";
+      
+      // Calcular offset de timezone en minutos
+      const getTimezoneOffset = (tz: string, date: Date): number => {
+        const utcDate = new Date(date.toLocaleString("en-US", { timeZone: "UTC" }));
+        const tzDate = new Date(date.toLocaleString("en-US", { timeZone: tz }));
+        return (tzDate.getTime() - utcDate.getTime()) / (1000 * 60);
+      };
 
       const service = await db.query.services.findFirst({
         where: eq(schema.services.id, serviceId as string),
@@ -3311,8 +3329,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       const [year, month, day] = dateStr.split("-").map(Number);
       
-      // CRÍTICO: Calcular día de semana en UTC
-      const dayOfWeek = new Date(Date.UTC(year, month - 1, day, 12, 0, 0)).getUTCDay();
+      // Crear fecha en la timezone de la ubicación
+      const requestedDateInTz = new Date(
+        new Date(year, month - 1, day, 12, 0, 0).toLocaleString("en-US", { timeZone: timezone })
+      );
+      const dayOfWeek = requestedDateInTz.getDay();
       
       const daySchedule = locationSchedule[dayOfWeek];
 
@@ -3320,9 +3341,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.json({ slots: [] });
       }
 
-      // Buscar citas existentes (rango del día completo en UTC)
-      const startOfDayUTC = new Date(Date.UTC(year, month - 1, day, 0, 0, 0, 0));
-      const endOfDayUTC = new Date(Date.UTC(year, month - 1, day, 23, 59, 59, 999));
+      // Calcular offset para este día específico (maneja DST)
+      const offsetMinutes = getTimezoneOffset(timezone, requestedDateInTz);
+
+      const startOfDayUTC = new Date(Date.UTC(year, month - 1, day, 0, 0, 0) - offsetMinutes * 60 * 1000);
+      const endOfDayUTC = new Date(Date.UTC(year, month - 1, day, 23, 59, 59, 999) - offsetMinutes * 60 * 1000);
 
       const existingAppointments = await db.query.appointments.findMany({
         where: and(
@@ -3342,9 +3365,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const [startH, startM] = block.start.split(":").map(Number);
         const [endH, endM] = block.end.split(":").map(Number);
 
-        // CRÍTICO: Crear tiempos en UTC directamente
-        let currentTimeUTC = new Date(Date.UTC(year, month - 1, day, startH, startM, 0, 0));
-        const blockEndUTC = new Date(Date.UTC(year, month - 1, day, endH, endM, 0, 0));
+        // Crear horarios en timezone local y convertir a UTC
+        let currentTimeUTC = new Date(
+          Date.UTC(year, month - 1, day, startH, startM, 0, 0) - offsetMinutes * 60 * 1000
+        );
+        
+        const blockEndUTC = new Date(
+          Date.UTC(year, month - 1, day, endH, endM, 0, 0) - offsetMinutes * 60 * 1000
+        );
 
         while (currentTimeUTC < blockEndUTC) {
           const slotEndUTC = new Date(currentTimeUTC);
