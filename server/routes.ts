@@ -3304,7 +3304,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.json({ slots: [] });
       }
 
-      // CRÍTICO: Parsear fecha asumiendo zona horaria de Madrid (UTC+2)
       // Extraer porción de fecha de ISO timestamp (YYYY-MM-DD) o usar como está
       const dateStr = (date as string).substring(0, 10);
       const [year, month, day] = dateStr.split("-").map(Number);
@@ -3314,13 +3313,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ error: "Invalid date format. Expected YYYY-MM-DD or ISO timestamp" });
       }
       
-      // Offset de Madrid: +2 horas en horario de verano (CEST)
-      // Esto debería venir de la ubicación, pero por ahora hardcodeamos
       const MADRID_OFFSET_HOURS = 2;
       
-      // Crear fecha en UTC ajustada a Madrid
-      const requestedDateUTC = new Date(Date.UTC(year, month - 1, day, 12, 0, 0));
-      const dayOfWeek = requestedDateUTC.getUTCDay();
+      // CRÍTICO: Calcular día de la semana SIN aplicar offset
+      // Usar mediodía en hora de Madrid para evitar cambios de día
+      const madridDate = new Date(year, month - 1, day, 12, 0, 0);
+      const dayOfWeek = madridDate.getDay();
       
       const daySchedule = locationSchedule[dayOfWeek];
 
@@ -3328,16 +3326,32 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.json({ slots: [] });
       }
 
-      // Rango del día en UTC
-      const startOfDayUTC = new Date(Date.UTC(year, month - 1, day, 0, 0, 0));
-      const endOfDayUTC = new Date(Date.UTC(year, month - 1, day, 23, 59, 59, 999));
+      // Inicio y fin del día en hora de Madrid, convertido a UTC
+      const startOfDayMadridUTC = new Date(Date.UTC(
+        year, 
+        month - 1, 
+        day, 
+        0 - MADRID_OFFSET_HOURS, 
+        0, 
+        0
+      ));
+      
+      const endOfDayMadridUTC = new Date(Date.UTC(
+        year, 
+        month - 1, 
+        day, 
+        23 - MADRID_OFFSET_HOURS, 
+        59, 
+        59, 
+        999
+      ));
 
       const existingAppointments = await db.query.appointments.findMany({
         where: and(
           eq(schema.appointments.staffId, staffId as string),
           eq(schema.appointments.locationId, locationId as string),
-          gte(schema.appointments.startTime, startOfDayUTC),
-          lte(schema.appointments.startTime, endOfDayUTC),
+          gte(schema.appointments.startTime, startOfDayMadridUTC),
+          lte(schema.appointments.startTime, endOfDayMadridUTC),
           ne(schema.appointments.status, "cancelled")
         ),
       });
@@ -3350,8 +3364,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const [startH, startM] = block.start.split(":").map(Number);
         const [endH, endM] = block.end.split(":").map(Number);
 
-        // CRÍTICO: Convertir horarios de Madrid a UTC
-        // 09:00 Madrid = 07:00 UTC (restar offset)
+        // Crear slots en UTC (restando offset de Madrid)
         let currentTimeUTC = new Date(Date.UTC(
           year, 
           month - 1, 

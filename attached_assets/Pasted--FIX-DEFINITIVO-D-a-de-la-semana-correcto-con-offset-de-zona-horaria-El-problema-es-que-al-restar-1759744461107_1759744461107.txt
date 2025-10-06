@@ -1,0 +1,158 @@
+# FIX DEFINITIVO: Día de la semana correcto con offset de zona horaria
+
+El problema es que al restar el offset de las horas, algunas fechas retroceden al día anterior en UTC. Debemos calcular el día de la semana ANTES de aplicar el offset.
+
+En `server/routes.ts`, **REEMPLAZAR** `/api/calendar/available-slots`:
+```typescript
+app.get("/api/calendar/available-slots", async (req, res) => {
+  try {
+    const { serviceId, staffId, date, locationId } = req.query;
+
+    if (!serviceId || !staffId || !date || !locationId) {
+      return res.status(400).json({ error: "Missing parameters" });
+    }
+
+    const service = await db.query.services.findFirst({
+      where: eq(schema.services.id, serviceId as string),
+    });
+
+    if (!service) {
+      return res.status(404).json({ error: "Service not found" });
+    }
+
+    const staff = await db.query.staffMembers.findFirst({
+      where: eq(schema.staffMembers.id, staffId as string),
+    });
+
+    if (!staff) {
+      return res.status(404).json({ error: "Staff not found" });
+    }
+
+    let schedules = staff.schedulesByLocation;
+    if (typeof schedules === "string") {
+      try {
+        schedules = JSON.parse(schedules);
+      } catch {
+        return res.json({ slots: [] });
+      }
+    }
+
+    if (!schedules) {
+      return res.json({ slots: [] });
+    }
+
+    const locationSchedule = schedules[locationId as string];
+    if (!locationSchedule) {
+      return res.json({ slots: [] });
+    }
+
+    const dateStr = date as string;
+    const [year, month, day] = dateStr.split("-").map(Number);
+    
+    const MADRID_OFFSET_HOURS = 2;
+    
+    // CRÍTICO: Calcular día de la semana SIN aplicar offset
+    // Usar mediodía en hora de Madrid para evitar cambios de día
+    const madridDate = new Date(year, month - 1, day, 12, 0, 0);
+    const dayOfWeek = madridDate.getDay();
+    
+    const daySchedule = locationSchedule[dayOfWeek];
+
+    if (!daySchedule?.enabled || !daySchedule.blocks) {
+      return res.json({ slots: [] });
+    }
+
+    // Inicio y fin del día en hora de Madrid, convertido a UTC
+    const startOfDayMadridUTC = new Date(Date.UTC(
+      year, 
+      month - 1, 
+      day, 
+      0 - MADRID_OFFSET_HOURS, 
+      0, 
+      0
+    ));
+    
+    const endOfDayMadridUTC = new Date(Date.UTC(
+      year, 
+      month - 1, 
+      day, 
+      23 - MADRID_OFFSET_HOURS, 
+      59, 
+      59, 
+      999
+    ));
+
+    const existingAppointments = await db.query.appointments.findMany({
+      where: and(
+        eq(schema.appointments.staffId, staffId as string),
+        eq(schema.appointments.locationId, locationId as string),
+        gte(schema.appointments.startTime, startOfDayMadridUTC),
+        lte(schema.appointments.startTime, endOfDayMadridUTC),
+        ne(schema.appointments.status, "cancelled")
+      ),
+    });
+
+    const slots: any[] = [];
+    const serviceDuration = service.duration;
+    const nowUTC = new Date();
+
+    daySchedule.blocks.forEach((block: any) => {
+      const [startH, startM] = block.start.split(":").map(Number);
+      const [endH, endM] = block.end.split(":").map(Number);
+
+      // Crear slots en UTC (restando offset de Madrid)
+      let currentTimeUTC = new Date(Date.UTC(
+        year, 
+        month - 1, 
+        day, 
+        startH - MADRID_OFFSET_HOURS, 
+        startM, 
+        0, 
+        0
+      ));
+      
+      const blockEndUTC = new Date(Date.UTC(
+        year, 
+        month - 1, 
+        day, 
+        endH - MADRID_OFFSET_HOURS, 
+        endM, 
+        0, 
+        0
+      ));
+
+      while (currentTimeUTC < blockEndUTC) {
+        const slotEndUTC = new Date(currentTimeUTC);
+        slotEndUTC.setUTCMinutes(slotEndUTC.getUTCMinutes() + serviceDuration);
+
+        if (slotEndUTC <= blockEndUTC) {
+          const isFuture = currentTimeUTC.getTime() >= (nowUTC.getTime() - 120000);
+
+          const isOccupied = existingAppointments.some((apt) => {
+            const aptStart = new Date(apt.startTime);
+            const aptEnd = new Date(apt.endTime);
+            return (
+              (currentTimeUTC >= aptStart && currentTimeUTC < aptEnd) ||
+              (slotEndUTC > aptStart && slotEndUTC <= aptEnd) ||
+              (currentTimeUTC <= aptStart && slotEndUTC >= aptEnd)
+            );
+          });
+
+          if (isFuture && !isOccupied) {
+            slots.push({
+              startTime: currentTimeUTC.toISOString(),
+              endTime: slotEndUTC.toISOString(),
+            });
+          }
+        }
+
+        currentTimeUTC.setUTCMinutes(currentTimeUTC.getUTCMinutes() + serviceDuration);
+      }
+    });
+
+    res.json({ slots });
+  } catch (error: any) {
+    console.error("❌ Slots error:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
