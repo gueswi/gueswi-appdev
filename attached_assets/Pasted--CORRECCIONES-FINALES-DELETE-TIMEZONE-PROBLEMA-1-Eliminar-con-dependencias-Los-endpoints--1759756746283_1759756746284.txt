@@ -1,0 +1,154 @@
+# CORRECCIONES FINALES - DELETE + TIMEZONE
+
+## PROBLEMA 1: Eliminar con dependencias
+
+Los endpoints DELETE fallan porque hay citas que referencian servicios/staff. Deben eliminarse en cascada o mostrar error claro.
+
+En `server/routes.ts`, REEMPLAZAR los 3 endpoints DELETE:
+
+### DELETE Service
+```typescript
+app.delete("/api/calendar/services/:id", async (req, res) => {
+  if (!req.isAuthenticated() || !req.user.tenantId) {
+    return res.sendStatus(401);
+  }
+
+  try {
+    const serviceId = req.params.id;
+
+    // Verificar si hay citas futuras
+    const futureAppointments = await db.query.appointments.findFirst({
+      where: and(
+        eq(schema.appointments.serviceId, serviceId),
+        gte(schema.appointments.startTime, new Date()),
+        ne(schema.appointments.status, "cancelled")
+      ),
+    });
+
+    if (futureAppointments) {
+      return res.status(400).json({
+        error: "No se puede eliminar: hay citas futuras programadas con este servicio"
+      });
+    }
+
+    // Eliminar relaciones
+    await db.delete(schema.serviceLocations)
+      .where(eq(schema.serviceLocations.serviceId, serviceId));
+
+    await db.delete(schema.staffServices)
+      .where(eq(schema.staffServices.serviceId, serviceId));
+
+    // Eliminar servicio
+    await db.delete(schema.services)
+      .where(and(
+        eq(schema.services.id, serviceId),
+        eq(schema.services.tenantId, req.user.tenantId)
+      ));
+
+    res.json({ success: true });
+  } catch (error: any) {
+    console.error("❌ Error deleting service:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
+DELETE Staff
+typescriptapp.delete("/api/calendar/staff/:id", async (req, res) => {
+  if (!req.isAuthenticated() || !req.user.tenantId) {
+    return res.sendStatus(401);
+  }
+
+  try {
+    const staffId = req.params.id;
+
+    // Verificar si hay citas futuras
+    const futureAppointments = await db.query.appointments.findFirst({
+      where: and(
+        eq(schema.appointments.staffId, staffId),
+        gte(schema.appointments.startTime, new Date()),
+        ne(schema.appointments.status, "cancelled")
+      ),
+    });
+
+    if (futureAppointments) {
+      return res.status(400).json({
+        error: "No se puede eliminar: este personal tiene citas futuras programadas"
+      });
+    }
+
+    // Eliminar relaciones
+    await db.delete(schema.staffServices)
+      .where(eq(schema.staffServices.staffId, staffId));
+
+    // Eliminar staff
+    await db.delete(schema.staffMembers)
+      .where(and(
+        eq(schema.staffMembers.id, staffId),
+        eq(schema.staffMembers.tenantId, req.user.tenantId)
+      ));
+
+    res.json({ success: true });
+  } catch (error: any) {
+    console.error("❌ Error deleting staff:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
+DELETE Location
+typescriptapp.delete("/api/calendar/locations/:id", async (req, res) => {
+  if (!req.isAuthenticated() || !req.user.tenantId) {
+    return res.sendStatus(401);
+  }
+
+  try {
+    const locationId = req.params.id;
+
+    // Verificar si hay citas futuras
+    const futureAppointments = await db.query.appointments.findFirst({
+      where: and(
+        eq(schema.appointments.locationId, locationId),
+        gte(schema.appointments.startTime, new Date()),
+        ne(schema.appointments.status, "cancelled")
+      ),
+    });
+
+    if (futureAppointments) {
+      return res.status(400).json({
+        error: "No se puede eliminar: hay citas futuras en esta ubicación"
+      });
+    }
+
+    // Verificar staff asignado
+    const staffInLocation = await db.query.staffMembers.findMany({
+      where: eq(schema.staffMembers.tenantId, req.user.tenantId),
+    });
+
+    const hasStaff = staffInLocation.some((staff: any) => {
+      let schedules = staff.schedulesByLocation;
+      if (typeof schedules === 'string') {
+        schedules = JSON.parse(schedules);
+      }
+      return schedules && Object.keys(schedules).includes(locationId);
+    });
+
+    if (hasStaff) {
+      return res.status(400).json({
+        error: "No se puede eliminar: hay personal asignado a esta ubicación"
+      });
+    }
+
+    // Eliminar relaciones
+    await db.delete(schema.serviceLocations)
+      .where(eq(schema.serviceLocations.locationId, locationId));
+
+    // Eliminar ubicación
+    await db.delete(schema.locations)
+      .where(and(
+        eq(schema.locations.id, locationId),
+        eq(schema.locations.tenantId, req.user.tenantId)
+      ));
+
+    res.json({ success: true });
+  } catch (error: any) {
+    console.error("❌ Error deleting location:", error);
+    res.status(500).json({ error: error.message });
+  }
+});

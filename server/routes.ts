@@ -2894,7 +2894,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const locationId = req.params.id;
 
-      // Validar dependencias
+      // Verificar si hay citas futuras
+      const futureAppointments = await db.query.appointments.findFirst({
+        where: and(
+          eq(schema.appointments.locationId, locationId),
+          gte(schema.appointments.startTime, new Date()),
+          ne(schema.appointments.status, "cancelled")
+        ),
+      });
+
+      if (futureAppointments) {
+        return res.status(400).json({
+          error: "No se puede eliminar: hay citas futuras en esta ubicación"
+        });
+      }
+
+      // Verificar staff asignado
       const staffInLocation = await db.query.staffMembers.findMany({
         where: eq(schema.staffMembers.tenantId, req.user.tenantId),
       });
@@ -2902,12 +2917,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const hasStaff = staffInLocation.some((staff: any) => {
         let schedules = staff.schedulesByLocation;
         if (typeof schedules === 'string') {
-          try {
-            schedules = JSON.parse(schedules);
-          } catch (e) {
-            console.error("❌ Parse error for staff schedules:", staff.id, e);
-            return false;
-          }
+          schedules = JSON.parse(schedules);
         }
         return schedules && Object.keys(schedules).includes(locationId);
       });
@@ -2929,7 +2939,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
           eq(schema.locations.tenantId, req.user.tenantId)
         ));
 
-      console.log("📍 Location deleted:", locationId);
       res.json({ success: true });
     } catch (error: any) {
       console.error("❌ Error deleting location:", error);
@@ -3080,7 +3089,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const staffId = req.params.id;
 
-      // Eliminar relaciones primero
+      // Verificar si hay citas futuras
+      const futureAppointments = await db.query.appointments.findFirst({
+        where: and(
+          eq(schema.appointments.staffId, staffId),
+          gte(schema.appointments.startTime, new Date()),
+          ne(schema.appointments.status, "cancelled")
+        ),
+      });
+
+      if (futureAppointments) {
+        return res.status(400).json({
+          error: "No se puede eliminar: este personal tiene citas futuras programadas"
+        });
+      }
+
+      // Eliminar relaciones
       await db.delete(schema.staffServices)
         .where(eq(schema.staffServices.staffId, staffId));
 
@@ -3091,7 +3115,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
           eq(schema.staffMembers.tenantId, req.user.tenantId)
         ));
 
-      console.log("👤 Staff deleted:", staffId);
       res.json({ success: true });
     } catch (error: any) {
       console.error("❌ Error deleting staff:", error);
@@ -3239,21 +3262,35 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const serviceId = req.params.id;
 
-      // Eliminar relaciones primero
+      // Verificar si hay citas futuras
+      const futureAppointments = await db.query.appointments.findFirst({
+        where: and(
+          eq(schema.appointments.serviceId, serviceId),
+          gte(schema.appointments.startTime, new Date()),
+          ne(schema.appointments.status, "cancelled")
+        ),
+      });
+
+      if (futureAppointments) {
+        return res.status(400).json({
+          error: "No se puede eliminar: hay citas futuras programadas con este servicio"
+        });
+      }
+
+      // Eliminar relaciones
       await db.delete(schema.serviceLocations)
         .where(eq(schema.serviceLocations.serviceId, serviceId));
 
       await db.delete(schema.staffServices)
         .where(eq(schema.staffServices.serviceId, serviceId));
 
-      // Luego eliminar el servicio
+      // Eliminar servicio
       await db.delete(schema.services)
         .where(and(
           eq(schema.services.id, serviceId),
           eq(schema.services.tenantId, req.user.tenantId)
         ));
 
-      console.log("🛎️ Service deleted:", serviceId);
       res.json({ success: true });
     } catch (error: any) {
       console.error("❌ Error deleting service:", error);
